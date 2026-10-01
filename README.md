@@ -3,8 +3,8 @@
 **TL;DR:** interface web para gerenciar **vários roteadores Prisma** ao mesmo tempo. Ela fala com
 cada um pelo contrato gRPC oficial (`prisma.v1`) e altera a configuração pelo modelo do próprio VTY:
 candidate, diff, `commit check` e `commit confirmed`. Também mostra painéis e gráficos da telemetria,
-registra no log quem mudou o quê e roda inteira em Docker, com IPv4 e IPv6. Ainda não há mTLS, que
-o Prisma real exige (#4), então por enquanto o prisma-web funciona só com os Prismas simulados.
+registra no log quem mudou o quê e roda inteira em Docker, com IPv4 e IPv6. A conexão com um Prisma
+real é por mTLS, com os certificados lidos de um diretório do host montado somente leitura.
 
 As palavras-chave MUST, MUST NOT, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
@@ -52,12 +52,29 @@ segundo é cadastrado em **Roteadores** com o endereço `http://prisma-mock-2:50
 
 ## Cadastrando um Prisma real
 
-**Ainda não é possível.** O servidor gRPC do Prisma só aceita mTLS
-([`docs/prisma-api.md`](docs/prisma-api.md), o guia oficial da API), e o prisma-web ainda conecta
-sem TLS. O suporte a mTLS é a issue #4. No Prisma, a API existe a partir da **0.148.4** e MUST estar
-habilitada (`api enabled yes`, com os certificados em `/etc/prisma-routing/api/`). Hoje o cadastro funciona com os mocks, por exemplo
-`http://[2001:db8::1]:50051`, e recusa `https://`. O que falta do lado do Prisma está em
-[`docs/prisma-integracao.md`](docs/prisma-integracao.md).
+O Prisma só aceita **mTLS** ([`docs/prisma-api.md`](docs/prisma-api.md), o guia oficial). A API
+existe a partir da **0.148.4** e MUST estar habilitada no equipamento (`api enabled yes`).
+
+1. **Coloque os certificados no host**, nunca no repositório nem na imagem. Cada subdiretório de
+   `PRISMA_TLS_DIR` (padrão `/etc/prisma-web`) é um **perfil**, com `ca.crt` (a CA que assinou o
+   certificado do Prisma) e **um** par `<nome>.crt` e `<nome>.key` do cliente. O CN do certificado
+   do cliente é a conta com que o prisma-web aparece no Prisma.
+
+   ```text
+   /etc/prisma-web/prisma-api/ca.crt
+   /etc/prisma-web/prisma-api/prisma-web.crt
+   /etc/prisma-web/prisma-api/prisma-web.key   # modo 0640, grupo PRISMA_TLS_GID
+   ```
+
+2. **Garanta que o back consegue ler:** o diretório é montado somente leitura, e o back roda com o
+   grupo `PRISMA_TLS_GID` (padrão `1000`), que MUST ser o grupo dono dos arquivos.
+3. **Cadastre em Roteadores → Cadastrar Prisma:** endereço `https://<ip>:50051` (IPv6 entre
+   colchetes), o perfil (que aparece como `host/<subdiretório>`) e o nome no certificado do servidor
+   (`prisma-api` no Prisma). **Testar** mostra a versão e a conta usada. `http://` sem TLS fica só
+   para os simulados.
+
+Os simulados: o `prisma-mock` atende sem TLS e o `prisma-mock-2` exige mTLS como o real, com
+certificados de desenvolvimento gerados pelo serviço `dev-certs` (perfis `dev/…`).
 
 ## Mudando a configuração
 
@@ -95,6 +112,7 @@ Um candidate pertence a quem o abriu. Só o autor ou um admin pode confirmar um 
 | Back (unidades e integração do mock) | `docker run --rm -v "$PWD/back":/src -w /src rust:1-bookworm cargo test --workspace` |
 | Front (lint e build) | `docker run --rm -v "$PWD/front":/w -w /w node:22-alpine sh -c "npm ci && npm run lint && npm run build"` |
 | Ponta a ponta, contra a stack no ar | `E2E_USER=admin E2E_PASSWORD=… scripts/e2e.py --base http://[::1]` |
+| Prisma real, **só leitura** | `E2E_USER=admin E2E_PASSWORD=… scripts/e2e.py --lab https://<ip>:50051 --lab-profile host/prisma-api` |
 | Documentação e versões | `scripts/check-docs.py` |
 
 ## Contribuindo

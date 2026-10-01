@@ -36,14 +36,26 @@ services:
       BIND_ADDR: "[::]:8000"
       # Opcional: cadastra este Prisma (endereço gRPC) na primeira subida. Os demais, pela interface.
       PRISMA_API_URL: ${PRISMA_API_URL:-}
+      # Perfis TLS (mTLS com os Prismas): cada subdiretório tem ca.crt e o par do cliente.
+      PRISMA_TLS_DIR: /run/prisma-tls
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       RUST_LOG: ${RUST_LOG:-info,tower_http=info,sqlx=warn}
+    volumes:
+      # Certificados dos Prismas reais: somente leitura, nunca dentro da imagem (issue #4).
+      - ${PRISMA_TLS_DIR:-/etc/prisma-web}:/run/prisma-tls/host:ro
+      # Perfis de desenvolvimento gerados por scripts/dev-certs.sh (mock com mTLS).
+      - ./dev-certs/profiles:/run/prisma-tls/dev:ro
+    # A chave do cliente tem modo 0640: o processo precisa do grupo dono dos arquivos.
+    group_add: ["${PRISMA_TLS_GID:-1000}"]
     depends_on:
       db:
         condition: service_healthy
+      dev-certs:
+        condition: service_completed_successfully
+        required: false
     networks: [edge, internal]
 
   db:
@@ -64,7 +76,23 @@ services:
     networks: [internal]
 
   # Prismas simulados para desenvolvimento, ativos pelo perfil "mock" (COMPOSE_PROFILES=mock).
-  # Implementam o proto do Prisma (gRPC). Endereços: http://prisma-mock:50051 e http://prisma-mock-2:50051.
+  # Implementam o proto do Prisma (gRPC). prisma-mock: http://prisma-mock:50051 (sem TLS);
+  # prisma-mock-2: https://prisma-mock-2:50051 com mTLS, como o Prisma real (perfil "dev/mock").
+  dev-certs:
+    profiles: [mock]
+    image: alpine:3.20
+    working_dir: /w
+    volumes:
+      - ./:/w
+    # Só na primeira vez: instala openssl, gera e entrega os arquivos ao grupo dos certificados.
+    command:
+      - sh
+      - -c
+      - >-
+        test -d dev-certs/profiles/mock && exit 0;
+        apk add -q --no-cache openssl && sh scripts/dev-certs.sh &&
+        chown -R ${PRISMA_TLS_GID:-1000}:${PRISMA_TLS_GID:-1000} dev-certs
+
   prisma-mock:
     profiles: [mock]
     build:
@@ -81,12 +109,20 @@ services:
   prisma-mock-2:
     profiles: [mock]
     image: prisma-web-prisma-mock
-    depends_on: [prisma-mock]
+    depends_on:
+      prisma-mock:
+        condition: service_started
+      dev-certs:
+        condition: service_completed_successfully
     restart: unless-stopped
     environment:
       BIND_ADDR: "[::]:50051"
       MOCK_HOSTNAME: prisma-filial
       MOCK_TRAFFIC_SCALE: "0.3"
+      MOCK_TLS_DIR: /run/tls
+    volumes:
+      - ./dev-certs/mock-server:/run/tls:ro
+    group_add: ["${PRISMA_TLS_GID:-1000}"]
     networks: [internal]
 
 networks:

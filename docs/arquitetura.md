@@ -33,6 +33,27 @@ compilado pelo **protox** (Rust puro), para que o build não dependa de `protoc`
 | `serde::Serialize` gerado nos tipos do proto | DTOs escritos à mão | O JSON que o front recebe é o próprio contrato, sem uma terceira descrição para manter. |
 | API REST entre front e back | gRPC-web direto do navegador | Autenticação, papéis, posse de candidate e auditoria MUST ficar num lugar só, e o navegador MUST NOT alcançar os Prismas. |
 
+## mTLS com os Prismas
+
+O Prisma só aceita mTLS, e a conta usada no equipamento é o CN do certificado do cliente. Os
+certificados ficam **em arquivos no host**, montados somente leitura no back em
+`/run/prisma-tls/host`. Cada roteador aponta para um **perfil**: um subdiretório com `ca.crt` e
+um par `<nome>.crt`/`<nome>.key`. Também guarda o nome que o servidor apresenta (`domain_name`,
+`prisma-api` no Prisma).
+
+| Decisão | Rejeitado | Por quê |
+|---|---|---|
+| Perfil em arquivo, montado somente leitura | Enviar o certificado e a chave pela tela, com a chave cifrada no banco | A chave nunca passa pelo navegador, pela API nem pelos backups do banco. A equipe do Prisma pediu explicitamente para mantê-la fora do repositório e da imagem. |
+| Um perfil por roteador | Uma só identidade global por variáveis de ambiente | Atende vários Prismas, com CAs e contas diferentes. |
+| `https://` MUST ter perfil, e `http://` MUST NOT ter | Aceitar TLS sem certificado de cliente | O Prisma recusa cliente sem certificado, e um meio-termo só adiaria o erro. A regra também está no banco (`routers_tls_consistent`). |
+
+O id do perfil vem do cliente e é validado contra path traversal (`tls::tests`). A listagem de
+perfis mostra a conta (CN), a CA e a validade, mas nunca o conteúdo dos arquivos.
+
+O `prisma-mock-2` serve mTLS como o Prisma real. O serviço `dev-certs` gera uma CA de
+desenvolvimento e três perfis: `dev/mock` (válido), `dev/outra-ca` (o cliente MUST recusar o
+servidor) e `dev/intruso` (o servidor MUST recusar o cliente). O `scripts/e2e.py` verifica os três.
+
 ## Status da frota
 
 O monitor consulta `GetVersion`, `GetSystem` e `GetSessionsSummary` de todos os roteadores em
@@ -120,8 +141,9 @@ ao front, que mostra a mensagem, o caminho e a linha que o VTY citou:
 
 ## Limites
 
-- Sem TLS e sem mTLS. O cadastro recusa `https://` em vez de fingir que há verificação. Como o
-  Prisma real só aceita mTLS, isto bloqueia o uso com equipamento (#4).
+- Trocar ou incluir certificados exige acesso ao host, e não à tela (decisão da #4).
+- A 0.148.4 lista as interfaces `tap*` do linux_cp no `ListInterfaces`. O back as esconde até a
+  0.148.5 (`routes/ops.rs`).
 - O papel vale para todos os roteadores.
 - O front não tem testes automatizados além de lint e build. O roteiro `scripts/e2e.py` cobre o
   comportamento pela API.

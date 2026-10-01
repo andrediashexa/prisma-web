@@ -15,6 +15,25 @@ versões minor são publicadas como release, e versões patch como pré-release.
 | **How** | Escrito à mão a partir das issues, nunca gerado dos commits. |
 | **How much** | Uma seção por versão. |
 
+## 0.4.0 - mTLS com o Prisma real — 2026-10-01
+
+### Mudanças de comportamento
+- O prisma-web conecta a um Prisma real por **mTLS**. Cada roteador escolhe um perfil TLS (diretório de certificados do host, montado somente leitura) e o nome do servidor no certificado. O teste de conexão mostra a conta (CN) usada (#4).
+- `https://` exige um perfil TLS, e `http://` fica só para os simulados (#4).
+- O `prisma-mock-2` passa a exigir mTLS como o equipamento. Os certificados de desenvolvimento são gerados pelo serviço `dev-certs` (#4).
+- As interfaces `tap*` internas que o Prisma 0.148.4 lista são escondidas até a 0.148.5 (#4).
+- O gráfico de tráfego começa por uma interface com link (#4).
+
+### Correções
+- A documentação dizia que a API do Prisma existia na 0.148.3, por uma leitura feita no meio de um upgrade. Ela existe a partir da 0.148.4 (`fix/api-desde-0.148.4`).
+- As respostas da equipe do Prisma às perguntas de integração foram registradas em `docs/prisma-integracao.md` (`fix/api-desde-0.148.4`).
+
+### Interno
+- `scripts/e2e.py`: 49 verificações, incluindo os casos de recusa do mTLS, e o modo `--lab`, só de leitura, para um Prisma real (10 verificações passaram contra o 0.148.4) (#4).
+
+### Limites
+- Trocar ou incluir certificados exige acesso ao host, e não à tela (#4).
+
 ## 0.3.1 - Guia da API do Prisma — 2026-10-01
 
 ### Mudanças de comportamento

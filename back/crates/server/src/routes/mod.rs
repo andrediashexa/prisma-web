@@ -28,6 +28,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routers", get(routers::list).post(routers::create))
         .route("/routers/status", get(routers::status))
         .route("/routers/test", post(routers::test))
+        .route("/routers/tls-profiles", get(routers::tls_profiles))
         .route("/routers/{id}", get(routers::get).patch(routers::update).delete(routers::delete))
         // Dados operacionais e telemetria
         .route("/routers/{id}/version", get(ops::version))

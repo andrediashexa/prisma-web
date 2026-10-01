@@ -1,6 +1,7 @@
 //! Cadastro de roteadores Prisma, canais gRPC de cada um e monitor da frota.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -19,6 +20,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::grpc;
 use crate::telemetry::Telemetry;
+use crate::tls;
 
 /// Intervalo do monitor da frota e tempo máximo de resposta de cada Prisma.
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
@@ -60,6 +62,8 @@ pub struct RouterStatus {
 
 pub struct Registry {
     db: PgPool,
+    /// Raiz dos perfis TLS montados no container (`PRISMA_TLS_DIR`).
+    pub tls_root: PathBuf,
     pub telemetry: Telemetry,
     cache: RwLock<HashMap<Uuid, Arc<RouterHandle>>>,
     status: RwLock<HashMap<Uuid, RouterStatus>>,
@@ -70,12 +74,21 @@ struct Row {
     id: Uuid,
     name: String,
     api_url: String,
+    tls_profile: Option<String>,
+    tls_server_name: Option<String>,
+}
+
+/// Perfil TLS e nome do servidor de um roteador acessado por `https://`.
+pub struct TlsTarget<'a> {
+    pub profile: &'a str,
+    pub server_name: &'a str,
 }
 
 impl Registry {
-    pub fn new(db: PgPool) -> Self {
+    pub fn new(db: PgPool, tls_root: PathBuf) -> Self {
         Self {
             telemetry: Telemetry::new(db.clone()),
+            tls_root,
             db,
             cache: RwLock::new(HashMap::new()),
             status: RwLock::new(HashMap::new()),
@@ -86,13 +99,20 @@ impl Registry {
         if let Some(h) = self.cache.read().unwrap().get(&id) {
             return Ok(h.clone());
         }
-        let row = sqlx::query_as::<_, Row>("SELECT id, name, api_url FROM routers WHERE id = $1")
+        let row = sqlx::query_as::<_, Row>(
+            "SELECT id, name, api_url, tls_profile, tls_server_name FROM routers WHERE id = $1",
+        )
             .bind(id)
             .fetch_optional(&self.db)
             .await?
             .ok_or_else(|| AppError::NotFound("roteador não encontrado".into()))?;
+        let tls = row
+            .tls_profile
+            .as_deref()
+            .zip(row.tls_server_name.as_deref())
+            .map(|(profile, server_name)| TlsTarget { profile, server_name });
         let handle = Arc::new(RouterHandle {
-            channel: channel(&row.api_url)?,
+            channel: self.channel(&row.api_url, tls)?,
             id: row.id,
             name: row.name,
             api_url: row.api_url,
@@ -202,32 +222,32 @@ impl Registry {
     }
 }
 
-/// Canal gRPC preguiçoso: conecta na primeira chamada e reconecta sozinho.
-fn channel(url: &str) -> AppResult<Channel> {
-    let endpoint = Endpoint::from_shared(url.to_string())
-        .map_err(|e| AppError::BadRequest(format!("endereço inválido: {e}")))?
-        .connect_timeout(Duration::from_secs(3))
-        .http2_keep_alive_interval(Duration::from_secs(30))
-        .keep_alive_while_idle(true);
-    Ok(endpoint.connect_lazy())
-}
-
-/// Canal avulso para testar um endereço antes de cadastrá-lo.
-pub fn probe_channel(url: &str) -> AppResult<Channel> {
-    channel(url)
+impl Registry {
+    /// Canal gRPC preguiçoso: conecta na primeira chamada e reconecta sozinho.
+    /// Com `tls`, faz mTLS com o perfil e confere o nome do servidor.
+    pub fn channel(&self, url: &str, tls: Option<TlsTarget>) -> AppResult<Channel> {
+        let mut endpoint = Endpoint::from_shared(url.to_string())
+            .map_err(|e| AppError::BadRequest(format!("endereço inválido: {e}")))?
+            .connect_timeout(Duration::from_secs(3))
+            .http2_keep_alive_interval(Duration::from_secs(30))
+            .keep_alive_while_idle(true);
+        if let Some(t) = tls {
+            let cfg = tls::client_config(&self.tls_root, t.profile, t.server_name)?;
+            endpoint = endpoint
+                .tls_config(cfg)
+                .map_err(|e| AppError::BadRequest(format!("configuração TLS inválida: {e}")))?;
+        }
+        Ok(endpoint.connect_lazy())
+    }
 }
 
 /// Valida o endereço gRPC de um Prisma. Aceita IPv6 entre colchetes.
 pub fn validate_api_url(raw: &str) -> AppResult<String> {
     let url = raw.trim().trim_end_matches('/');
-    if url.starts_with("https://") {
-        return Err(AppError::BadRequest(
-            "TLS ainda não é suportado; use http:// (gRPC sem TLS) por enquanto".into(),
-        ));
-    }
     let rest = url
-        .strip_prefix("http://")
-        .ok_or_else(|| AppError::BadRequest("o endereço deve começar com http://".into()))?;
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .ok_or_else(|| AppError::BadRequest("o endereço deve começar com https:// (mTLS) ou http:// (só mocks)".into()))?;
     if rest.contains('/') {
         return Err(AppError::BadRequest("informe só host e porta, sem caminho: http://host:50051".into()));
     }
@@ -270,7 +290,14 @@ mod tests {
 
     #[test]
     fn accepts_v4_v6_and_names() {
-        for ok in ["http://prisma-mock:50051", "http://192.0.2.1:50051", "http://[2001:db8::1]:50051", "http://[fd00::1]"] {
+        for ok in [
+            "http://prisma-mock:50051",
+            "http://192.0.2.1:50051",
+            "http://[2001:db8::1]:50051",
+            "http://[fd00::1]",
+            "https://192.0.2.166:50051",
+            "https://[2001:db8::1]:50051",
+        ] {
             assert!(v(ok).is_ok(), "{ok}");
         }
         assert_eq!(v("http://x:1/").unwrap(), "http://x:1");
@@ -279,7 +306,6 @@ mod tests {
     #[test]
     fn rejects_bad_urls() {
         for bad in [
-            "https://x:50051",
             "ftp://x",
             "prisma:50051",
             "http://x:1/v1",

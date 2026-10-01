@@ -7,6 +7,8 @@ remove ao final, e desfaz a alteração de configuração que aplica.
 
 Uso:
     E2E_USER=admin E2E_PASSWORD=... scripts/e2e.py [--base http://[::1]]
+    E2E_USER=admin E2E_PASSWORD=... scripts/e2e.py --lab https://192.0.2.166:50051 \
+        --lab-profile host/prisma-api        # Prisma real: SÓ LEITURA, nenhum commit
 
 Só usa a biblioteca padrão. Sai com código 1 na primeira verificação que falhar.
 """
@@ -80,10 +82,77 @@ def wait_for(fn, what, timeout=30):
     check(False, what, last)
 
 
+def tls_test(client, url, profile=None, server_name=None):
+    body = {"api_url": url}
+    if profile:
+        body.update(tls_profile=profile, tls_server_name=server_name)
+    return client.post("/routers/test", body)
+
+
+def tls_checks(admin, args):
+    """mTLS (issue #4): perfis, aceitação e cada forma de recusa."""
+    st, profiles = admin.get("/routers/tls-profiles")
+    ids = {p["id"]: p for p in profiles or []}
+    check(st == 200 and ids.get("dev/mock", {}).get("account") == "prisma-web-dev", "perfis TLS listados com a conta (CN)", profiles)
+    check("BEGIN" not in json.dumps(profiles), "listagem de perfis não expõe certificado nem chave")
+    m = args.tls_mock
+    st, b = tls_test(admin, m, "dev/mock", args.server_name)
+    check(st == 200 and b["account"] == "prisma-web-dev", "mTLS com o perfil certo conecta e mostra a conta", b)
+    st, b = tls_test(admin, m, "dev/outra-ca", args.server_name)
+    check(st == 422 and "UnknownIssuer" in b["error"]["message"], "servidor de CA desconhecida é recusado", b)
+    st, b = tls_test(admin, m, "dev/intruso", args.server_name)
+    check(st == 422, "cliente de outra CA é recusado pelo servidor", b)
+    st, b = tls_test(admin, m, "dev/mock", "errado")
+    check(st == 422 and "errado" in b["error"]["message"], "nome do servidor errado é recusado", b)
+    st, b = tls_test(admin, m.replace("https://", "http://"))
+    check(st == 422, "servidor mTLS não aceita conexão sem TLS", b)
+    st, b = tls_test(admin, m)
+    check(st == 422 and "perfil" in b["error"]["message"], "https:// sem perfil é recusado", b)
+    st, b = tls_test(admin, args.mock, "dev/mock", args.server_name)
+    check(st == 422, "perfil com http:// é recusado", b)
+    st, b = tls_test(admin, m, "../etc", args.server_name)
+    check(st == 422 and "inválido" in b["error"]["message"], "perfil com ../ é recusado", b)
+
+
+def lab(admin, args):
+    """Prisma real: só chamadas de leitura. Nada de candidate, commit ou console."""
+    st, b = tls_test(admin, args.lab, args.lab_profile, args.server_name)
+    check(st == 200 and b.get("release"), f"mTLS com o Prisma real ({b.get('release') if st == 200 else '?'}), conta {b.get('account') if st == 200 else '?'}", b)
+    name = f"e2e-lab-{uuid.uuid4().hex[:6]}"
+    st, r = admin.post("/routers", {"name": name, "api_url": args.lab, "tls_profile": args.lab_profile, "tls_server_name": args.server_name})
+    check(st == 201, "cadastro temporário do Prisma real", r)
+    R = f"/routers/{r['id']}"
+    try:
+        wait_for(
+            lambda: (lambda s: (bool(s) and s[0]["online"], s))([x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]),
+            "Prisma real online no status da frota",
+        )
+        for path, key in [("/interfaces", "interfaces"), ("/pools", "pools"), ("/bgp", "neighbors")]:
+            st, b = admin.get(R + path)
+            check(st == 200 and key in b, f"GET {path} responde", b)
+        st, b = admin.get(R + "/interfaces")
+        check(not any(i["name"].startswith("tap") for i in b["interfaces"]), "interfaces tap* do linux_cp escondidas")
+        st, b = admin.get(R + "/config/running")
+        check(st == 200 and "interface " in b["text"], "GetRunning do Prisma real")
+        wait_for(
+            lambda: (lambda b: (b["live"] and len(b["samples"]) >= 2, b))(
+                admin.get(f"{R}/metrics/traffic?interface={b_if}&minutes=5")[1]
+            ),
+            "telemetria ao vivo do Prisma real",
+            timeout=40,
+        ) if (b_if := next((i["name"] for i in admin.get(R + "/interfaces")[1]["interfaces"] if i["link_up"]), None)) else check(False, "nenhuma interface com link para medir")
+    finally:
+        admin.delete(R)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default=os.environ.get("E2E_BASE", "http://[::1]"))
     ap.add_argument("--mock", default=os.environ.get("E2E_MOCK_URL", "http://prisma-mock:50051"))
+    ap.add_argument("--tls-mock", default="https://prisma-mock-2:50051", help="mock com mTLS")
+    ap.add_argument("--lab", help="Prisma real; roda só as verificações de leitura")
+    ap.add_argument("--lab-profile", default="host/prisma-api")
+    ap.add_argument("--server-name", default="prisma-api")
     args = ap.parse_args()
     user, password = os.environ.get("E2E_USER"), os.environ.get("E2E_PASSWORD")
     if not user or not password:
@@ -93,12 +162,17 @@ def main():
     st, _ = admin.post("/auth/login", {"username": user, "password": password})
     check(st == 200, f"login do administrador em {args.base}")
 
+    if args.lab:
+        lab(admin, args)
+        print(f"\n{PASSED} verificações passaram (Prisma real, só leitura)")
+        return
+
+    tls_checks(admin, args)
+
     suffix = uuid.uuid4().hex[:6]
     router_id = op_id = None
     try:
         # --- cadastro ---------------------------------------------------------
-        st, b = admin.post("/routers/test", {"api_url": "https://prisma-mock:50051"})
-        check(st == 422 and "TLS" in b["error"]["message"], "https:// é recusado dizendo que não há TLS", b)
         st, b = admin.post("/routers/test", {"api_url": "http://2001:db8::1:50051"})
         check(st == 422 and "colchetes" in b["error"]["message"], "IPv6 sem colchetes é recusado", b)
         st, b = admin.post("/routers/test", {"api_url": args.mock})

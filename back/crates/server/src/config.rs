@@ -7,6 +7,8 @@ use anyhow::{bail, Context};
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub database_url: String,
+    /// Raiz dos perfis TLS (montada somente leitura no container).
+    pub tls_dir: std::path::PathBuf,
     /// Se definido e não houver roteadores, cadastra este como o primeiro.
     pub seed_router_url: Option<String>,
     pub session_ttl: Duration,
@@ -25,6 +27,7 @@ impl Config {
         let cfg = Self {
             bind_addr: parse("BIND_ADDR", "[::]:8000")?,
             database_url: required("DATABASE_URL")?,
+            tls_dir: var("PRISMA_TLS_DIR").unwrap_or_else(|| "/run/prisma-tls".into()).into(),
             seed_router_url: var("PRISMA_API_URL"),
             session_ttl: Duration::from_secs(parse::<u64>("SESSION_TTL_HOURS", "12")? * 3600),
             cookie_secure: parse("COOKIE_SECURE", "false")?,

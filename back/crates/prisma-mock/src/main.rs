@@ -17,6 +17,7 @@ use prisma_proto::v1::operational_service_server::OperationalServiceServer;
 use prisma_proto::v1::telemetry_service_server::TelemetryServiceServer;
 use tokio::sync::broadcast;
 use tonic::transport::server::Router;
+use tonic::transport::{Certificate, Identity, ServerTlsConfig};
 use tonic::transport::Server;
 
 use crate::state::{Shared, SharedRef, State};
@@ -43,8 +44,14 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(ticker(shared.clone()));
 
     let addr = bind_addr()?;
-    tracing::info!(%addr, %hostname, "prisma-mock (gRPC) ouvindo");
-    router(shared, hostname)
+    let mut builder = Server::builder();
+    let tls = tls_from_env()?;
+    let mode = if tls.is_some() { "mTLS" } else { "sem TLS" };
+    if let Some(cfg) = tls {
+        builder = builder.tls_config(cfg)?;
+    }
+    tracing::info!(%addr, %hostname, mode, "prisma-mock (gRPC) ouvindo");
+    router_with(builder, shared, hostname)
         .serve_with_shutdown(addr, async {
             let _ = tokio::signal::ctrl_c().await;
         })
@@ -57,8 +64,27 @@ fn new_shared(hostname: &str, scale: f64) -> SharedRef {
     Arc::new(Shared { state: Mutex::new(State::new(hostname, scale)), events })
 }
 
+/// Como o Prisma real: com `MOCK_TLS_DIR`, serve só mTLS e exige um
+/// certificado de cliente assinado por `clients-ca.crt` (docs/prisma-api.md).
+fn tls_from_env() -> anyhow::Result<Option<ServerTlsConfig>> {
+    let Some(dir) = std::env::var_os("MOCK_TLS_DIR").filter(|d| !d.is_empty()) else { return Ok(None) };
+    let dir = std::path::PathBuf::from(dir);
+    let read = |name: &str| {
+        std::fs::read(dir.join(name)).map_err(|e| anyhow::anyhow!("MOCK_TLS_DIR: missing {name}: {e}"))
+    };
+    Ok(Some(
+        ServerTlsConfig::new()
+            .identity(Identity::from_pem(read("server.crt")?, read("server.key")?))
+            .client_ca_root(Certificate::from_pem(read("clients-ca.crt")?)),
+    ))
+}
+
 fn router(shared: SharedRef, hostname: String) -> Router {
-    Server::builder()
+    router_with(Server::builder(), shared, hostname)
+}
+
+fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Router {
+    builder
         .add_service(ConfigServiceServer::new(config_service::ConfigSvc(shared.clone())))
         .add_service(OperationalServiceServer::new(operational::OperationalSvc { shared: shared.clone(), hostname }))
         .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared)))

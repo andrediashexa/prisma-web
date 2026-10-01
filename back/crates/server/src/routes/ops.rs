@@ -37,7 +37,18 @@ passthrough!(ospf, list_ospf_neighbors, ListOspfNeighborsRequest {}, ListOspfNei
 passthrough!(isis, list_isis_adjacencies, ListIsisAdjacenciesRequest {}, ListIsisAdjacenciesResponse);
 passthrough!(vrrp, list_vrrp, ListVrrpRequest {}, ListVrrpResponse);
 passthrough!(bundles, list_bundles, ListBundlesRequest {}, ListBundlesResponse);
-passthrough!(interfaces, list_interfaces, ListInterfacesRequest { names: vec![] }, ListInterfacesResponse);
+/// Interfaces do Prisma. O 0.148.4 também lista as `tap*` internas do linux_cp
+/// (corrigido no 0.148.5, segundo o time do Prisma); elas são escondidas aqui.
+pub async fn interfaces(
+    State(st): State<AppState>,
+    _: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<ListInterfacesResponse>> {
+    let r = st.routers.get(id).await?;
+    let mut resp = r.ops().list_interfaces(req(ListInterfacesRequest { names: vec![] })).await?.into_inner();
+    resp.interfaces.retain(|i| !i.name.starts_with("tap"));
+    Ok(Json(resp))
+}
 
 #[derive(Deserialize)]
 pub struct SubscriberQuery {
