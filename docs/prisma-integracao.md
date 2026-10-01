@@ -1,9 +1,10 @@
 # prisma-web × Prisma: o que falta do lado do Prisma
 
-**TL;DR:** lista do que o prisma-web precisa saber ou receber do Prisma para usar o contrato
-`prisma.v1` por inteiro. Dois itens bloqueiam o uso com um equipamento real: a gramática de edição
-de interface (1.1) e o acesso ao equipamento (1.2). Os demais são lacunas contornadas hoje e
-sugestões de campos novos, todas compatíveis com a v1.
+**TL;DR:** o que o prisma-web precisa saber ou receber do Prisma para usar o contrato `prisma.v1`
+por inteiro. O guia da API e um equipamento de laboratório já responderam parte das perguntas.
+O que bloqueia o uso com um equipamento real agora é o **mTLS obrigatório** (#4) e o equipamento
+estar na 0.148.3, sem API. As lacunas da seção 2 são sugestões de campos novos, todas compatíveis
+com a v1.
 
 As palavras-chave MUST, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
@@ -13,9 +14,9 @@ As palavras-chave MUST, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.
 | **Why** | A integração foi feita contra o proto e um mock. O que o mock supõe precisa ser confirmado pelo Prisma. |
 | **Who** | Quem mantém o servidor de gerenciamento do Prisma. |
 | **Where** | `back/proto/prisma/v1/prisma.proto` (cópia) e o servidor gRPC do Prisma. |
-| **When** | Antes de cadastrar o primeiro equipamento real. |
+| **When** | Antes de cadastrar o primeiro equipamento real. Revisado em 2026-10-01 com o guia da API (issue #9). |
 | **How** | Responder a seção 1. Os campos da seção 2 entram como adições no `prisma.v1`. |
-| **How much** | 5 perguntas e 6 sugestões. Nenhuma exige `prisma.v2`. |
+| **How much** | 5 perguntas (1 respondida, 2 em parte, 2 abertas) e 6 sugestões. Nenhuma exige `prisma.v2`. |
 
 Legenda: **🔴 bloqueia** · **🟡 dá para contornar** · **🟢 sugestão**
 
@@ -23,42 +24,51 @@ Legenda: **🔴 bloqueia** · **🟡 dá para contornar** · **🟢 sugestão**
 
 ## 1. Perguntas
 
-### 🔴 1.1 Gramática para editar uma interface
-A tela de Interfaces gera linhas de VTY para descrição, MTU e ligar/desligar. Hoje o prisma-web
-**supõe** o seguinte — confirme ou corrija:
+Fontes das respostas: **guia** é o `docs/prisma-api.md` (guia oficial da API, copiado sem
+alterações) e **equipamento** é o `show running-config` e o `show version` de um Prisma 0.148.3
+de laboratório, lidos em 2026-10-01 sem alterar nada (issue #9).
 
-| Ação | `path` | `lines` |
-|---|---|---|
-| Descrição | `["interface <nome>"]` | `description <texto>` · `no description` |
-| MTU | `["interface <nome>"]` | `mtu <n>` |
-| Desligar / ligar | `["interface <nome>"]` | `shutdown` · `no shutdown` |
+### 🟡 1.1 Gramática para editar uma interface — respondida em parte
+O equipamento confirma `description <texto>`, `mtu <n>`, `shutdown` e **`ipv4 address <cidr>`**
+(e não `ip address`). Cada bloco termina em `exit`, e o `shutdown` vem antes do `mtu`. O mock
+segue esse formato desde a issue #9.
 
-O mapeamento fica num arquivo só (`front/src/lib/vty.ts`); corrigir lá ajusta a tela inteira.
-O editor de configuração livre não depende disso — ele manda as linhas que o usuário digitar.
+| Ação | `path` | `lines` | Situação |
+|---|---|---|---|
+| Descrição | `["interface <nome>"]` | `description <texto>` · `no description` | `description` confirmado; `no description` **não confirmado** |
+| MTU | `["interface <nome>"]` | `mtu <n>` | confirmado |
+| Desligar / ligar | `["interface <nome>"]` | `shutdown` · `no shutdown` | `shutdown` confirmado; `no shutdown` **não confirmado** |
 
-### 🔴 1.2 Acesso ao equipamento
-- Endereço e porta do servidor gRPC (o prisma-web aceita IPv4 e IPv6).
-- Sem certificado por enquanto: o servidor aceita **gRPC sem TLS** (h2c)? Se exigir mTLS mesmo
-  em laboratório, me avise que eu adianto essa parte.
-- Qual conta/papel as chamadas usam quando não há certificado?
+Falta confirmar as formas com `no`. Fazer isso exigiria entrar em `configure` no equipamento, o
+que não foi feito. O mapeamento fica num arquivo só (`front/src/lib/vty.ts`).
 
-### 🟡 1.3 `Show` e comandos que demoram
-`ping` e `traceroute` passam pelo `Show`. Quanto tempo o Prisma segura a chamada? O prisma-web
-usa **30 s** de timeout no console. Comandos com saída contínua (`ping` sem `count`) ficariam presos.
+### 🔴 1.2 Acesso ao equipamento — respondida
+- **Porta 50051** no endereço de gerência (`api listen-address`). A API vem desligada
+  (`api enabled yes` a liga) e existe **a partir da 0.149.0**. O equipamento de laboratório está
+  na 0.148.3 e ainda não tem API. (guia, equipamento)
+- **Só mTLS**: o servidor não sobe sem `server.key`, `server.crt` e `clients-ca.crt`, e recusa
+  cliente sem certificado. Não existe modo sem TLS. Por isso a #4 é pré-requisito para usar um
+  equipamento real. (guia)
+- **A conta é o CN do certificado do cliente**, e o papel vem do login do VTY: `prisma-admin`
+  configura tudo, `prisma-cgnat` só o CGNAT e os demais só leem. (guia)
+- O cliente MUST informar o nome que está no certificado do servidor (`domain_name`, por exemplo
+  `prisma-api`), ou o certificado MUST trazer o endereço discado no `subjectAltName`. (guia)
 
-### 🟡 1.4 Candidatos abandonados
-Se o prisma-web cair com um candidato aberto, o Prisma o descarta sozinho? Depois de quanto tempo?
-O prisma-web fecha os seus ao terminar, mas não tem como garantir isso numa queda.
+### 🟡 1.3 `Show` e comandos que demoram — respondida em parte
+O `Show` aceita `show`, `ping`, `traceroute`, `mtr` e `monitor` (guia). Ainda não se sabe quanto
+tempo o Prisma segura uma chamada nem o que acontece com `monitor`, que tem saída contínua. O
+console do prisma-web corta em **30 s**.
 
-### 🟡 1.5 Uma conta para todos os usuários da web
-Como a identidade é a conta do certificado (ou a conta padrão, sem certificado), todos os
-usuários do prisma-web aparecem como **a mesma conta** no Prisma. Para a trilha do equipamento
-continuar útil, o prisma-web prefixa o comentário de todo commit com o usuário:
-`[prisma-web:joao] <comentário>`. Funciona para vocês?
+### 🟡 1.4 Candidatos abandonados — aberta
+O guia diz que cada candidate aberto é **um processo no equipamento**, o que torna o vazamento
+mais caro, mas não diz se o Prisma descarta candidates abandonados. O prisma-web fecha os seus ao
+sair da tela e depois de 1 h.
 
-Consequência: `Confirm` não leva `candidate_id` e vale para a conta. Com uma conta só, um usuário
-da web confirmaria o `commit confirmed` de outro. O prisma-web mostra quem fez o commit pendente
-e só deixa confirmar quem fez (ou um admin), mas a trava é só do lado da web.
+### 🟡 1.5 Uma conta para todos os usuários da web — aberta, com uma indicação
+O guia descreve **um certificado de cliente por conta**. Isso abre a opção de cada usuário da web
+ter o próprio certificado e aparecer com o próprio nome na trilha do equipamento. A decisão ficou
+para a #4. Até lá, todo commit leva `[prisma-web:<usuário>]` no comentário, e o `Confirm`, que vale
+para a conta, só é aceito do autor ou de um admin, uma trava que existe só do lado da web.
 
 ---
 

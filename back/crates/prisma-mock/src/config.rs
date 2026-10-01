@@ -165,13 +165,14 @@ impl Config {
             if let Some(d) = &i.description {
                 out.push(format!(" description {d}"));
             }
-            out.push(format!(" mtu {}", i.mtu));
-            out.extend(i.v4.iter().map(|a| format!(" ip address {a}")));
+            // Ordem e palavras como no `show running-config` de um Prisma real (issue #9).
+            out.extend(i.v4.iter().map(|a| format!(" ipv4 address {a}")));
             out.extend(i.v6.iter().map(|a| format!(" ipv6 address {a}")));
             if i.shutdown {
                 out.push(" shutdown".into());
             }
-            out.push("!".into());
+            out.push(format!(" mtu {}", i.mtu));
+            out.push(" exit".into());
         }
         for top in self.children(&[]) {
             self.render_tree(&[top], 0, &mut out);
@@ -256,7 +257,7 @@ impl Config {
                 }
             }
             ["no", "shutdown"] => i.shutdown = false,
-            [no @ .., fam @ ("ip" | "ipv6"), "address", cidr] if no.is_empty() || *no == ["no"] => {
+            [no @ .., fam @ ("ipv4" | "ipv6"), "address", cidr] if no.is_empty() || *no == ["no"] => {
                 let v6 = *fam == "ipv6";
                 if !valid_cidr(cidr, v6) {
                     let family = if v6 { "IPv6" } else { "IPv4" };
@@ -392,7 +393,7 @@ mod tests {
     fn render_and_edit() {
         let mut c = Config::seed("x");
         let text = c.render();
-        assert!(text.starts_with("hostname x\n!\ninterface wan0\n description Uplink operadora\n mtu 1500\n"));
+        assert!(text.starts_with("hostname x\n!\ninterface wan0\n description Uplink operadora\n ipv4 address"));
         assert!(text.contains("nat\n cgnat\n  pool RFC6598\n   prefix-inside 100.64.0.0/10\n"));
         c.edit(&p(&["interface wan0"]), &p(&["mtu 9000", "no description"])).ok().unwrap();
         c.edit(&p(&POOL_PATH), &p(&["block-size 512"])).ok().unwrap();
@@ -402,6 +403,23 @@ mod tests {
         assert_eq!(c.iface("wan0").unwrap().mtu, 1400, "linhas antes da recusa ficam");
         assert!(c.edit(&p(&["interface eth9"]), &p(&["mtu 1500"])).is_err());
         assert!(c.edit(&p(&["interface wan0"]), &p(&["ipv6 address 10.0.0.1/24"])).is_err());
+    }
+
+    /// Gramática observada no `show running-config` de um Prisma 0.148.3 real
+    /// (issue #9): `ipv4 address`, `shutdown` antes de `mtu`, bloco fechado com `exit`.
+    #[test]
+    fn interface_grammar_matches_real_box() {
+        let mut c = Config::seed("x");
+        c.edit(&p(&["interface wan0"]), &p(&["shutdown"])).ok().unwrap();
+        let text = c.render();
+        assert!(
+            text.contains("interface wan0\n description Uplink operadora\n ipv4 address 203.0.113.10/29\n ipv6 address 2001:db8:100::2/64\n shutdown\n mtu 1500\n exit\n"),
+            "{text}"
+        );
+        assert!(!text.contains(" ip address "));
+        let err = c.edit(&p(&["interface wan0"]), &p(&["ip address 192.0.2.1/24"])).err().unwrap();
+        assert!(err.message.starts_with("unknown command"), "{}", err.message);
+        c.edit(&p(&["interface wan0"]), &p(&["ipv4 address 192.0.2.1/24", "no ipv4 address 192.0.2.1/24"])).ok().unwrap();
     }
 
     #[test]

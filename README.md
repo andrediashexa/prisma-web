@@ -3,8 +3,8 @@
 **TL;DR:** interface web para gerenciar **vários roteadores Prisma** ao mesmo tempo. Ela fala com
 cada um pelo contrato gRPC oficial (`prisma.v1`) e altera a configuração pelo modelo do próprio VTY:
 candidate, diff, `commit check` e `commit confirmed`. Também mostra painéis e gráficos da telemetria,
-registra no log quem mudou o quê e roda inteira em Docker, com IPv4 e IPv6. Ainda não há TLS entre o
-prisma-web e os Prismas.
+registra no log quem mudou o quê e roda inteira em Docker, com IPv4 e IPv6. Ainda não há mTLS, que
+o Prisma real exige (#4), então por enquanto o prisma-web funciona só com os Prismas simulados.
 
 As palavras-chave MUST, MUST NOT, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
@@ -52,9 +52,11 @@ segundo é cadastrado em **Roteadores** com o endereço `http://prisma-mock-2:50
 
 ## Cadastrando um Prisma real
 
-Em **Roteadores → Cadastrar Prisma**, informe o endereço gRPC, por exemplo
-`http://[2001:db8::1]:50051`, e use **Testar** antes de salvar. O endereço MUST usar `http://`:
-TLS e mTLS ainda não existem, e `https://` é recusado. O que falta do lado do Prisma está em
+**Ainda não é possível.** O servidor gRPC do Prisma só aceita mTLS
+([`docs/prisma-api.md`](docs/prisma-api.md), o guia oficial da API), e o prisma-web ainda conecta
+sem TLS. O suporte a mTLS é a issue #4. O Prisma também MUST estar na versão 0.149.0 ou mais nova,
+com `api enabled yes`. Hoje o cadastro funciona com os mocks, por exemplo
+`http://[2001:db8::1]:50051`, e recusa `https://`. O que falta do lado do Prisma está em
 [`docs/prisma-integracao.md`](docs/prisma-integracao.md).
 
 ## Mudando a configuração

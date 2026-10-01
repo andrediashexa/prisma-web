@@ -20,7 +20,10 @@ As palavras-chave MUST, MUST NOT, SHOULD e MAY seguem a [RFC 2119](https://www.r
 
 ## Contrato
 
-O contrato é `back/proto/prisma/v1/prisma.proto`, uma cópia do proto do Prisma. O crate
+O contrato é `back/proto/prisma/v1/prisma.proto`, uma cópia do proto do Prisma, e o guia oficial
+da API é o `docs/prisma-api.md`. Os dois são copiados sem alterações e são exceções de idioma no
+CONTRIBUTING. A cópia de 2026-10-01 é a versão mais nova do Prisma, que só muda um comentário em
+relação à anterior: o código gerado é idêntico, comparado byte a byte (issue #9). O crate
 `prisma-proto` gera os tipos, os clientes e os servidores com `tonic` e `prost`. O `.proto` é
 compilado pelo **protox** (Rust puro), para que o build não dependa de `protoc` na imagem.
 
@@ -117,7 +120,8 @@ ao front, que mostra a mensagem, o caminho e a linha que o VTY citou:
 
 ## Limites
 
-- Sem TLS e sem mTLS. O cadastro recusa `https://` em vez de fingir que há verificação.
+- Sem TLS e sem mTLS. O cadastro recusa `https://` em vez de fingir que há verificação. Como o
+  Prisma real só aceita mTLS, isto bloqueia o uso com equipamento (#4).
 - O papel vale para todos os roteadores.
 - O front não tem testes automatizados além de lint e build. O roteiro `scripts/e2e.py` cobre o
   comportamento pela API.
