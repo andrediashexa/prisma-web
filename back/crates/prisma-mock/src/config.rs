@@ -42,7 +42,7 @@ pub struct Refusal {
 }
 
 pub fn diag(severity: Severity, message: impl Into<String>, path: &[String], line: &str) -> Diagnostic {
-    Diagnostic { severity: severity as i32, message: message.into(), path: path.to_vec(), line: line.into() }
+    Diagnostic { severity: severity as i32, message: message.into(), path: path.to_vec(), line: line.into(), ..Default::default() }
 }
 
 fn refuse(message: impl Into<String>, path: &[String], line: &str) -> Refusal {

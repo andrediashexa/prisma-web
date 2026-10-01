@@ -188,8 +188,17 @@ impl State {
 
 impl Shared {
     pub fn emit(&self, kind: &str, text: impl Into<String>) {
+        self.emit_full(kind, text.into(), String::new(), String::new());
+    }
+
+    /// A commit event carries the revision and the comment (Prisma 0.149.2).
+    pub fn emit_commit(&self, revision: String, comment: String) {
+        self.emit_full("commit", comment.clone(), revision, comment);
+    }
+
+    fn emit_full(&self, kind: &str, text: String, revision: String, comment: String) {
         // With no subscribers the send fails; that is expected.
-        let _ = self.events.send(Event { kind: kind.into(), account: "mock".into(), text: text.into() });
+        let _ = self.events.send(Event { kind: kind.into(), account: "mock".into(), text, revision, comment, ..Default::default() });
     }
 }
 

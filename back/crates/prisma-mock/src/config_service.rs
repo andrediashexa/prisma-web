@@ -26,7 +26,7 @@ fn refused(code: tonic::Code, message: impl Into<String>, items: Vec<Diagnostic>
         .collect::<Vec<_>>()
         .join("\n");
     let output = if output.is_empty() { format!("error: {message}") } else { output };
-    with_diagnostics(Status::new(code, message), &Diagnostics { items, output })
+    with_diagnostics(Status::new(code, message), &Diagnostics { items, output, ..Default::default() })
 }
 
 fn not_found(id: &str) -> Status {
@@ -108,7 +108,7 @@ impl ConfigService for ConfigSvc {
         let base = st.revision();
         let text = config.render();
         st.candidates.insert(id.clone(), Candidate { base_revision: base, config });
-        Ok(Response::new(OpenCandidateResponse { candidate_id: id, base_revision: format!("r{base}"), text }))
+        Ok(Response::new(OpenCandidateResponse { candidate_id: id, base_revision: format!("r{base}"), text, ..Default::default() }))
     }
 
     async fn edit(&self, req: Request<EditRequest>) -> R<EditResponse> {
@@ -118,7 +118,7 @@ impl ConfigService for ConfigSvc {
         match cand.config.edit(&req.path, &req.lines) {
             Ok(diagnostics) => {
                 let output = diagnostics.iter().map(|d| format!("note: {}", d.message)).collect::<Vec<_>>().join("\n");
-                Ok(Response::new(EditResponse { diagnostics, output }))
+                Ok(Response::new(EditResponse { diagnostics, output, ..Default::default() }))
             }
             Err(r) => Err(refused(tonic::Code::InvalidArgument, r.message, vec![r.diagnostic])),
         }
@@ -126,14 +126,14 @@ impl ConfigService for ConfigSvc {
 
     async fn show_candidate(&self, req: Request<CandidateRef>) -> R<ConfigText> {
         let c = self.candidate_config(&req.into_inner().candidate_id)?;
-        Ok(Response::new(ConfigText { text: c.render(), revision: String::new() }))
+        Ok(Response::new(ConfigText { text: c.render(), revision: String::new(), ..Default::default() }))
     }
 
     async fn compare(&self, req: Request<CandidateRef>) -> R<CompareResponse> {
         let c = self.candidate_config(&req.into_inner().candidate_id)?;
         let running = self.0.state.lock().unwrap().running.render();
         let diff = config::compare(&running, &c.render());
-        Ok(Response::new(CompareResponse { changed: !diff.is_empty(), diff }))
+        Ok(Response::new(CompareResponse { changed: !diff.is_empty(), diff, ..Default::default() }))
     }
 
     async fn check(&self, req: Request<CandidateRef>) -> R<CheckResponse> {
@@ -154,6 +154,7 @@ impl ConfigService for ConfigSvc {
             cutoff: g.cutoff,
             diverge: g.diverge,
             output: out.join("\n"),
+            ..Default::default()
         }))
     }
 
@@ -201,7 +202,7 @@ impl ConfigService for ConfigSvc {
         let previous = std::mem::replace(&mut st.running, cand.config);
         let comment = if req.comment.is_empty() { "commit".to_string() } else { req.comment.clone() };
         let number = st.push_revision(comment.clone());
-        shared.emit("commit", comment);
+        shared.emit_commit(format!("r{number}"), comment);
 
         let mut confirm_deadline = None;
         let mut output = format!("commit complete (revision r{number})");
@@ -230,7 +231,7 @@ impl ConfigService for ConfigSvc {
             });
         }
 
-        Ok(Response::new(CommitResponse { revision: format!("r{number}"), confirm_deadline, diagnostics: vec![], output }))
+        Ok(Response::new(CommitResponse { revision: format!("r{number}"), confirm_deadline, diagnostics: vec![], output, ..Default::default() }))
     }
 
     async fn confirm(&self, _: Request<ConfirmRequest>) -> R<ConfirmResponse> {
@@ -239,7 +240,7 @@ impl ConfigService for ConfigSvc {
             return Err(refused(tonic::Code::FailedPrecondition, "no commit confirmed is pending", vec![]));
         }
         self.0.emit("confirmed", format!("revision r{}", st.revision()));
-        Ok(Response::new(ConfirmResponse { diagnostics: vec![], output: "commit confirmed".into() }))
+        Ok(Response::new(ConfirmResponse { diagnostics: vec![], output: "commit confirmed".into(), ..Default::default() }))
     }
 
     async fn rollback(&self, req: Request<RollbackRequest>) -> R<EditResponse> {
@@ -251,12 +252,12 @@ impl ConfigService for ConfigSvc {
             .ok_or_else(|| refused(tonic::Code::InvalidArgument, format!("no revision {}", req.revision), vec![]))?;
         let cand = st.candidates.get_mut(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
         cand.config = snapshot;
-        Ok(Response::new(EditResponse { diagnostics: vec![], output: "load complete".into() }))
+        Ok(Response::new(EditResponse { diagnostics: vec![], output: "load complete".into(), ..Default::default() }))
     }
 
     async fn save(&self, _: Request<SaveRequest>) -> R<SaveResponse> {
         self.0.emit("saved", "/etc/prisma/prisma.conf");
-        Ok(Response::new(SaveResponse { output: "configuration saved to /etc/prisma/prisma.conf".into() }))
+        Ok(Response::new(SaveResponse { output: "configuration saved to /etc/prisma/prisma.conf".into(), ..Default::default() }))
     }
 
     async fn close_candidate(&self, req: Request<CandidateRef>) -> R<CloseResponse> {
@@ -268,7 +269,7 @@ impl ConfigService for ConfigSvc {
 
     async fn get_running(&self, _: Request<GetRunningRequest>) -> R<ConfigText> {
         let st = self.0.state.lock().unwrap();
-        Ok(Response::new(ConfigText { text: st.running.render(), revision: format!("r{}", st.revision()) }))
+        Ok(Response::new(ConfigText { text: st.running.render(), revision: format!("r{}", st.revision()), ..Default::default() }))
     }
 
     async fn list_revisions(&self, _: Request<ListRevisionsRequest>) -> R<ListRevisionsResponse> {
@@ -282,8 +283,9 @@ impl ConfigService for ConfigSvc {
                 number: n as u32,
                 committed_at: Some(timestamp(r.committed_at)),
                 comment: r.comment.clone(),
+                ..Default::default()
             })
             .collect();
-        Ok(Response::new(ListRevisionsResponse { revisions }))
+        Ok(Response::new(ListRevisionsResponse { revisions, ..Default::default() }))
     }
 }

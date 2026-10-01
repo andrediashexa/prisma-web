@@ -44,6 +44,7 @@ fn pool(st: &State) -> Pool {
         ports_in_use: subscribers * 180,
         refusals: st.refusals,
         sessions: subscribers * 35,
+        ..Default::default()
     }
 }
 
@@ -64,6 +65,9 @@ fn interfaces(st: &State, names: &[String]) -> Vec<Interface> {
                 linux_name: if i.name == "lo" { String::new() } else { format!("vpp-{}", i.name) },
                 description: i.description.clone().unwrap_or_default(),
                 counters: sim.map(|s| s.counters),
+                // Physical ports at 10G; virtual ones have no speed (0, as 0.149.3 reports it).
+                speed_bps: if i.name.starts_with("wan") || i.name == "lan0" { 10_000_000_000 } else { 0 },
+                ..Default::default()
             }
         })
         .collect()
@@ -91,6 +95,7 @@ impl OperationalSvc {
                     prefixes_received: if down { 0 } else if v6 { 201_388 } else { 1_002_117 },
                     description: if v6 { "IPv6 transit".into() } else { "IPv4 transit".into() },
                     peer,
+                    ..Default::default()
                 }
             })
             .collect()
@@ -100,7 +105,7 @@ impl OperationalSvc {
         let words: Vec<&str> = command.split_whitespace().collect();
         let refuse = |msg: String| {
             let d = diag(Severity::Error, msg.clone(), &[], command);
-            with_diagnostics(Status::invalid_argument(msg.clone()), &Diagnostics { items: vec![d], output: msg })
+            with_diagnostics(Status::invalid_argument(msg.clone()), &Diagnostics { items: vec![d], output: msg, ..Default::default() })
         };
         let Some(first) = words.first() else { return Err(refuse("% Empty command".into())) };
         if matches!(*first, "configure" | "set" | "delete" | "commit" | "rollback" | "save" | "shell" | "start" | "edit") {
@@ -210,6 +215,7 @@ impl OperationalService for OperationalSvc {
             frr_version: "10.3".into(),
             hostname: self.hostname.clone(),
             api_transport: "vpp_papi".into(),
+            ..Default::default()
         }))
     }
 
@@ -256,6 +262,22 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             last_boot_reason: "system reboot by admin".into(),
             release_installed_at: ts(boot - chrono::Duration::hours(2)),
             dataplane_restarted: restarted,
+            // Memory and worker load in numbers (Prisma 0.149.2). busy_ratio is
+            // VPP's share of node clocks: a saturated worker reads about 0.5.
+            memory_total_bytes: 32 << 30,
+            memory_used_bytes: st.mem_used,
+            memory_hugepages_bytes: 16 << 30,
+            worker_load: (0..5u32)
+                .map(|w| WorkerLoad {
+                    worker: w,
+                    cpu: 3 + w,
+                    vectors_per_call: 16.0 + f64::from(w) * 0.7,
+                    busy_ratio: 0.12 + f64::from(w) * 0.03,
+                    loops_per_second: 38_000.0 + f64::from(w) * 300.0,
+                    busy_window_ms: 1000,
+                    ..Default::default()
+                })
+                .collect(),
             hostname: self.hostname.clone(),
             uptime_seconds: st.uptime_seconds(),
             control_plane_cpus: "0-1".into(),
@@ -265,6 +287,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             hugepages: 16,
             cpu_text,
             memory_text,
+            ..Default::default()
         }))
     }
 
@@ -272,13 +295,13 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         let _turno = self.shared.ops.lock().await;
         let names = req.into_inner().names;
         let st = self.shared.state.lock().unwrap();
-        Ok(Response::new(ListInterfacesResponse { interfaces: interfaces(&st, &names) }))
+        Ok(Response::new(ListInterfacesResponse { interfaces: interfaces(&st, &names), ..Default::default() }))
     }
 
     async fn list_pools(&self, _: Request<ListPoolsRequest>) -> R<ListPoolsResponse> {
         let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
-        Ok(Response::new(ListPoolsResponse { pools: vec![pool(&st)] }))
+        Ok(Response::new(ListPoolsResponse { pools: vec![pool(&st)], ..Default::default() }))
     }
 
     async fn get_subscriber(&self, req: Request<GetSubscriberRequest>) -> R<Subscriber> {
@@ -298,7 +321,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         let block = |n: u32| {
             let public = Ipv4Addr::new(203, 0, 113, 64 + ((h + n) % 32) as u8);
             let first = 1024 + ((h / 32 + n) % (64_512 / block_size)) * block_size;
-            PortBlock { public_address: public.to_string(), first_port: first, last_port: first + block_size - 1 }
+            PortBlock { public_address: public.to_string(), first_port: first, last_port: first + block_size - 1, ..Default::default() }
         };
         let blocks: Vec<PortBlock> = if h % 3 == 0 { vec![block(0), block(1)] } else { vec![block(0)] };
         let sessions = u64::from(h % 120) + 4;
@@ -306,7 +329,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         for b in &blocks {
             text += &format!("    {}:{}-{}\n", b.public_address, b.first_port, b.last_port);
         }
-        Ok(Response::new(Subscriber { address, pool: p.name, blocks, sessions, text }))
+        Ok(Response::new(Subscriber { address, pool: p.name, blocks, sessions, text, ..Default::default() }))
     }
 
     async fn get_sessions_summary(&self, _: Request<GetSessionsSummaryRequest>) -> R<SessionsSummary> {
@@ -318,13 +341,14 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             sessions_fit: 4_000_000,
             subscribers: p.subscribers,
             ports_in_use: p.ports_in_use,
+            ..Default::default()
         }))
     }
 
     async fn list_bgp_neighbors(&self, _: Request<ListBgpNeighborsRequest>) -> R<ListBgpNeighborsResponse> {
         let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
-        Ok(Response::new(ListBgpNeighborsResponse { neighbors: self.bgp(&st) }))
+        Ok(Response::new(ListBgpNeighborsResponse { neighbors: self.bgp(&st), ..Default::default() }))
     }
 
     async fn list_ospf_neighbors(&self, _: Request<ListOspfNeighborsRequest>) -> R<ListOspfNeighborsResponse> {
@@ -337,6 +361,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
                     address: "192.168.10.2".into(),
                     interface: "lan0".into(),
                     state: "Full/DR".into(),
+                    ..Default::default()
                 },
                 OspfNeighbor {
                     protocol: "ospf6".into(),
@@ -344,8 +369,10 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
                     address: "fe80::5054:ff:fea1:10".into(),
                     interface: "lan0".into(),
                     state: "Full/DR".into(),
+                    ..Default::default()
                 },
             ],
+            ..Default::default()
         }))
     }
 
@@ -357,7 +384,9 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
                 interface: "lan0".into(),
                 state: "Up".into(),
                 level: "L2".into(),
+                ..Default::default()
             }],
+            ..Default::default()
         }))
     }
 
@@ -370,28 +399,30 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             state: "master".into(),
             priority: 200,
             addresses: vec![addr.into()],
+            ..Default::default()
         };
-        Ok(Response::new(ListVrrpResponse { routers: vec![vr(4, "192.168.10.254"), vr(6, "2001:db8:200:10::fe")] }))
+        Ok(Response::new(ListVrrpResponse { routers: vec![vr(4, "192.168.10.254"), vr(6, "2001:db8:200:10::fe")], ..Default::default() }))
     }
 
     async fn list_bundles(&self, _: Request<ListBundlesRequest>) -> R<ListBundlesResponse> {
         let _turno = self.shared.ops.lock().await;
         let members = vec!["TenGig0".to_string(), "TenGig1".to_string()];
         Ok(Response::new(ListBundlesResponse {
-            bundles: vec![Bundle { name: "BondEthernet0".into(), mode: "lacp".into(), active_members: members.clone(), members }],
+            bundles: vec![Bundle { name: "BondEthernet0".into(), mode: "lacp".into(), active_members: members.clone(), members, ..Default::default() }],
+            ..Default::default()
         }))
     }
 
     async fn list_policies(&self, _: Request<ListPoliciesRequest>) -> R<ListPoliciesResponse> {
         let _turno = self.shared.ops.lock().await;
-        Ok(Response::new(ListPoliciesResponse { policies: crate::policy::policies() }))
+        Ok(Response::new(ListPoliciesResponse { policies: crate::policy::policies(), ..Default::default() }))
     }
 
     async fn get_policy_counters(&self, req: Request<GetPolicyCountersRequest>) -> R<GetPolicyCountersResponse> {
         let _turno = self.shared.ops.lock().await;
         let uptime = self.shared.state.lock().unwrap().uptime_seconds();
         let uses = crate::policy::counters(&req.into_inner().policy, uptime)?;
-        Ok(Response::new(GetPolicyCountersResponse { uses }))
+        Ok(Response::new(GetPolicyCountersResponse { uses, ..Default::default() }))
     }
 
     async fn test_policy(&self, req: Request<TestPolicyRequest>) -> R<TestPolicyResponse> {
@@ -413,6 +444,6 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             let n: u64 = n.parse().unwrap_or(4).min(120);
             tokio::time::sleep(std::time::Duration::from_millis(250 * n)).await;
         }
-        Ok(Response::new(ShowResponse { text }))
+        Ok(Response::new(ShowResponse { text, ..Default::default() }))
     }
 }

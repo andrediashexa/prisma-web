@@ -23,6 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "prisma.v1.SystemInfo.control_plane_started",
         "prisma.v1.SystemInfo.vty_started",
         "prisma.v1.SystemInfo.release_installed_at",
+        // Prisma 0.149.2 (#23).
+        "prisma.v1.GetHistoryRequest.since",
+        "prisma.v1.HistorySample.at",
+        "prisma.v1.ListRoutesResponse.snapshot_at",
     ] {
         cfg = cfg.field_attribute(ts, "#[serde(serialize_with = \"crate::ser::timestamp\")]");
     }

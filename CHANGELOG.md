@@ -16,6 +16,13 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.7.2 - Prisma 0.149.2 contract — 2026-10-01
+
+### Internal
+- Client regenerated from the Prisma 0.149.2 contract: memory and worker load, link speed, commit revision in events, telemetry history, routes, account role and the standard health check. No screen uses them yet (#23).
+- A field added to an existing Prisma message no longer breaks the build. Every message built in the back end and the simulated Prisma leaves new fields at their default (#23).
+- Fixed after 0.7.1 without a release of its own: the documentation records that Prisma 0.148.13 lifted the `then reject` + `from policy` limit.
+
 ## 0.7.1 - Default gRPC stubs — 2026-10-01
 
 ### Internal

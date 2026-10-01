@@ -34,6 +34,14 @@ depend on `protoc` in the image.
 | `serde::Serialize` generated on the proto types | Hand-written DTOs | The JSON the front receives is the contract itself, with no third description to maintain. |
 | REST API between front and back | gRPC-web directly from the browser | Authentication, roles, candidate ownership and auditing MUST stay in one place, and the browser MUST NOT reach the Prismas. |
 
+### Keeping up with the contract
+
+`prisma.v1` only grows, and prisma-web is built so that growth never breaks its build: the server
+traits get a default for every rpc, answering `UNIMPLEMENTED` until the mock implements it (#22),
+and every proto struct literal in the back end and the mock ends with `..Default::default()`, so a
+field added to an existing message is simply left at its default (#23). A new rpc or field reaches
+the UI only when a change uses it.
+
 ## mTLS with the Prismas
 
 The Prisma only accepts mTLS, and the account used on the device is the CN of the client

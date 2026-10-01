@@ -101,8 +101,10 @@ mod tests {
                 message: "mtu must be between 1280 and 9216".into(),
                 path: vec!["interface lan0".into()],
                 line: "mtu 1000".into(),
+                ..Default::default()
             }],
             output: "error: mtu must be between 1280 and 9216".into(),
+            ..Default::default()
         };
         let status = prisma_proto::with_diagnostics(tonic::Status::invalid_argument("refused"), &diag);
         let resp = AppError::from(status).into_response();

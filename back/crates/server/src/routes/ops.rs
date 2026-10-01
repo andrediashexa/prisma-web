@@ -45,7 +45,7 @@ pub async fn interfaces(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ListInterfacesResponse>> {
     let r = st.routers.get(id).await?;
-    let mut resp = r.ops().list_interfaces(req(ListInterfacesRequest { names: vec![] })).await?.into_inner();
+    let mut resp = r.ops().list_interfaces(req(ListInterfacesRequest { names: vec![], ..Default::default() })).await?.into_inner();
     resp.interfaces.retain(|i| !i.name.starts_with("tap"));
     Ok(Json(resp))
 }
@@ -67,7 +67,7 @@ pub async fn policy_counters(
     Query(q): Query<CountersQuery>,
 ) -> AppResult<Json<GetPolicyCountersResponse>> {
     let r = st.routers.get(id).await?;
-    let msg = GetPolicyCountersRequest { policy: q.policy.trim().to_string() };
+    let msg = GetPolicyCountersRequest { policy: q.policy.trim().to_string(), ..Default::default() };
     Ok(Json(r.ops().get_policy_counters(req(msg)).await?.into_inner()))
 }
 
@@ -108,6 +108,7 @@ pub async fn test_policy(
         rib: b.rib,
         vrf: b.vrf.trim().to_string(),
         neighbor: b.neighbor.trim().to_string(),
+        ..Default::default()
     };
     Ok(Json(r.ops().test_policy(req(msg)).await?.into_inner()))
 }
@@ -128,7 +129,7 @@ pub async fn subscriber(
         return Err(AppError::BadRequest(format!("'{address}' is not an IP address")));
     }
     let r = st.routers.get(id).await?;
-    let msg = GetSubscriberRequest { address: address.to_string() };
+    let msg = GetSubscriberRequest { address: address.to_string(), ..Default::default() };
     Ok(Json(r.ops().get_subscriber(req(msg)).await?.into_inner()))
 }
 
@@ -155,7 +156,7 @@ pub async fn show(
     let _console = st.routers.console_started(id);
     let res = r
         .ops()
-        .show(grpc::req_with(ShowRequest { command: command.to_string() }, grpc::SHOW_TIMEOUT))
+        .show(grpc::req_with(ShowRequest { command: command.to_string(), ..Default::default() }, grpc::SHOW_TIMEOUT))
         .await;
     // `ping` and the like reach the network; they are recorded like every other command.
     let mut entry = Entry::by(&user, &meta, "router.command").target(&r.name).router(id).details(json!({ "command": command }));
