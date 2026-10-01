@@ -4,7 +4,7 @@
 keeps a gRPC channel, a telemetry stream and the cached status. To the front it serves a REST API.
 Changes follow the VTY model (candidate, diff, check, commit confirmed), and each candidate belongs
 to the web user who opened it. The chart history is built in the back, in memory, from the
-telemetry counters.
+telemetry counters, and filled from the box's own history on every connection.
 
 The key words MUST, MUST NOT, SHOULD and MAY follow [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
@@ -79,6 +79,9 @@ Measurement from version 0.2.0, still valid: with one router down, the status dr
 sequenceDiagram
     participant B as back
     participant P as Prisma
+    B->>P: GetHistory(since = newest sample held, counters, CGNAT)
+    P-->>B: HistorySample × n (one a minute, oldest first)
+    Note over B: rates between consecutive minutes,<br/>appended after what each series holds
     B->>P: Subscribe(interval 5000 ms, counters, CGNAT, events)
     loop every 5 s
         P-->>B: InterfaceBatch (absolute counters)
@@ -88,13 +91,16 @@ sequenceDiagram
     P-->>B: Event (commit, confirm-pending, confirmed, rolled-back, saved)
     Note over B: becomes box.* in the change log<br/>(the echo of the web's own action is suppressed)
     B--xP: stream drops
-    Note over B: reconnects after 2 s, doubling up to 30 s<br/>and forgets the last sample
+    Note over B: reconnects after 2 s, doubling up to 30 s,<br/>forgets the last sample and backfills the outage
 ```
 
-- **History in memory (24 h):** storing it in PostgreSQL was rejected, because it would be 17,280
-  samples per interface per day just to feed charts. The consequence is that restarting the back
-  resets the charts. If the Prisma offers history, this decision changes (item 2.4 of
-  `prisma-integration.md`).
+- **History in memory (24 h), backfilled from the box:** storing it in PostgreSQL was rejected,
+  because it would be 17,280 samples per interface per day just to feed charts. Since Prisma
+  0.149.2 the box keeps its own 24 h at one sample a minute (`GetHistory`), so before each
+  `Subscribe` the back reads the samples newer than the newest it holds and turns them into rates
+  with the same reset rule. A restart of the back costs the 5 s resolution of the past, not the
+  past itself (#26). Charts are downsampled by time, so minute and 5 s samples share one series.
+  Covered by `telemetry::tests::history_backfills_rates_skips_resets_and_never_duplicates`.
 - **Counter reset:** a reboot or a `clear counters` must not turn into a traffic spike. The sample
   is dropped and becomes the new baseline. This is covered by the test
   `telemetry::tests::counter_reset_produces_no_sample`.

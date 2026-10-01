@@ -94,9 +94,13 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
 /// Advances the simulation every second.
 async fn ticker(shared: SharedRef) {
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    loop {
+    for n in 1u64.. {
         tick.tick().await;
-        shared.state.lock().unwrap().step(chrono::Utc::now(), 1);
+        let mut st = shared.state.lock().unwrap();
+        st.step(chrono::Utc::now(), 1);
+        if n % 60 == 0 {
+            st.record_history(chrono::Utc::now());
+        }
     }
 }
 
@@ -253,5 +257,21 @@ mod tests {
         let bgp = OperationalServiceClient::new(ch).list_bgp_neighbors(ListBgpNeighborsRequest {}).await.unwrap();
         let states: Vec<_> = bgp.into_inner().neighbors.into_iter().map(|n| n.state).collect();
         assert_eq!(states, ["Established", "Active"]);
+    }
+
+    #[tokio::test]
+    async fn history_is_a_day_by_minute_and_honours_since() {
+        let ch = start("prisma-test").await;
+        let mut tel = TelemetryServiceClient::new(ch);
+        let req = |since| GetHistoryRequest { interface_counters: true, cgnat_totals: true, since, ..Default::default() };
+        let all: Vec<HistorySample> = tel.get_history(req(None)).await.unwrap().into_inner().collect::<Result<_, _>>().await.unwrap();
+        assert_eq!(all.len(), state::HISTORY_LEN);
+        let secs: Vec<i64> = all.iter().map(|s| s.at.unwrap().seconds).collect();
+        assert!(secs.windows(2).all(|w| w[1] - w[0] == 60), "oldest first, one a minute");
+        assert!(all[0].cgnat.is_some() && all[0].interfaces.iter().any(|i| i.name == "wan0"));
+        assert_eq!(all[0].memory_used_bytes, 0, "memory was not asked for");
+        let since = all[all.len() - 10].at;
+        let tail: Vec<HistorySample> = tel.get_history(req(since)).await.unwrap().into_inner().collect::<Result<_, _>>().await.unwrap();
+        assert_eq!(tail.len(), 9, "only samples after `since`");
     }
 }

@@ -1,7 +1,10 @@
 //! Prisma telemetry: one permanent `Subscribe` per router.
 //!
 //! Prisma delivers live counters; the history (24 h) is built here, in
-//! memory, from the differences between samples. The stream's configuration
+//! memory, from the differences between samples. On every connection the gap
+//! is first filled from the box's own history (`GetHistory`, one sample a
+//! minute), so a restart of this server does not empty the charts (#7).
+//! The stream's configuration
 //! events (commits made on the box itself, automatic rollbacks of
 //! `commit confirmed`) go to the change log.
 
@@ -11,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use prisma_proto::v1::telemetry_update::Update;
-use prisma_proto::v1::{Event, SubscribeRequest, TelemetryUpdate};
+use prisma_proto::v1::{Event, GetHistoryRequest, HistorySample, SubscribeRequest, TelemetryUpdate};
 use serde::Serialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -123,7 +126,7 @@ impl Telemetry {
             .and_then(|d| d.ifaces.get(iface))
             .map(|q| window(q, minutes).copied().collect())
             .unwrap_or_default();
-        let (step, samples) = downsample(samples, |c| RateSample {
+        let (step, samples) = downsample(samples, minutes, |c| RateSample {
             timestamp: c.last().unwrap().timestamp,
             rx_bps: avg(c.iter().map(|s| s.rx_bps)),
             tx_bps: avg(c.iter().map(|s| s.tx_bps)),
@@ -135,7 +138,7 @@ impl Telemetry {
         let routers = self.shared.routers.lock().unwrap();
         let data = routers.get(&id);
         let samples: Vec<CgnatSample> = data.map(|d| window(&d.cgnat, minutes).copied().collect()).unwrap_or_default();
-        let (step, samples) = downsample(samples, |c| CgnatSample {
+        let (step, samples) = downsample(samples, minutes, |c| CgnatSample {
             timestamp: c.last().unwrap().timestamp,
             subscribers: avg(c.iter().map(|s| s.subscribers)),
             ports_in_use: avg(c.iter().map(|s| s.ports_in_use)),
@@ -178,10 +181,16 @@ fn window<T: Stamped>(q: &VecDeque<T>, minutes: u32) -> impl Iterator<Item = &T>
     q.iter().filter(move |s| s.at() >= since)
 }
 
-fn downsample<T>(samples: Vec<T>, merge: impl Fn(&[T]) -> T) -> (u32, Vec<T>) {
-    let bucket = samples.len().div_ceil(MAX_POINTS).max(1);
-    let step = (bucket as u32) * SAMPLE_MS / 1000;
-    (step, samples.chunks(bucket).map(merge).collect())
+/// At most `MAX_POINTS` buckets of equal duration over the window. By time,
+/// not by count: backfilled minutes and live 5 s samples share one series.
+fn downsample<T: Stamped>(samples: Vec<T>, minutes: u32, merge: impl Fn(&[T]) -> T) -> (u32, Vec<T>) {
+    let window = minutes.clamp(1, 24 * 60) * 60;
+    let step = window.div_ceil(MAX_POINTS as u32).max(SAMPLE_MS / 1000);
+    let out = samples
+        .chunk_by(|a, b| a.at().timestamp().div_euclid(step.into()) == b.at().timestamp().div_euclid(step.into()))
+        .map(merge)
+        .collect();
+    (step, out)
 }
 
 fn avg(it: impl Iterator<Item = u64>) -> u64 {
@@ -207,6 +216,7 @@ async fn run(h: Arc<RouterHandle>, shared: Arc<Shared>) {
             events: true,
             ..Default::default()
         };
+        backfill(&h, &shared).await;
         match h.telemetry().subscribe(req).await {
             Ok(resp) => {
                 backoff = Duration::from_secs(2);
@@ -229,6 +239,101 @@ async fn run(h: Arc<RouterHandle>, shared: Arc<Shared>) {
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(Duration::from_secs(30));
     }
+}
+
+/// Fills what this server missed (all of it after a restart, the outage after
+/// a reconnection) from the box's history. A box older than 0.149.2 answers
+/// UNIMPLEMENTED and the charts just start from the live stream, as before.
+async fn backfill(h: &RouterHandle, shared: &Shared) {
+    let since = shared.routers.lock().unwrap().get(&h.id).and_then(newest);
+    let req = GetHistoryRequest {
+        since: since.map(|t| prost_types::Timestamp { seconds: t.timestamp(), nanos: t.timestamp_subsec_nanos() as i32 }),
+        interface_counters: true,
+        cgnat_totals: true,
+        ..Default::default()
+    };
+    let mut stream = match h.telemetry().get_history(req).await {
+        Ok(r) => r.into_inner(),
+        Err(e) => {
+            tracing::debug!(router = %h.name, error = %e, "no history from the router");
+            return;
+        }
+    };
+    let mut samples = Vec::new();
+    loop {
+        match stream.message().await {
+            Ok(Some(s)) => samples.push(s),
+            Ok(None) => break,
+            // Keep what arrived: a partial history is still better than none.
+            Err(e) => {
+                tracing::debug!(router = %h.name, error = %e, "history stream dropped");
+                break;
+            }
+        }
+    }
+    let n = samples.len();
+    let mut routers = shared.routers.lock().unwrap();
+    apply_history(routers.entry(h.id).or_default(), samples);
+    tracing::info!(router = %h.name, samples = n, "telemetry history backfilled");
+}
+
+/// The newest sample held for the router; `None` when anything is still empty,
+/// so the whole history is asked for.
+fn newest(d: &RouterData) -> Option<DateTime<Utc>> {
+    let cgnat = d.cgnat.back()?.timestamp;
+    d.ifaces.values().map(|q| q.back().map(|s| s.timestamp)).try_fold(cgnat, |m, t| t.map(|t| m.min(t)))
+}
+
+/// Merges history samples (oldest first) into the series: rates between
+/// consecutive minutes, with the same reset rule as the live stream, and only
+/// after what each series already holds.
+fn apply_history(d: &mut RouterData, samples: Vec<HistorySample>) {
+    let mut last: HashMap<String, (DateTime<Utc>, u64, u64)> = HashMap::new();
+    let mut ifaces: HashMap<String, VecDeque<RateSample>> = HashMap::new();
+    let mut cgnat = VecDeque::new();
+    for s in samples {
+        let Some(at) = s.at.and_then(|t| DateTime::from_timestamp(t.seconds, t.nanos.max(0) as u32)) else { continue };
+        for i in s.interfaces {
+            let Some(c) = i.counters else { continue };
+            if let Some((t0, rx0, tx0)) = last.insert(i.name.clone(), (at, c.rx_bytes, c.tx_bytes)) {
+                if let Some(r) = rate(at, t0, (c.rx_bytes, c.tx_bytes), (rx0, tx0)) {
+                    ifaces.entry(i.name).or_default().push_back(r);
+                }
+            }
+        }
+        if let Some(c) = s.cgnat {
+            cgnat.push_back(CgnatSample {
+                timestamp: at,
+                subscribers: c.subscribers,
+                ports_in_use: c.ports_in_use,
+                sessions: c.sessions,
+                refusals: c.refusals,
+            });
+        }
+    }
+    let now = Utc::now();
+    for (name, new) in ifaces {
+        merge(d.ifaces.entry(name).or_default(), new, now);
+    }
+    merge(&mut d.cgnat, cgnat, now);
+}
+
+/// Appends `new` (sorted) after the newest sample of `q`.
+fn merge<T: Stamped>(q: &mut VecDeque<T>, new: VecDeque<T>, now: DateTime<Utc>) {
+    let after = q.back().map(|s| s.at());
+    q.extend(new.into_iter().filter(|s| after.is_none_or(|a| s.at() > a)));
+    trim(q, now);
+}
+
+/// Rate in bits/s between two counter readings; `None` on a counter reset.
+fn rate(at: DateTime<Utc>, t0: DateTime<Utc>, (rx, tx): (u64, u64), (rx0, tx0): (u64, u64)) -> Option<RateSample> {
+    let dt = (at - t0).num_milliseconds() as f64 / 1000.0;
+    // A counter reset (reboot, clear counters) becomes neither a spike nor a negative rate.
+    (dt > 0.0 && rx >= rx0 && tx >= tx0).then(|| RateSample {
+        timestamp: at,
+        rx_bps: ((rx - rx0) as f64 * 8.0 / dt) as u64,
+        tx_bps: ((tx - tx0) as f64 * 8.0 / dt) as u64,
+    })
 }
 
 fn set_live(shared: &Shared, id: Uuid, live: bool) {
@@ -274,15 +379,9 @@ fn apply_counters(d: &mut RouterData, at: DateTime<Utc>, samples: Vec<prisma_pro
     for s in samples {
         let Some(c) = s.counters else { continue };
         if let Some((t0, rx0, tx0)) = d.last.insert(s.name.clone(), (at, c.rx_bytes, c.tx_bytes)) {
-            let dt = (at - t0).num_milliseconds() as f64 / 1000.0;
-            // A counter reset (reboot, clear counters) becomes neither a spike nor a negative rate.
-            if dt > 0.0 && c.rx_bytes >= rx0 && c.tx_bytes >= tx0 {
+            if let Some(r) = rate(at, t0, (c.rx_bytes, c.tx_bytes), (rx0, tx0)) {
                 let q = d.ifaces.entry(s.name).or_default();
-                q.push_back(RateSample {
-                    timestamp: at,
-                    rx_bps: ((c.rx_bytes - rx0) as f64 * 8.0 / dt) as u64,
-                    tx_bps: ((c.tx_bytes - tx0) as f64 * 8.0 / dt) as u64,
-                });
+                q.push_back(r);
                 trim(q, at);
             }
         }
@@ -353,11 +452,46 @@ mod tests {
         assert_eq!(d.ifaces["wan0"].back().unwrap().rx_bps, 1_000_000);
     }
 
+    fn rates(n: i64, every: i64, end: i64) -> Vec<RateSample> {
+        (0..n).map(|i| RateSample { timestamp: at(end - (n - 1 - i) * every), rx_bps: 1, tx_bps: 1 }).collect()
+    }
+
     #[test]
     fn downsample_caps_points_and_reports_step() {
-        let v: Vec<u64> = (0..1000).collect();
-        let (step, out) = downsample(v, |c| c[0]);
-        assert!(out.len() <= MAX_POINTS);
-        assert_eq!(step, 6 * SAMPLE_MS / 1000);
+        // An hour of 5 s samples: 20 s buckets.
+        let (step, out) = downsample(rates(720, 5, 0), 60, |c| c[0]);
+        assert_eq!(step, 20);
+        assert!(out.len() <= MAX_POINTS + 1);
+        // 24 h: 8 min buckets, whatever the mix of minutes and 5 s samples.
+        let (step, out) = downsample(rates(1440, 60, 0), 24 * 60, |c| c[0]);
+        assert_eq!(step, 480);
+        assert!(out.len() <= MAX_POINTS + 1);
+    }
+
+    fn hist(secs: i64, rx: u64, subscribers: u64) -> HistorySample {
+        let t = at(secs);
+        HistorySample {
+            at: Some(prost_types::Timestamp { seconds: t.timestamp(), nanos: 0 }),
+            interfaces: vec![sample("wan0", rx, 0)],
+            cgnat: Some(prisma_proto::v1::CgnatTotals { subscribers, ..Default::default() }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn history_backfills_rates_skips_resets_and_never_duplicates() {
+        let mut d = RouterData::default();
+        // Minutes 0, 1, 2 (reset), 3: +750_000 bytes a minute = 100 kbps.
+        apply_history(&mut d, vec![hist(-240, 0, 10), hist(-180, 750_000, 11), hist(-120, 5, 12), hist(-60, 750_005, 13)]);
+        let r: Vec<u64> = d.ifaces["wan0"].iter().map(|s| s.rx_bps).collect();
+        assert_eq!(r, [100_000, 100_000], "the reset minute produces no rate");
+        assert_eq!(d.cgnat.len(), 4);
+        // A live sample, then the same history again (a reconnection): nothing older is added twice.
+        apply_counters(&mut d, at(-1), vec![sample("wan0", 1, 0)]);
+        d.cgnat.push_back(CgnatSample { timestamp: at(-1), subscribers: 14, ports_in_use: 0, sessions: 0, refusals: 0 });
+        apply_history(&mut d, vec![hist(-240, 0, 10), hist(-180, 750_000, 11)]);
+        assert_eq!((d.ifaces["wan0"].len(), d.cgnat.len()), (2, 5));
+        let wan_newest = d.ifaces["wan0"].back().unwrap().timestamp;
+        assert_eq!(newest(&d), Some(wan_newest), "the oldest of each series' newest sample");
     }
 }

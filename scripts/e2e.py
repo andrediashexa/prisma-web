@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import datetime
 
 PASSED = 0
 
@@ -82,6 +83,16 @@ def wait_for(fn, what, timeout=30):
     check(False, what, last)
 
 
+def check_backfill(admin, R, iface, registered_at):
+    """Samples older than the router's registration can only come from the box's history (#26)."""
+    def older(path):
+        b = admin.get(path)[1]
+        return [x for x in b["samples"] if datetime.fromisoformat(x["timestamp"]).timestamp() < registered_at - 90]
+    traffic = older(f"{R}/metrics/traffic?interface={iface}&minutes=1440")
+    cgnat = older(f"{R}/metrics/cgnat?minutes=1440")
+    check(traffic and cgnat, f"charts backfilled from GetHistory ({len(traffic)} traffic and {len(cgnat)} CGNAT points before registration)")
+
+
 def tls_test(client, url, profile=None, server_name=None):
     body = {"api_url": url}
     if profile:
@@ -129,6 +140,7 @@ def lab(admin, args):
     st, b = tls_test(admin, args.lab, args.lab_profile, args.server_name)
     check(st == 200 and b.get("release"), f"mTLS with the real Prisma ({b.get('release') if st == 200 else '?'}), account {b.get('account') if st == 200 else '?'}", b)
     name = f"e2e-lab-{uuid.uuid4().hex[:6]}"
+    registered_at = time.time()
     st, r = admin.post("/routers", {"name": name, "api_url": args.lab, "tls_profile": args.lab_profile, "tls_server_name": args.server_name})
     check(st == 201, "temporary registration of the real Prisma", r)
     R = f"/routers/{r['id']}"
@@ -160,6 +172,7 @@ def lab(admin, args):
             "live telemetry from the real Prisma",
             timeout=40,
         ) if (b_if := next((i["name"] for i in admin.get(R + "/interfaces")[1]["interfaces"] if i["link_up"]), None)) else check(False, "no interface with link to measure")
+        check_backfill(admin, R, b_if, registered_at)
     finally:
         admin.delete(R)
 
@@ -197,6 +210,7 @@ def main():
         st, b = admin.post("/routers/test", {"api_url": args.mock})
         check(st == 200 and b.get("release"), "connection test returns GetVersion", b)
 
+        registered_at = time.time()
         st, b = admin.post("/routers", {"name": f"e2e-{suffix}", "api_url": args.mock})
         check(st == 201, "test router registered", b)
         router_id = b["id"]
@@ -220,6 +234,7 @@ def main():
             timeout=40,
         )
         check(all(s["rx_bps"] >= 0 and s["tx_bps"] >= 0 for s in series["samples"]), "rates never negative")
+        check_backfill(admin, R, "wan0", registered_at)
 
         # --- configuration flow ---------------------------------------------------
         st, running = admin.get(f"{R}/config/running")
