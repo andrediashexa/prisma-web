@@ -74,7 +74,13 @@ struct RouterData {
     live: bool,
     pending: Option<PendingConfirm>,
     web_action_at: Option<Instant>,
+    /// Revisions prisma-web committed itself, newest last: their `commit`
+    /// events are the echo (Event.revision, Prisma 0.149.2, #30).
+    own_revisions: VecDeque<String>,
 }
+
+/// How many of its own revisions are remembered per router.
+const OWN_REVISIONS: usize = 32;
 
 struct Shared {
     db: PgPool,
@@ -159,6 +165,16 @@ impl Telemetry {
     /// Marks that the web UI has just changed the router (to ignore the echo).
     pub fn web_action(&self, id: Uuid) {
         self.shared.routers.lock().unwrap().entry(id).or_default().web_action_at = Some(Instant::now());
+    }
+
+    /// Records a revision committed through the web UI, so its `commit` event is not logged twice.
+    pub fn own_commit(&self, id: Uuid, revision: &str) {
+        let mut routers = self.shared.routers.lock().unwrap();
+        let own = &mut routers.entry(id).or_default().own_revisions;
+        own.push_back(revision.to_string());
+        while own.len() > OWN_REVISIONS {
+            own.pop_front();
+        }
     }
 }
 
@@ -347,7 +363,7 @@ fn set_live(shared: &Shared, id: Uuid, live: bool) {
     }
 }
 
-async fn handle(shared: &Shared, h: &RouterHandle, u: TelemetryUpdate) {
+async fn handle(shared: &Arc<Shared>, h: &RouterHandle, u: TelemetryUpdate) {
     let at = u
         .at
         .and_then(|t| DateTime::from_timestamp(t.seconds, t.nanos.max(0) as u32))
@@ -388,8 +404,48 @@ fn apply_counters(d: &mut RouterData, at: DateTime<Utc>, samples: Vec<prisma_pro
     }
 }
 
-async fn on_event(shared: &Shared, h: &RouterHandle, e: Event) {
-    let echo = {
+#[derive(Debug, PartialEq)]
+enum Echo {
+    /// The event is the echo of a web action: not logged again.
+    Yes,
+    /// A change made on the device: logged.
+    No,
+    /// A commit with a revision not known yet, during a web action: the web
+    /// commit may still be returning its revision.
+    Wait,
+}
+
+/// Whether an event is the echo of prisma-web's own action. A `commit` event is
+/// matched by its revision (#30); without one (another commit landed while the
+/// box read it) and for the other kinds, by the time window.
+fn echo_of(kind: &str, revision: &str, own: &VecDeque<String>, in_window: bool) -> Echo {
+    match kind {
+        // An automatic rollback always goes to the log: nobody asked for it through the web UI.
+        "rolled-back" => Echo::No,
+        "commit" if !revision.is_empty() => {
+            if own.iter().any(|r| r == revision) {
+                Echo::Yes
+            } else if in_window {
+                Echo::Wait
+            } else {
+                Echo::No
+            }
+        }
+        _ if in_window => Echo::Yes,
+        _ => Echo::No,
+    }
+}
+
+/// Applies the event to the pending-confirm state and decides whether it is an echo.
+fn classify(shared: &Shared, id: Uuid, e: &Event) -> Echo {
+    let mut routers = shared.routers.lock().unwrap();
+    let d = routers.entry(id).or_default();
+    let in_window = d.web_action_at.is_some_and(|t| t.elapsed() < ECHO_WINDOW);
+    echo_of(&e.kind, &e.revision, &d.own_revisions, in_window)
+}
+
+async fn on_event(shared: &Arc<Shared>, h: &RouterHandle, e: Event) {
+    {
         let mut routers = shared.routers.lock().unwrap();
         let d = routers.entry(h.id).or_default();
         match e.kind.as_str() {
@@ -399,15 +455,35 @@ async fn on_event(shared: &Shared, h: &RouterHandle, e: Event) {
             }
             _ => {}
         }
-        d.web_action_at.is_some_and(|t| t.elapsed() < ECHO_WINDOW)
-    };
-    // An automatic rollback always goes to the log: nobody asked for it through the web UI.
-    if echo && e.kind != "rolled-back" {
-        return;
     }
+    match classify(shared, h.id, &e) {
+        Echo::Yes => {}
+        Echo::No => record_event(shared, h.id, &h.name, e).await,
+        Echo::Wait => {
+            // Decided off the stream, so the counters keep flowing meanwhile.
+            let (shared, id, name) = (shared.clone(), h.id, h.name.clone());
+            tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    match classify(&shared, id, &e) {
+                        Echo::Yes => return,
+                        Echo::No => return record_event(&shared, id, &name, e).await,
+                        Echo::Wait => {}
+                    }
+                }
+            });
+        }
+    }
+}
+
+async fn record_event(shared: &Shared, id: Uuid, router: &str, e: Event) {
     let action = format!("box.{}", e.kind);
     let username = format!("{} (on the device)", if e.account.is_empty() { "?" } else { &e.account });
-    let mut entry = Entry::system(&action, Some(&h.name)).router(h.id).details(json!({ "text": e.text, "account": e.account }));
+    let mut details = json!({ "text": e.text, "account": e.account });
+    if !e.revision.is_empty() {
+        details["revision"] = json!(e.revision);
+    }
+    let mut entry = Entry::system(&action, Some(router)).router(id).details(details);
     entry.username = Some(&username);
     audit::record(&shared.db, entry).await;
 }
@@ -454,6 +530,18 @@ mod tests {
 
     fn rates(n: i64, every: i64, end: i64) -> Vec<RateSample> {
         (0..n).map(|i| RateSample { timestamp: at(end - (n - 1 - i) * every), rx_bps: 1, tx_bps: 1 }).collect()
+    }
+
+    #[test]
+    fn own_commit_is_matched_by_revision_not_by_time() {
+        let own: VecDeque<String> = ["r7".to_string()].into();
+        assert_eq!(echo_of("commit", "r7", &own, false), Echo::Yes, "our revision, even late");
+        assert_eq!(echo_of("commit", "r8", &own, true), Echo::Wait, "unknown yet during a web action");
+        assert_eq!(echo_of("commit", "r8", &own, false), Echo::No, "a commit made on the device");
+        assert_eq!(echo_of("commit", "", &own, true), Echo::Yes, "no revision: the time window decides");
+        assert_eq!(echo_of("commit", "", &own, false), Echo::No);
+        assert_eq!(echo_of("rolled-back", "r7", &own, true), Echo::No, "a rollback is always logged");
+        assert_eq!(echo_of("confirmed", "r7", &own, true), Echo::Yes);
     }
 
     #[test]

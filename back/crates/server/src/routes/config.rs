@@ -317,6 +317,7 @@ pub async fn commit(
         Ok(resp) => {
             let resp = resp.into_inner();
             details["revision"] = json!(resp.revision);
+            st.routers.telemetry.own_commit(id, &resp.revision);
             audit::record(&st.db, entry.details(details)).await;
             st.candidates.forget(&cid);
             // If Prisma does not close the candidate on commit by itself, close it here.

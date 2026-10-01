@@ -137,10 +137,12 @@ it after a restart, the outage after a reconnection) and then follows the live s
 restart of the back no longer empties the charts (#26, closing #7). A box without the rpc answers
 `UNIMPLEMENTED` and the charts start from the live stream, as before.
 
-### 🟢 2.5 Identifying its own commit in the events
-The `commit` events from `Subscribe` go into the prisma-web log as *changes made on the device*. If
-`Event` carried the `revision` (or the commit comment), prisma-web could match the event to the
-commit it made itself, without duplicating the entry.
+### ✅ 2.5 Identifying its own commit in the events — delivered in 0.149.2, used since #30
+`Event` carries `revision` and `comment` since 0.149.2. prisma-web remembers the revisions it
+committed, and a `commit` event with one of them is its own echo. Any other revision is logged as a
+change made on the device, even right after a web action; the box event can arrive before the
+`Commit` reply, so during the 8 s window the decision waits for that reply. An empty revision
+(another commit landed while the box read it) falls back to the time window.
 
 ### ✅ 2.6 Health check — answered
 Prisma 0.149.2 serves `grpc.health.v1.Health`. The fleet monitor checks
@@ -174,3 +176,25 @@ statistics segment does not answer) shows as *not serving*, with the reason, ins
 The proto is copied to `back/proto/prisma/v1/prisma.proto`. When it changes on the Prisma, copy it
 again and run the build: the gRPC client is generated from it. By the proto's own compatibility
 rules (add only), an old prisma-web keeps working with a new Prisma.
+
+Since 0.149.6 the Prisma keeps `docs/clients.md`: per release, what changes for an API client
+(contract sha256, behaviour, fields, known bugs, the lab box's version and upgrade windows).
+prisma-web compares it with the release recorded below and follows every entry.
+
+| Vendored | From prismarouting | sha256 |
+|---|---|---|
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.6 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.6 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
+
+Read up to 0.149.6 in `clients.md` and already handled:
+- 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
+  0.149.2 boxes (#25).
+- 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
+  and the telemetry stream retry forever with backoff (up to 30 s).
+- 0.149.5: after a dataplane crash the box restores its configuration in about 10 s. Counters
+  restart from zero (no spike, by the reset rule) and Health answers `NOT_SERVING` meanwhile, which
+  the fleet shows as *not serving* (#29).
+- `GetHistory` survives upgrades but **not a reboot** of the box: after one, the charts start from
+  the reboot.
+- A route snapshot not paged for 10 min is dropped; its token answers `FAILED_PRECONDITION` and the
+  route table offers a new snapshot (#27).

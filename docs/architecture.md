@@ -110,8 +110,11 @@ sequenceDiagram
 - **Counter reset:** a reboot or a `clear counters` must not turn into a traffic spike. The sample
   is dropped and becomes the new baseline. This is covered by the test
   `telemetry::tests::counter_reset_produces_no_sample`.
-- **Echo:** an event that arrives up to 8 s after an action taken through the web, such as a commit,
-  a confirmation or a save, is treated as its echo and does not create a second log entry.
+- **Echo:** a `commit` event whose revision prisma-web committed itself is its echo and does not
+  create a second log entry; any other revision is a change made on the device, even right after a
+  web action (#30). Other events (confirmation, save) and a commit event without a revision count
+  as the echo when they arrive up to 8 s after a web action. Covered by
+  `telemetry::tests::own_commit_is_matched_by_revision_not_by_time`.
   `rolled-back` is the exception: it always goes into the log, because nobody asked for it.
 
 ## Uptime breakdown
