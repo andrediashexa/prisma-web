@@ -280,6 +280,15 @@ vendored from the Prisma project are already in English.
 
 User-facing dates and numbers are formatted as en-US.
 
+**Generated files.** Files written by tools are not documents of this
+project and are skipped by every documentation rule. `scripts/check-docs.py`
+reads this block too.
+
+```text generated-files
+front/AGENTS.md                  # written and re-added by `next dev`
+front/CLAUDE.md                  # written and re-added by `next dev`
+```
+
 **Versions.** Cargo and npm require a literal version in their manifests;
 they are the only copies allowed besides `VERSION`, and the documentation
 check fails when they differ from it.

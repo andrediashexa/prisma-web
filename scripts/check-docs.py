@@ -41,20 +41,25 @@ def tracked(pattern):
     return [p for p in out.splitlines() if (ROOT / p).exists()]
 
 
-def exceptions():
+def block(name):
     text = (ROOT / "CONTRIBUTING.md").read_text()
-    m = re.search(r"```text language-exceptions\n(.*?)```", text, re.S)
+    m = re.search(rf"```text {name}\n(.*?)```", text, re.S)
     if not m:
-        sys.exit("CONTRIBUTING.md: no `language-exceptions` block")
+        sys.exit(f"CONTRIBUTING.md: no `{name}` block")
     pats = [line.split("#")[0].strip() for line in m.group(1).splitlines()]
     return [p for p in pats if p]
 
 
-EXC = exceptions()
+EXC = block("language-exceptions")
+GENERATED = block("generated-files")
+
+
+def matches(path, pats):
+    return any(fnmatch.fnmatch(path, p) or (p.endswith("/**") and path.startswith(p[:-2])) for p in pats)
 
 
 def excepted(path):
-    return any(fnmatch.fnmatch(path, p) or (p.endswith("/**") and path.startswith(p[:-2])) for p in EXC)
+    return matches(path, EXC) or matches(path, GENERATED)
 
 
 def portuguese(text):
@@ -124,8 +129,8 @@ for tag in tags:
     if not re.fullmatch(r"0\.\d+\.\d+", tag):
         fail("git tag", f"'{tag}' is not in the X.Y.Z format with major version 0")
 
-# ---- exceptions that no longer exist (the list must not keep dead entries)
-for p in EXC:
+# ---- exceptions that no longer exist (the lists must not keep dead entries)
+for p in EXC + GENERATED:
     base = p[:-3] if p.endswith("/**") else p
     if not (ROOT / base).exists():
         fail("CONTRIBUTING.md", f"language exception points at something that does not exist: {p}")
