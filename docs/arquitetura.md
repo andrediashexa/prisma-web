@@ -142,8 +142,12 @@ ao front, que mostra a mensagem, o caminho e a linha que o VTY citou:
 ## Limites
 
 - Trocar ou incluir certificados exige acesso ao host, e não à tela (decisão da #4).
-- A 0.148.4 lista as interfaces `tap*` do linux_cp no `ListInterfaces`. O back as esconde até a
-  0.148.5 (`routes/ops.rs`).
+- A 0.148.4 lista as interfaces `tap*` do linux_cp no `ListInterfaces`, e o back as esconde
+  (`routes/ops.rs`). A partir da 0.148.5, o próprio Prisma as omite (verificado no laboratório), e o
+  filtro só tem efeito enquanto houver equipamentos na 0.148.4.
+- O guia do Prisma (seção *Limits a client meets*) diz que cada sessão atende **uma requisição por
+  vez**. Ainda não está medido se um comando demorado no console atrasa o monitor de status, que
+  usa a mesma conta (issue #14).
 - O papel vale para todos os roteadores.
 - O front não tem testes automatizados além de lint e build. O roteiro `scripts/e2e.py` cobre o
   comportamento pela API.
