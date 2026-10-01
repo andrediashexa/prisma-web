@@ -9,7 +9,8 @@ use prisma_proto::v1::config_service_client::ConfigServiceClient;
 use prisma_proto::v1::operational_service_client::OperationalServiceClient;
 use prisma_proto::v1::telemetry_service_client::TelemetryServiceClient;
 use prisma_proto::v1::{
-    GetSessionsSummaryRequest, GetSystemRequest, GetVersionRequest, SessionsSummary, SystemInfo, VersionInfo,
+    GetRunningRequest, GetSessionsSummaryRequest, GetSystemRequest, GetVersionRequest, SessionsSummary, SystemInfo,
+    VersionInfo,
 };
 use serde::Serialize;
 use sqlx::PgPool;
@@ -25,6 +26,10 @@ use crate::tls;
 /// Intervalo do monitor da frota e tempo máximo de resposta de cada Prisma.
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(4);
+/// Quanto tempo vale o hostname tirado do `GetRunning` (ver `hostname_fallback`).
+const HOSTNAME_TTL: Duration = Duration::from_secs(600);
+
+type HostnameCache = Arc<RwLock<HashMap<Uuid, (String, Instant)>>>;
 
 pub struct RouterHandle {
     pub id: Uuid,
@@ -67,6 +72,7 @@ pub struct Registry {
     pub telemetry: Telemetry,
     cache: RwLock<HashMap<Uuid, Arc<RouterHandle>>>,
     status: RwLock<HashMap<Uuid, RouterStatus>>,
+    hostnames: HostnameCache,
 }
 
 #[derive(sqlx::FromRow)]
@@ -92,6 +98,7 @@ impl Registry {
             db,
             cache: RwLock::new(HashMap::new()),
             status: RwLock::new(HashMap::new()),
+            hostnames: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -137,6 +144,7 @@ impl Registry {
     pub fn invalidate(&self, id: Uuid) {
         self.cache.write().unwrap().remove(&id);
         self.status.write().unwrap().remove(&id);
+        self.hostnames.write().unwrap().remove(&id);
         self.telemetry.stop(id);
     }
 
@@ -157,6 +165,7 @@ impl Registry {
     async fn poll(&self, handles: Vec<Arc<RouterHandle>>) {
         let mut set = JoinSet::new();
         for h in handles {
+            let hostnames = self.hostnames.clone();
             set.spawn(async move {
                 let started = Instant::now();
                 let res = tokio::time::timeout(STATUS_TIMEOUT, async {
@@ -184,8 +193,19 @@ impl Registry {
                     Ok(Ok((v, s, ss))) => {
                         st.online = true;
                         st.latency_ms = Some(latency);
-                        st.version = Some(v.into_inner());
-                        st.system = Some(s.into_inner());
+                        let (mut v, mut s) = (v.into_inner(), s.into_inner());
+                        if v.hostname.is_empty() || s.hostname.is_empty() {
+                            if let Some(name) = hostname_fallback(&h, &hostnames).await {
+                                if v.hostname.is_empty() {
+                                    v.hostname = name.clone();
+                                }
+                                if s.hostname.is_empty() {
+                                    s.hostname = name;
+                                }
+                            }
+                        }
+                        st.version = Some(v);
+                        st.system = Some(s);
                         st.sessions = Some(ss.into_inner());
                     }
                     Ok(Err(status)) => st.error = Some(grpc::describe(&status)),
@@ -239,6 +259,31 @@ impl Registry {
         }
         Ok(endpoint.connect_lazy())
     }
+}
+
+/// O Prisma 0.148.4 devolve o hostname vazio no GetVersion e não o preenche no
+/// GetSystem (bug confirmado pela equipe do Prisma, corrigido na 0.148.6). Até
+/// lá o nome vem da linha `hostname` do GetRunning, lido no máximo a cada 10 min
+/// por roteador. Com o hostname preenchido pelo Prisma, isto nem é chamado (issue #13).
+async fn hostname_fallback(h: &RouterHandle, cache: &HostnameCache) -> Option<String> {
+    if let Some((name, at)) = cache.read().unwrap().get(&h.id) {
+        if at.elapsed() < HOSTNAME_TTL {
+            return Some(name.clone());
+        }
+    }
+    let running = h.config().get_running(grpc::req(GetRunningRequest {})).await.ok()?.into_inner();
+    let name = hostname_from_running(&running.text)?;
+    cache.write().unwrap().insert(h.id, (name.clone(), Instant::now()));
+    Some(name)
+}
+
+/// Nome na linha de topo `hostname <nome>` de um texto de running-config.
+pub fn hostname_from_running(text: &str) -> Option<String> {
+    text.lines()
+        .find_map(|l| l.strip_prefix("hostname "))
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map(str::to_string)
 }
 
 /// Valida o endereço gRPC de um Prisma. Aceita IPv6 entre colchetes.
@@ -317,5 +362,19 @@ mod tests {
         ] {
             assert!(v(bad).is_err(), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod hostname_tests {
+    use super::hostname_from_running;
+
+    #[test]
+    fn hostname_comes_from_the_running_config() {
+        let running = "! cgnat\nhostname prisma-routing\ninterface enp6s18\n ipv4 address 192.0.2.166/24\n exit\n";
+        assert_eq!(hostname_from_running(running).as_deref(), Some("prisma-routing"));
+        // Só a linha de topo: um `description hostname x` aninhado não conta.
+        assert_eq!(hostname_from_running(" description hostname falso\n"), None);
+        assert_eq!(hostname_from_running("hostname   \n"), None);
     }
 }

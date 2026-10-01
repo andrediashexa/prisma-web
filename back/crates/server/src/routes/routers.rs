@@ -141,12 +141,22 @@ pub async fn test(
         .await
         .map_err(|_| AppError::BadRequest("o Prisma não respondeu a tempo".into()))?
         .map_err(|s| AppError::BadRequest(grpc::describe(&s)))?;
+    let mut version = version.into_inner();
+    if version.hostname.is_empty() {
+        // Mesmo contorno do status da frota (Prisma 0.148.4, issue #13).
+        let mut cfg = prisma_proto::v1::config_service_client::ConfigServiceClient::new(
+            st.routers.channel(&conn.url, conn.target())?,
+        );
+        if let Ok(r) = cfg.get_running(grpc::req(prisma_proto::v1::GetRunningRequest {})).await {
+            version.hostname = crate::registry::hostname_from_running(&r.into_inner().text).unwrap_or_default();
+        }
+    }
     let account = conn
         .tls
         .as_ref()
         .and_then(|(p, _)| tls::check(&st.routers.tls_root, p).ok())
         .and_then(|i| i.account);
-    Ok(Json(TestResult { version: version.into_inner(), account }))
+    Ok(Json(TestResult { version, account }))
 }
 
 #[derive(Deserialize)]

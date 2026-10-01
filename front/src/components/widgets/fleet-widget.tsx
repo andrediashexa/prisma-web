@@ -72,7 +72,11 @@ export function FleetWidget() {
                     {r.version && (
                       <div className="text-muted-foreground col-span-3 truncate">
                         Prisma {r.version.release}
-                        {!r.version.dataplane_current && <span className="text-amber-600 dark:text-amber-400"> · reinício pendente</span>}
+                        {!r.version.dataplane_current && (
+                          <span className="text-amber-600 dark:text-amber-400" title="O upgrade trocou o VTY e os arquivos, mas o dataplane (VPP e o plugin de CGNAT) só passa para a versão nova no próximo reboot.">
+                            {" "}· reboot pendente
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

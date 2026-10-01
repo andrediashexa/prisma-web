@@ -123,10 +123,11 @@ def lab(admin, args):
     check(st == 201, "cadastro temporário do Prisma real", r)
     R = f"/routers/{r['id']}"
     try:
-        wait_for(
+        st_lab = wait_for(
             lambda: (lambda s: (bool(s) and s[0]["online"], s))([x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]),
             "Prisma real online no status da frota",
-        )
+        )[0]
+        check(st_lab["version"]["hostname"] and st_lab["system"]["hostname"], f"hostname do Prisma real preenchido ({st_lab['version']['hostname']})", st_lab)
         for path, key in [("/interfaces", "interfaces"), ("/pools", "pools"), ("/bgp", "neighbors")]:
             st, b = admin.get(R + path)
             check(st == 200 and key in b, f"GET {path} responde", b)
