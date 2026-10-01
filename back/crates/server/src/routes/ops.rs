@@ -50,6 +50,68 @@ pub async fn interfaces(
     Ok(Json(resp))
 }
 
+passthrough!(policies, list_policies, ListPoliciesRequest {}, ListPoliciesResponse);
+
+#[derive(Deserialize)]
+pub struct CountersQuery {
+    /// One policy; absent or empty is every policy.
+    #[serde(default)]
+    policy: String,
+}
+
+/// Per-term hits at every place a policy is applied (Prisma 0.148.12, #21).
+pub async fn policy_counters(
+    State(st): State<AppState>,
+    _: CurrentUser,
+    Path(id): Path<Uuid>,
+    Query(q): Query<CountersQuery>,
+) -> AppResult<Json<GetPolicyCountersResponse>> {
+    let r = st.routers.get(id).await?;
+    let msg = GetPolicyCountersRequest { policy: q.policy.trim().to_string() };
+    Ok(Json(r.ops().get_policy_counters(req(msg)).await?.into_inner()))
+}
+
+#[derive(Deserialize)]
+pub struct TestPolicyBody {
+    policy: String,
+    prefix: String,
+    #[serde(default)]
+    attach_point: String,
+    #[serde(default)]
+    attributes: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    rib: bool,
+    #[serde(default)]
+    vrf: String,
+    #[serde(default)]
+    neighbor: String,
+}
+
+/// Simulates a policy on a route (Prisma 0.148.12, #21). Read-only on the box,
+/// but it makes the box work, so it is an operator action like the console.
+pub async fn test_policy(
+    State(st): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(b): Json<TestPolicyBody>,
+) -> AppResult<Json<TestPolicyResponse>> {
+    user.require(Role::Operator)?;
+    if b.policy.trim().is_empty() || b.prefix.trim().is_empty() {
+        return Err(AppError::BadRequest("policy and prefix are required".into()));
+    }
+    let r = st.routers.get(id).await?;
+    let msg = TestPolicyRequest {
+        policy: b.policy.trim().to_string(),
+        prefix: b.prefix.trim().to_string(),
+        attach_point: b.attach_point.trim().to_string(),
+        attributes: b.attributes,
+        rib: b.rib,
+        vrf: b.vrf.trim().to_string(),
+        neighbor: b.neighbor.trim().to_string(),
+    };
+    Ok(Json(r.ops().test_policy(req(msg)).await?.into_inner()))
+}
+
 #[derive(Deserialize)]
 pub struct SubscriberQuery {
     address: String,

@@ -145,6 +145,11 @@ def lab(admin, args):
         check(not any(i["name"].startswith("tap") for i in b["interfaces"]), "linux_cp tap* interfaces hidden")
         st, b = admin.get(R + "/config/running")
         check(st == 200 and "interface " in b["text"], "GetRunning from the real Prisma")
+        st, pol = admin.get(R + "/policies")
+        st2, cnt = admin.get(R + "/policies/counters")
+        check(st == 200 and st2 == 200, f"policies and counters of the real Prisma ({len(pol['policies'])} policies, {len(cnt['uses'])} uses)", [pol, cnt])
+        st, b = admin.post(R + "/policies/test", {"policy": "E2E-NO-SUCH-POLICY", "prefix": "192.0.2.0/24"})
+        check(st == 404, "TestPolicy of an unknown policy on the real Prisma answers NOT_FOUND", b)
         st, b = admin.get(R + "/system")
         check(st == 200 and b.get("boot_time") and b.get("last_boot_reason"),
               f"uptime breakdown of the real Prisma (last boot: {b.get('last_boot_reason')}, dataplane restarted: {b.get('dataplane_restarted')})", b)
@@ -334,6 +339,28 @@ def main():
         st, b = admin.get(R + "/system")
         check(st == 200 and b.get("boot_time") and b.get("dataplane_restarted") is False,
               "uptime breakdown present, no dataplane restart on the plain mock", b)
+
+        # --- routing policies (Prisma 0.148.12, #21) -------------------------------
+        st, b = admin.get(R + "/policies")
+        names = [p["name"] for p in (b or {}).get("policies", [])]
+        check(st == 200 and "TRANSIT-IN" in names, "ListPolicies lists the policies with their terms", b)
+        st, b = admin.get(R + "/policies/counters")
+        uses = (b or {}).get("uses", [])
+        check(st == 200 and any(not u["counted"] for u in uses), "counters keep 'no counter' apart from zero", b)
+        check(any(not t["compiled"] for u in uses for t in u["terms"]), "counters mark a term not compiled at a use", b)
+        st, b = admin.get(R + "/policies/counters?policy=NOPE")
+        check(st == 404, "counters of an unknown policy answer NOT_FOUND", b)
+        st, b = admin.post(R + "/policies/test", {"policy": "TRANSIT-IN", "prefix": "10.1.0.0/16", "attach_point": "import"})
+        check(st == 200 and b["verdict"] == "reject" and b["decided_term"] == "bogons" and b["steps"],
+              "TestPolicy: a bogon is rejected by term bogons", b)
+        st, b = admin.post(R + "/policies/test", {"policy": "TRANSIT-IN", "prefix": "198.51.100.0/24",
+                                                  "attributes": {"community": "65001:10"}})
+        check(st == 200 and b["verdict"] == "accept" and b["route_after"].get("local-preference") == "200",
+              "TestPolicy: a customer route is accepted and shows the route after the sets", b)
+        st, b = admin.post(R + "/policies/test", {"policy": "NOPE", "prefix": "198.51.100.0/24"})
+        check(st == 404 and "NOPE" in b["error"]["message"], "TestPolicy of an unknown policy answers NOT_FOUND", b)
+        st, b = admin.post(R + "/policies/test", {"policy": "TRANSIT-IN", "prefix": "198.51.100.0/24", "attach_point": "nowhere"})
+        check(st == 422, "TestPolicy at an unknown attach point answers INVALID_ARGUMENT", b)
     finally:
         if op_id:
             admin.delete(f"/users/{op_id}")

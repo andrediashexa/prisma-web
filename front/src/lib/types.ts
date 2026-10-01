@@ -304,3 +304,64 @@ export interface TlsProfile {
   not_after: string | null
   error: string | null
 }
+
+// Routing policies, Prisma 0.148.12 (#21).
+export interface PolicyTerm {
+  name: string
+  /** "accept", "reject", "next term", "next policy", or "" when it has none. */
+  then: string
+  lines: string[]
+}
+
+export interface Policy {
+  name: string
+  terms: PolicyTerm[]
+  default_action: string
+  text: string
+  applied: string[]
+}
+
+export interface PolicyTermHits {
+  policy: string
+  /** "" is the policy's default-action. */
+  term: string
+  hits: number
+  /** false: the term compiled to no clause at this use. */
+  compiled: boolean
+}
+
+export interface PolicyUseCounters {
+  policy: string
+  attach_point: string
+  applied_at: string[]
+  route_map: string
+  daemon: string
+  called: boolean
+  /** false: the daemon reported no such map — no counter, which is not zero. */
+  counted: boolean
+  terms: PolicyTermHits[]
+}
+
+export interface TestPolicyStep {
+  policy: string
+  term: string
+  outcome: "match" | "no match" | "unknown" | string
+  why: string
+}
+
+export interface TestPolicyResponse {
+  verdict: "accept" | "reject" | string
+  decided_by: string
+  decided_policy: string
+  decided_term: string
+  attach_point: string
+  route_map: string
+  daemon: string
+  route: Record<string, string>
+  route_after: Record<string, string>
+  steps: TestPolicyStep[]
+  assumed: string[]
+  notes: string[]
+  said: string[]
+  refused: string[]
+}
