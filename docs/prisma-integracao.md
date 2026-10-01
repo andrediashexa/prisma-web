@@ -1,9 +1,9 @@
 # prisma-web × Prisma: o que falta do lado do Prisma
 
 **TL;DR:** o que o prisma-web precisa saber ou receber do Prisma para usar o contrato `prisma.v1`
-por inteiro. O guia da API e um equipamento de laboratório já responderam parte das perguntas.
-O que bloqueia o uso com um equipamento real agora é o **mTLS obrigatório** (#4) e a API ainda
-não estar habilitada no equipamento, que já tem o servidor desde a 0.148.3. As lacunas da seção 2 são sugestões de campos novos, todas compatíveis
+por inteiro. As cinco perguntas estão respondidas, e as sugestões de campos novos foram aceitas
+pelo Prisma (prismarouting #533). A API existe a partir da 0.148.4 e já está habilitada no
+equipamento de laboratório. Do lado do prisma-web, falta o mTLS (#4). As lacunas da seção 2 são sugestões de campos novos, todas compatíveis
 com a v1.
 
 As palavras-chave MUST, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -16,7 +16,7 @@ As palavras-chave MUST, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.
 | **Where** | `back/proto/prisma/v1/prisma.proto` (cópia) e o servidor gRPC do Prisma. |
 | **When** | Antes de cadastrar o primeiro equipamento real. Revisado em 2026-10-01 com o guia da API (issue #9). |
 | **How** | Responder a seção 1. Os campos da seção 2 entram como adições no `prisma.v1`. |
-| **How much** | 5 perguntas (1 respondida, 2 em parte, 2 abertas) e 6 sugestões. Nenhuma exige `prisma.v2`. |
+| **How much** | 5 perguntas, todas respondidas, e 6 sugestões, aceitas como prismarouting #533. Nenhuma exige `prisma.v2`. |
 
 Legenda: **🔴 bloqueia** · **🟡 dá para contornar** · **🟢 sugestão**
 
@@ -24,54 +24,51 @@ Legenda: **🔴 bloqueia** · **🟡 dá para contornar** · **🟢 sugestão**
 
 ## 1. Perguntas
 
-Fontes das respostas: **guia** é o `docs/prisma-api.md` (guia oficial da API, copiado sem
-alterações) e **equipamento** é o `show running-config` e o `show version` de um Prisma 0.148.3
-de laboratório, lidos em 2026-10-01 sem alterar nada (issue #9).
+Fontes: **guia** é o `docs/prisma-api.md`; **equipamento** é o Prisma de laboratório
+`192.0.2.166`; **Prisma** são as respostas da sessão que mantém o Prisma Routing, conferidas
+contra o código ou o equipamento e repassadas em 2026-10-01.
 
-### 🟡 1.1 Gramática para editar uma interface — respondida em parte
-O equipamento confirma `description <texto>`, `mtu <n>`, `shutdown` e **`ipv4 address <cidr>`**
-(e não `ip address`). Cada bloco termina em `exit`, e o `shutdown` vem antes do `mtu`. O mock
-segue esse formato desde a issue #9.
+### ✅ 1.1 Gramática para editar uma interface — respondida
+Dentro de `interface <nome>` valem `description <texto>`, `no description`, `mtu <n>`,
+`shutdown`, `no shutdown` e **`ipv4 address <cidr>`** (e não `ip address`). Os blocos fecham com
+`exit`. As formas com `no` foram confirmadas com `commit check` no equipamento, sem aplicar nada,
+e produzem o diff esperado no `compare` (Prisma). O mock segue esse formato desde a issue #9, e o
+mapeamento fica em `front/src/lib/vty.ts`.
 
-| Ação | `path` | `lines` | Situação |
-|---|---|---|---|
-| Descrição | `["interface <nome>"]` | `description <texto>` · `no description` | `description` confirmado; `no description` **não confirmado** |
-| MTU | `["interface <nome>"]` | `mtu <n>` | confirmado |
-| Desligar / ligar | `["interface <nome>"]` | `shutdown` · `no shutdown` | `shutdown` confirmado; `no shutdown` **não confirmado** |
+### ✅ 1.2 Acesso ao equipamento — respondida
+- **A API existe a partir da 0.148.4** e vem desligada; `api enabled yes` a liga. O guia dizia
+  "0.149.0", o que vai ser corrigido na 0.148.5. A 0.148.3 publicada **não** tem `apiserver.py`
+  (Prisma, confirmado inspecionando a imagem `prisma-mgmt:0.148.3`). No laboratório, a 0.148.4
+  está com a API **habilitada** e os certificados em `/etc/prisma-routing/api/`.
+- **Porta 50051** no endereço de gerência. Endpoint de teste: `https://192.0.2.166:50051`.
+- **Só mTLS**: o servidor não sobe sem certificados e recusa cliente sem certificado (guia).
+- **A conta é o CN do certificado do cliente**, e o papel vem do VTY. O certificado do prisma-web
+  tem CN `prisma-web`, com papel de administrador (Prisma).
+- **Nome do servidor no certificado: `prisma-api`**, e o IP também está no SAN (Prisma).
+- A 0.148.4 lista no `ListInterfaces` as interfaces `tap*` internas do linux_cp; isso será
+  corrigido na 0.148.5, e até lá o back as esconde (Prisma).
 
-Falta confirmar as formas com `no`. Fazer isso exigiria entrar em `configure` no equipamento, o
-que não foi feito. O mapeamento fica num arquivo só (`front/src/lib/vty.ts`).
+### ✅ 1.3 `Show` e comandos que demoram — respondida
+Cada chamada roda no processo da conta, com **300 s** de limite no servidor. O corte de 30 s do
+console é mais curto, e isso é aceitável. `monitor` é uma tela ao vivo que o VTY recusa sem
+terminal: pelo `Show` ele não transmite. Contadores ao vivo vêm do `TelemetryService.Subscribe`.
+(Prisma)
 
-### 🔴 1.2 Acesso ao equipamento — respondida
-- **Porta 50051** no endereço de gerência (`api listen-address`). A API vem desligada
-  (`api enabled yes` a liga). O guia diz "a partir da 0.149.0", mas o equipamento mostra que o
-  servidor e o comando `api` já estão na **0.148.3**: o `apiserver.py`, o `prismash.py`, o
-  `config.py` e o `doors.py` têm o mesmo md5 na 0.148.3 em execução e na imagem 0.148.4. No
-  laboratório, a API existe mas não está habilitada, e `/etc/prisma-routing/api/` está vazio.
-  (guia, equipamento, 2026-10-01)
-- **Só mTLS**: o servidor não sobe sem `server.key`, `server.crt` e `clients-ca.crt`, e recusa
-  cliente sem certificado. Não existe modo sem TLS. Por isso a #4 é pré-requisito para usar um
-  equipamento real. (guia)
-- **A conta é o CN do certificado do cliente**, e o papel vem do login do VTY: `prisma-admin`
-  configura tudo, `prisma-cgnat` só o CGNAT e os demais só leem. (guia)
-- O cliente MUST informar o nome que está no certificado do servidor (`domain_name`, por exemplo
-  `prisma-api`), ou o certificado MUST trazer o endereço discado no `subjectAltName`. (guia)
+### ✅ 1.4 Candidatos abandonados — respondida
+O servidor fecha um candidate **parado por 30 min** e o processo operacional de uma conta parado
+por 5 min. A limpeza acontece na chamada seguinte à API, e não por relógio (Prisma). O prisma-web
+fecha os seus depois de 1 h, mais do que os 30 min do servidor, e isso precisa de ajuste: depois
+de 30 min parado, o candidate pode já não existir.
 
-### 🟡 1.3 `Show` e comandos que demoram — respondida em parte
-O `Show` aceita `show`, `ping`, `traceroute`, `mtr` e `monitor` (guia). Ainda não se sabe quanto
-tempo o Prisma segura uma chamada nem o que acontece com `monitor`, que tem saída contínua. O
-console do prisma-web corta em **30 s**.
+### ✅ 1.5 Uma conta para todos os usuários da web — respondida
+Um certificado por usuário é o recomendado no futuro, para cada um aparecer com o próprio nome na
+trilha do equipamento. Para começar, a conta `prisma-web` com `[prisma-web:<usuário>]` no
+comentário do commit é aceitável. O `Confirm` vale para a conta inteira no equipamento (Prisma).
 
-### 🟡 1.4 Candidatos abandonados — aberta
-O guia diz que cada candidate aberto é **um processo no equipamento**, o que torna o vazamento
-mais caro, mas não diz se o Prisma descarta candidates abandonados. O prisma-web fecha os seus ao
-sair da tela e depois de 1 h.
-
-### 🟡 1.5 Uma conta para todos os usuários da web — aberta, com uma indicação
-O guia descreve **um certificado de cliente por conta**. Isso abre a opção de cada usuário da web
-ter o próprio certificado e aparecer com o próprio nome na trilha do equipamento. A decisão ficou
-para a #4. Até lá, todo commit leva `[prisma-web:<usuário>]` no comentário, e o `Confirm`, que vale
-para a conta, só é aceito do autor ou de um admin, uma trava que existe só do lado da web.
+### Sugestões da seção 2
+Foram aceitas pelo Prisma como a issue **#533 do prismarouting**, todas como adições compatíveis
+com o `prisma.v1`. O `ListRoutes` vai precisar de paginação e filtro, porque uma tabela completa
+tem cerca de 1 milhão de rotas.
 
 ---
 

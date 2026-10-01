@@ -1,8 +1,8 @@
 // Linhas de VTY que a interface gera para mudanças simples.
 //
-// A gramática real é do Prisma; este é o único lugar que a conhece. `description`,
-// `mtu` e `shutdown` foram confirmados no running-config de um Prisma 0.148.3;
-// as formas com `no` ainda não (docs/prisma-integracao.md, item 1.1).
+// A gramática real é do Prisma; este é o único lugar que a conhece. Todas as linhas
+// abaixo, inclusive as formas com `no`, foram confirmadas no equipamento com
+// `commit check` (docs/prisma-integracao.md, item 1.1).
 
 export interface EditBlock {
   path: string[]
