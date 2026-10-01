@@ -52,7 +52,7 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
             <span
               className={cn(
                 "size-2.5 shrink-0 rounded-full",
-                !status ? "bg-muted-foreground" : status.online ? "bg-emerald-500" : "bg-destructive",
+                !status ? "bg-muted-foreground" : status.health === "not-serving" ? "bg-amber-500" : status.online ? "bg-emerald-500" : "bg-destructive",
               )}
             />
             <h1 className="truncate text-2xl font-semibold tracking-tight">{router.name}</h1>
@@ -94,7 +94,12 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
           <EyeIcon className="size-4 shrink-0" /> {reason}
         </div>
       )}
-      {status && !status.online && (
+      {status?.health === "not-serving" && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+          The router&apos;s API answers but reports <span className="font-mono">NOT_SERVING</span>: the dataplane&apos;s statistics do not answer, so counters and telemetry may be stale or missing.
+        </div>
+      )}
+      {status && !status.online && status.health !== "not-serving" && (
         <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
           Could not reach this router: {status.error}
         </div>

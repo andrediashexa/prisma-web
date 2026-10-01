@@ -69,7 +69,11 @@ certificate's CN like the box, and its roles from `MOCK_ACCOUNTS`.
 ## Fleet status
 
 The monitor queries `GetVersion`, `GetSystem` and `GetSessionsSummary` of every router in parallel,
-every 5 s, with a 4 s limit, and the interface reads that cache. The first query of a newly
+every 5 s, with a 4 s limit, and the interface reads that cache. Alongside them it asks the
+standard health check (`grpc.health.v1`) for `prisma.v1.OperationalService`: a box that answers
+`NOT_SERVING` is shown as *not serving* with the reason (its dataplane's statistics do not
+answer), not as *offline*. A box without the health service reports no health and is judged by
+the reads alone (#29). The mock's `Show "mock stats-segment down|up"` simulates it for e2e. The first query of a newly
 registered router happens in the request itself.
 
 Measurement from version 0.2.0, still valid: with one router down, the status dropped from about

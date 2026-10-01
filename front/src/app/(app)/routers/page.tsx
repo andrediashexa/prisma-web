@@ -131,6 +131,10 @@ export default function RoutersPage() {
                         <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300" title="A console command holds the account on Prisma (0.148.4/0.148.5); data is from the last poll.">
                           busy (console)
                         </Badge>
+                      ) : s.health === "not-serving" ? (
+                        <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300" title={s.error ?? undefined}>
+                          not serving
+                        </Badge>
                       ) : s.online ? (
                         <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 dark:text-emerald-300">
                           online · {s.latency_ms} ms

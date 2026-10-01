@@ -460,6 +460,17 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     async fn show(&self, req: Request<ShowRequest>) -> R<ShowResponse> {
         let _turno = self.shared.ops.lock().await;
         let command = req.into_inner().command;
+        // Test hook of the mock only: what the box reports while the
+        // dataplane's statistics segment does not answer (#29).
+        if let Some(state) = command.trim().strip_prefix("mock stats-segment ") {
+            let up = match state {
+                "up" => true,
+                "down" => false,
+                _ => return Err(Status::invalid_argument("mock stats-segment up|down")),
+            };
+            self.shared.set_health(up).await;
+            return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
         let text = {
             let st = self.shared.state.lock().unwrap();
             self.show(&st, command.trim())?
@@ -488,7 +499,9 @@ mod tests {
 
     #[test]
     fn worker_load_stays_in_the_dataplane_range() {
-        let st = State::new("prisma-hq", 1.0);
+        let mut st = State::new("prisma-hq", 1.0);
+        // The seeded day of history leaves subscribers wherever the curve was; pin the nominal load.
+        st.subscribers = 5_500.0;
         let load = worker_load(&st);
         assert_eq!(load.len(), 5);
         for w in &load {

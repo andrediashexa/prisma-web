@@ -316,6 +316,8 @@ export interface RouterStatus {
   latency_ms: number | null
   /** Account and role the box gives prisma-web (WhoAmI); null when unknown (box older than 0.149.2). */
   access: WhoAmI | null
+  /** grpc.health.v1: "not-serving" while the dataplane's statistics do not answer; null when the box cannot tell. */
+  health: "serving" | "not-serving" | null
 }
 
 /** SessionService.WhoAmI (Prisma 0.149.2). */

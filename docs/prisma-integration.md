@@ -140,9 +140,12 @@ The `commit` events from `Subscribe` go into the prisma-web log as *changes made
 `Event` carried the `revision` (or the commit comment), prisma-web could match the event to the
 commit it made itself, without duplicating the entry.
 
-### 🟢 2.6 Health check
-Today prisma-web uses `GetVersion` to find out whether the Prisma is alive. If the server exposed
-`grpc.health.v1.Health`, it would be lighter and standard.
+### ✅ 2.6 Health check — answered
+Prisma 0.149.2 serves `grpc.health.v1.Health`. The fleet monitor checks
+`prisma.v1.OperationalService` alongside the status reads; `NOT_SERVING` (the dataplane's
+statistics segment does not answer) shows as *not serving*, with the reason, instead of
+*offline* (#29). A box without the service keeps the old behaviour. Verified on the lab box on
+2026-10-01: `SERVING`.
 
 ---
 
@@ -160,6 +163,7 @@ Today prisma-web uses `GetVersion` to find out whether the Prisma is alive. If t
 | `Confirm` | Pending *commit confirmed* warning, with countdown |
 | `GetRunning`, `ListRevisions`, `Rollback`, `Save` | Configuration screen |
 | `GetHistory` | Fills the charts on every connection of the telemetry stream (#26) |
+| `grpc.health.v1.Health/Check` | Fleet status: *not serving* when `OperationalService` is `NOT_SERVING` (#29) |
 | `WhoAmI` | Account and role in the connection test, router list and router page; read-only enforcement (#28) |
 
 ## 4. Keeping the proto up to date
