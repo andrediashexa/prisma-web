@@ -86,9 +86,15 @@ They were accepted by the Prisma as **prismarouting issue #533**, all as compati
 
 ## 2. Gaps in the proto that limit the interface
 
-### 🟡 2.1 CPU and memory only as text
-`SystemInfo` carries `cpu_text` and `memory_text` verbatim, with no numbers. The dashboard cannot
-show a gauge or a usage chart. Today it shows the workers, hugepages and the text.
+### ✅ 2.1 CPU and memory only as text — delivered in 0.149.2, used since #25
+`SystemInfo` carried only `cpu_text` and `memory_text` verbatim, with no numbers. Prisma 0.149.2
+added `memory_total_bytes`, `memory_used_bytes`, `memory_hugepages_bytes` and a `WorkerLoad` per
+worker (fields 17-20). The dashboard's **Dataplane load** widget and the memory card of the key
+metrics use them (#25). `busy_ratio` saturates at about **0.5**, not 1 (see `docs/prisma-api.md`,
+"A worker's load"), so the worker bar MUST read 0.5 as full and the raw ratio is shown beside it.
+A box that reports 0 / no workers (before 0.149.2) MUST get the verbatim text, never a 0% bar.
+
+The original suggestion, kept for the record:
 
 Suggestion (new fields, compatible with v1):
 ```proto
@@ -116,9 +122,11 @@ message Route {
 }
 ```
 
-### 🟢 2.3 Link speed
-`Interface` has no speed. With `uint64 speed_bps` it would be possible to show link utilization
-in %.
+### ✅ 2.3 Link speed — delivered in 0.149.2, used since #25
+`Interface.speed_bps` (field 10) gives the link speed; the interfaces page and widget show it and
+the utilization, the busier direction of the latest telemetry rate over the speed (#25). 0 means
+the dataplane reports none. **4294967295000** is VPP's "unknown" (u32 max in kbps) passed on by
+0.149.2; it MUST be treated as 0. With an unknown speed no percentage is shown.
 
 ### ✅ 2.4 Counter history — answered
 Prisma 0.149.2 keeps 24 h at one sample a minute and serves it through

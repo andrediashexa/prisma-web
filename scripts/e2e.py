@@ -189,6 +189,12 @@ def lab(admin, args):
         st, b = admin.get(R + "/system")
         check(st == 200 and b.get("boot_time") and b.get("last_boot_reason"),
               f"uptime breakdown of the real Prisma (last boot: {b.get('last_boot_reason')}, dataplane restarted: {b.get('dataplane_restarted')})", b)
+        check(b.get("memory_total_bytes", 0) > 0 and len(b.get("worker_load") or []) == b.get("workers"),
+              f"memory and worker load of the real Prisma ({b.get('memory_used_bytes', 0) >> 20} / {b.get('memory_total_bytes', 0) >> 20} MiB, "
+              f"busy {', '.join(str(w['busy_ratio']) for w in b.get('worker_load') or [])})", b)
+        st, b = admin.get(R + "/interfaces")
+        check(all("speed_bps" in i for i in b["interfaces"]),
+              "interfaces of the real Prisma carry speed_bps (" + ", ".join(f"{i['name']}={i.get('speed_bps')}" for i in b["interfaces"]) + ")", b)
         wait_for(
             lambda: (lambda b: (b["live"] and len(b["samples"]) >= 2, b))(
                 admin.get(f"{R}/metrics/traffic?interface={b_if}&minutes=5")[1]
@@ -378,6 +384,17 @@ def main():
         st, b = admin.get(R + "/system")
         check(st == 200 and b.get("boot_time") and b.get("dataplane_restarted") is False,
               "uptime breakdown present, no dataplane restart on the plain mock", b)
+        # Memory, worker load and link speed in numbers (Prisma 0.149.2, #25).
+        loads = b.get("worker_load") or []
+        check(b.get("memory_total_bytes", 0) > 0 and 0 < b.get("memory_used_bytes", 0) <= b["memory_total_bytes"]
+              and 0 < b.get("memory_hugepages_bytes", 0) <= b["memory_used_bytes"],
+              "GetSystem carries memory in numbers, hugepages within the used", b)
+        check(len(loads) == b["workers"] and all(0 <= w["busy_ratio"] <= 1 and "vectors_per_call" in w and "loops_per_second" in w for w in loads),
+              f"GetSystem carries a WorkerLoad per worker ({', '.join(str(w['busy_ratio']) for w in loads)} busy)", b)
+        st, b = admin.get(R + "/interfaces")
+        speeds = {i["name"]: i.get("speed_bps") for i in b["interfaces"]}
+        check(st == 200 and speeds.get("wan0") == 10_000_000_000 and speeds.get("lan0.20") == 4_294_967_295_000 and speeds.get("wg0") == 0,
+              "interfaces carry speed_bps: 10G, VPP's unknown (4294967295000) and none", speeds)
 
         # --- routing policies (Prisma 0.148.12, #21) -------------------------------
         st, b = admin.get(R + "/policies")

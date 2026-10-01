@@ -70,6 +70,28 @@ export interface SystemInfo {
   release_installed_at?: string | null
   /** The dataplane started more than five minutes after the box: it restarted by itself. */
   dataplane_restarted?: boolean
+  // Memory and worker load in numbers, Prisma 0.149.2 (#25). 0 / empty on older boxes.
+  /** The host's RAM, from the kernel's meminfo. */
+  memory_total_bytes?: number
+  /** MemTotal less MemAvailable: the dataplane's hugepages count as used. */
+  memory_used_bytes?: number
+  /** Of the used, the 1G hugepages reserved for the dataplane. */
+  memory_hugepages_bytes?: number
+  worker_load?: WorkerLoad[]
+}
+
+/** One dataplane worker's load, as the dataplane counts it (Prisma 0.149.2). */
+export interface WorkerLoad {
+  /** 0 is the dataplane's vpp_wk_0. */
+  worker: number
+  cpu: number
+  /** Packets per graph call: near 0 idle, up to 256 with full frames. */
+  vectors_per_call: number
+  /** VPP's share of node clocks, 0 to 1: a saturated worker reads about 0.5. */
+  busy_ratio: number
+  /** Main loop rate; under 1,000 the worker waits for interrupts. */
+  loops_per_second: number
+  busy_window_ms: number
 }
 
 export interface SessionsSummary {
@@ -100,6 +122,8 @@ export interface RouterInterface {
   linux_name: string
   description: string
   counters: InterfaceCounters | null
+  /** Link speed (Prisma 0.149.2); 0 or 4294967295000 mean unknown, see knownSpeed(). */
+  speed_bps?: number
 }
 
 export interface Pool {

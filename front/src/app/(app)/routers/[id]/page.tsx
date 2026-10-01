@@ -7,6 +7,7 @@ import { ActivityWidget } from "@/components/widgets/activity-widget"
 import { BgpWidget } from "@/components/widgets/bgp-widget"
 import { CgnatWidget } from "@/components/widgets/cgnat-widget"
 import { InterfacesWidget } from "@/components/widgets/interfaces-widget"
+import { LoadWidget } from "@/components/widgets/load-widget"
 import { RouterStatsWidget } from "@/components/widgets/router-stats-widget"
 import { UptimeWidget } from "@/components/widgets/uptime-widget"
 
@@ -20,8 +21,9 @@ export default function RouterOverviewPage() {
         <UptimeWidget routerId={id} />
         <BgpWidget routerId={id} />
       </div>
-      <div>
+      <div className="grid gap-4 xl:grid-cols-2">
         <CgnatWidget routerId={id} />
+        <LoadWidget routerId={id} />
       </div>
       <div className="grid gap-4 xl:grid-cols-5">
         <div className="xl:col-span-3">
