@@ -60,6 +60,16 @@ export interface SystemInfo {
   hugepages: number
   cpu_text: string
   memory_text: string
+  // Uptime breakdown, Prisma 0.148.7 (#20). null when the box could not read it.
+  boot_time?: string | null
+  dataplane_started?: string | null
+  control_plane_started?: string | null
+  vty_started?: string | null
+  /** Verbatim, as recorded by the box ("system reboot by <account>", "not recorded"). */
+  last_boot_reason?: string
+  release_installed_at?: string | null
+  /** The dataplane started more than five minutes after the box: it restarted by itself. */
+  dataplane_restarted?: boolean
 }
 
 export interface SessionsSummary {

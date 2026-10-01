@@ -1,6 +1,6 @@
 "use client"
 
-import { ActivityIcon, BarChart3Icon, GaugeIcon, NetworkIcon, ServerIcon, ShareIcon, TrendingUpIcon, UnplugIcon, UsersIcon } from "lucide-react"
+import { ActivityIcon, BarChart3Icon, GaugeIcon, NetworkIcon, ServerIcon, ShareIcon, TrendingUpIcon, TimerIcon, UnplugIcon, UsersIcon } from "lucide-react"
 
 import { TrafficChart } from "@/components/traffic-chart"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,6 +13,7 @@ import { FleetWidget } from "./fleet-widget"
 import { InterfacesWidget } from "./interfaces-widget"
 import { ResourcesWidget } from "./resources-widget"
 import { RouterStatsWidget } from "./router-stats-widget"
+import { UptimeWidget } from "./uptime-widget"
 import type { DashboardLayout, Widget, WidgetConfig, WidgetSize, WidgetType } from "./types"
 
 interface WidgetDef {
@@ -76,6 +77,13 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
     title: "BGP neighbors",
     description: "State of a router's BGP sessions",
     icon: ShareIcon,
+    defaultSize: 2,
+    perRouter: true,
+  },
+  uptime: {
+    title: "Uptime",
+    description: "Since when each part of a Prisma runs, with a dataplane-restart warning",
+    icon: TimerIcon,
     defaultSize: 2,
     perRouter: true,
   },
@@ -167,6 +175,8 @@ export function WidgetView({ widget, routers }: { widget: Widget; routers: Route
       return routerId ? <CgnatWidget routerId={routerId} title={router ? `CGNAT · ${router.name}` : undefined} /> : null
     case "bgp":
       return routerId ? <BgpWidget routerId={routerId} title={router ? `BGP · ${router.name}` : undefined} /> : null
+    case "uptime":
+      return routerId ? <UptimeWidget routerId={routerId} title={router ? `Uptime · ${router.name}` : undefined} /> : null
     case "activity":
       return <ActivityWidget routerId={router?.id} />
   }

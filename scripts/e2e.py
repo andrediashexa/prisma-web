@@ -110,6 +110,16 @@ def tls_checks(admin, args):
     check(st == 422 and "TLS profile" in b["error"]["message"], "https:// without a profile is refused", b)
     st, b = tls_test(admin, args.mock, "dev/mock", args.server_name)
     check(st == 422, "profile with http:// is refused", b)
+    # Uptime breakdown (Prisma 0.148.7, #20): prisma-mock-2 reports a dataplane
+    # that restarted by itself.
+    st, r = admin.post("/routers", {"name": f"e2e-tls-{uuid.uuid4().hex[:6]}", "api_url": m, "tls_profile": "dev/mock", "tls_server_name": args.server_name})
+    check(st == 201, "router registered over mTLS", r)
+    try:
+        st, sysinfo = admin.get(f"/routers/{r['id']}/system")
+        check(st == 200 and sysinfo.get("boot_time") and sysinfo.get("dataplane_restarted") is True,
+              "mock with a restarted dataplane reports dataplane_restarted", sysinfo)
+    finally:
+        admin.delete(f"/routers/{r['id']}")
     st, b = tls_test(admin, m, "../etc", args.server_name)
     check(st == 422 and "invalid TLS profile" in b["error"]["message"], "profile with ../ is refused", b)
 
@@ -135,6 +145,9 @@ def lab(admin, args):
         check(not any(i["name"].startswith("tap") for i in b["interfaces"]), "linux_cp tap* interfaces hidden")
         st, b = admin.get(R + "/config/running")
         check(st == 200 and "interface " in b["text"], "GetRunning from the real Prisma")
+        st, b = admin.get(R + "/system")
+        check(st == 200 and b.get("boot_time") and b.get("last_boot_reason"),
+              f"uptime breakdown of the real Prisma (last boot: {b.get('last_boot_reason')}, dataplane restarted: {b.get('dataplane_restarted')})", b)
         wait_for(
             lambda: (lambda b: (b["live"] and len(b["samples"]) >= 2, b))(
                 admin.get(f"{R}/metrics/traffic?interface={b_if}&minutes=5")[1]
@@ -318,6 +331,9 @@ def main():
         for path, key in [("/pools", "pools"), ("/bgp", "neighbors"), ("/interfaces", "interfaces")]:
             st, b = admin.get(R + path)
             check(st == 200 and b[key], f"GET {path} returns {key}", b)
+        st, b = admin.get(R + "/system")
+        check(st == 200 and b.get("boot_time") and b.get("dataplane_restarted") is False,
+              "uptime breakdown present, no dataplane restart on the plain mock", b)
     finally:
         if op_id:
             admin.delete(f"/users/{op_id}")

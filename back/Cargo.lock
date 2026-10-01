@@ -1466,6 +1466,7 @@ dependencies = [
  "prost-types",
  "protox",
  "serde",
+ "serde_json",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",

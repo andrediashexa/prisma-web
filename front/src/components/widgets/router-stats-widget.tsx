@@ -39,6 +39,11 @@ export function RouterStatsWidget({ routerId }: { routerId: string }) {
           ver && (
             <span className="flex flex-wrap items-center gap-1.5">
               Prisma {ver.release}
+              {sys?.dataplane_restarted && (
+                <Badge variant="destructive" title="The dataplane started well after the box: it restarted by itself and dropped every session it carried.">
+                  dataplane restarted by itself
+                </Badge>
+              )}
               {!ver.dataplane_current && (
                 <Badge
                   variant="outline"
