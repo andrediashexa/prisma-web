@@ -114,8 +114,11 @@ changes nothing). The Policies tab shows each policy with its terms, default act
 applied and its VTY text; the counters per attach point, where `counted = false` is shown as
 "no counter" (the daemon reported no such map, which is not zero) and `compiled = false` as "not
 compiled here"; and a test form with the verdict, the deciding term, every step and the route
-before and after the sets. A `then reject` term with `from policy X` is not special-cased: the
-box rejects more than X accepts until Prisma 0.148.13 (Prisma #542).
+before and after the sets. A `then reject` term with `from policy X` is not special-cased. Before
+Prisma 0.148.13 the box rejected more than X accepts (Prisma #542). From 0.148.13 it rejects only
+the routes X accepts, and the routes X rejects continue to the next term, as in Junos. A commit is
+still refused when X itself holds a `from policy` term that is not `accept` (the VTY says why), and
+a policy literally named `X-SUB` or `X-NOT` may collide (Prisma #543, open).
 
 ## Configuration
 
