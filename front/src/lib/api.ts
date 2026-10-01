@@ -1,8 +1,12 @@
+import type { Diagnostic } from "@/lib/types"
+
 export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
     message: string,
+    /** Relato do VTY quando o Prisma recusou a chamada. */
+    public diagnostics?: { items: Diagnostic[]; output: string } | null,
   ) {
     super(message)
   }
@@ -27,6 +31,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       res.status,
       data?.error?.code ?? "unknown",
       data?.error?.message ?? `Erro ${res.status}`,
+      data?.error?.diagnostics,
     )
   }
   return res.status === 204 ? (undefined as T) : res.json()
@@ -44,5 +49,9 @@ export const api = {
 export const fetcher = <T>(path: string) => api.get<T>(path)
 
 export function errorMessage(err: unknown) {
+  if (err instanceof ApiError && err.diagnostics?.items?.length) {
+    // A mensagem do VTY é mais útil que o resumo do status gRPC.
+    return err.diagnostics.items.map((d) => d.message).join("; ")
+  }
   return err instanceof Error ? err.message : "Erro inesperado"
 }

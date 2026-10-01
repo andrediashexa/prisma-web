@@ -5,6 +5,7 @@ import useSWRInfinite from "swr/infinite"
 import { ChevronRightIcon, Loader2Icon } from "lucide-react"
 
 import { ACTION_LABEL, AuditActionBadge } from "@/components/audit-action"
+import { DiffView } from "@/components/config/diff-view"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -18,7 +19,9 @@ import { cn } from "@/lib/utils"
 
 const FILTERS = [
   { value: "all", label: "Todos os eventos" },
-  { value: "router.", label: "Mudanças no roteador" },
+  { value: "config.", label: "Mudanças de configuração" },
+  { value: "box.", label: "Eventos no equipamento" },
+  { value: "router.", label: "Cadastro e comandos" },
   { value: "user.", label: "Usuários" },
   { value: "auth.", label: "Acessos" },
 ]
@@ -133,7 +136,10 @@ function AuditDetails({ entry }: { entry: AuditEntry }) {
   const changes = Object.entries(entry.details).filter(
     ([, v]) => v && typeof v === "object" && "from" in (v as object) && "to" in (v as object),
   ) as [string, { from: unknown; to: unknown }][]
-  const rest = Object.fromEntries(Object.entries(entry.details).filter(([k]) => !changes.some(([c]) => c === k)))
+  const diff = typeof entry.details.diff === "string" ? entry.details.diff : null
+  const rest = Object.fromEntries(
+    Object.entries(entry.details).filter(([k]) => k !== "diff" && !changes.some(([c]) => c === k)),
+  )
   const show = (v: unknown) => (v === null || v === undefined || v === "" ? "∅" : String(v))
 
   return (
@@ -153,6 +159,7 @@ function AuditDetails({ entry }: { entry: AuditEntry }) {
           ))}
         </div>
       )}
+      {diff && <DiffView diff={diff} />}
       {Object.keys(rest).length > 0 && (
         <pre className="bg-muted overflow-x-auto rounded-md p-3 font-mono text-xs">{JSON.stringify(rest, null, 2)}</pre>
       )}

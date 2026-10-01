@@ -43,10 +43,10 @@ export function TrafficChart({
   defaultInterface?: string
   defaultMinutes?: number
 }) {
-  const { data: interfaces } = useSWR<RouterInterface[]>(routerApi(routerId, "/interfaces"), fetcher, {
+  const { data: ifs } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(routerId, "/interfaces"), fetcher, {
     refreshInterval: 30_000,
   })
-  const candidates = interfaces?.filter((i) => i.kind !== "loopback") ?? []
+  const candidates = ifs?.interfaces.filter((i) => i.name !== "lo") ?? []
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "")
   const [iface, setIface] = useState<string | undefined>(defaultInterface)
   const [minutes, setMinutes] = useState(String(defaultMinutes))
@@ -80,6 +80,7 @@ export function TrafficChart({
           ) : (
             "Taxa de transferência por interface"
           )}
+          {data && !data.live && points.length > 0 && <span className="text-destructive ml-2">· telemetria desconectada</span>}
         </CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -107,8 +108,19 @@ export function TrafficChart({
         </div>
       </CardHeader>
       <CardContent>
-        {points.length === 0 ? (
+        {!data ? (
           <Skeleton className="aspect-[3/1] w-full" />
+        ) : points.length < 2 ? (
+          <div className="text-muted-foreground flex h-72 flex-col items-center justify-center gap-1 text-center text-sm">
+            {data.live ? (
+              <>
+                <span>Coletando amostras…</span>
+                <span className="text-xs">O histórico é montado pelo prisma-web a partir da telemetria do Prisma.</span>
+              </>
+            ) : (
+              <span className="text-destructive">Sem telemetria deste Prisma no momento.</span>
+            )}
+          </div>
         ) : (
           <ChartContainer id={`traffic-${uid}`} config={config} className="aspect-auto h-72 w-full">
             <AreaChart data={points} margin={{ left: 4, right: 8 }}>

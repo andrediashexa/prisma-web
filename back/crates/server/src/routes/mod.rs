@@ -1,7 +1,8 @@
 mod audit;
 mod auth;
+pub mod config;
 mod dashboard;
-mod router;
+mod ops;
 pub mod routers;
 mod users;
 
@@ -28,11 +29,34 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/status", get(routers::status))
         .route("/routers/test", post(routers::test))
         .route("/routers/{id}", get(routers::get).patch(routers::update).delete(routers::delete))
-        .route("/routers/{id}/system", get(router::system))
-        .route("/routers/{id}/interfaces", get(router::interfaces))
-        .route("/routers/{id}/interfaces/{name}", patch(router::update_interface))
-        .route("/routers/{id}/routes", get(router::routes))
-        .route("/routers/{id}/metrics/traffic", get(router::traffic));
+        // Dados operacionais e telemetria
+        .route("/routers/{id}/version", get(ops::version))
+        .route("/routers/{id}/system", get(ops::system))
+        .route("/routers/{id}/interfaces", get(ops::interfaces))
+        .route("/routers/{id}/pools", get(ops::pools))
+        .route("/routers/{id}/subscriber", get(ops::subscriber))
+        .route("/routers/{id}/sessions", get(ops::sessions))
+        .route("/routers/{id}/bgp", get(ops::bgp))
+        .route("/routers/{id}/ospf", get(ops::ospf))
+        .route("/routers/{id}/isis", get(ops::isis))
+        .route("/routers/{id}/vrrp", get(ops::vrrp))
+        .route("/routers/{id}/bundles", get(ops::bundles))
+        .route("/routers/{id}/show", post(ops::show))
+        .route("/routers/{id}/metrics/traffic", get(ops::traffic))
+        .route("/routers/{id}/metrics/cgnat", get(ops::cgnat))
+        // Configuração
+        .route("/routers/{id}/config/running", get(config::running))
+        .route("/routers/{id}/config/revisions", get(config::revisions))
+        .route("/routers/{id}/config/pending", get(config::pending))
+        .route("/routers/{id}/config/confirm", post(config::confirm))
+        .route("/routers/{id}/config/save", post(config::save))
+        .route("/routers/{id}/config/candidates", post(config::open))
+        .route("/routers/{id}/config/candidates/{cid}", get(config::show_candidate).delete(config::close))
+        .route("/routers/{id}/config/candidates/{cid}/edit", post(config::edit))
+        .route("/routers/{id}/config/candidates/{cid}/compare", get(config::compare))
+        .route("/routers/{id}/config/candidates/{cid}/check", post(config::check))
+        .route("/routers/{id}/config/candidates/{cid}/rollback", post(config::rollback))
+        .route("/routers/{id}/config/candidates/{cid}/commit", post(config::commit));
 
     Router::new()
         .nest("/api", api)

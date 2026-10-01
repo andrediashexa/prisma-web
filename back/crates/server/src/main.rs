@@ -1,11 +1,12 @@
 mod audit;
 mod auth;
 mod config;
-mod crypto;
 mod error;
+mod grpc;
 mod limiter;
 mod registry;
 mod routes;
+mod telemetry;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -16,14 +17,15 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use crate::config::Config;
-use crate::crypto::SecretBox;
 use crate::limiter::LoginLimiter;
 use crate::registry::Registry;
+use crate::routes::config::Candidates;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
     pub routers: Arc<Registry>,
+    pub candidates: Arc<Candidates>,
     pub cfg: Arc<Config>,
     pub limiter: Arc<LoginLimiter>,
 }
@@ -52,14 +54,15 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&db).await.context("aplicando migrações")?;
 
     auth::bootstrap_admin(&db, &cfg).await?;
-    let routers = Arc::new(Registry::new(db.clone(), SecretBox::new(&cfg.secret_key)));
-    routes::routers::seed_from_env(&db, &routers, &cfg).await?;
+    routes::routers::seed_from_env(&db, &cfg).await?;
+    let routers = Arc::new(Registry::new(db.clone()));
     tokio::spawn(auth::purge_expired_sessions(db.clone()));
     tokio::spawn(routers.clone().monitor());
 
     let state = AppState {
         db,
         routers,
+        candidates: Arc::new(Candidates::default()),
         limiter: Arc::new(LoginLimiter::new(cfg.login_max_failures, cfg.login_window)),
         cfg: cfg.clone(),
     };

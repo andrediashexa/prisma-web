@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useState } from "react"
 import { toast } from "sonner"
-import { CheckCircle2Icon, KeyRoundIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, PlugZapIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { CheckCircle2Icon, Loader2Icon, MoreHorizontalIcon, PencilIcon, PlugZapIcon, PlusIcon, Trash2Icon } from "lucide-react"
 
 import { PageHeader } from "@/components/page-header"
 import {
@@ -42,8 +42,7 @@ import { useMe } from "@/hooks/use-me"
 import { useFleetStatus, useRouters } from "@/hooks/use-routers"
 import { api, errorMessage } from "@/lib/api"
 import { formatUptime } from "@/lib/format"
-import { hasRole, type RouterView, type SystemInfo } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import { hasRole, type RouterView, type VersionInfo } from "@/lib/types"
 
 type Dialogs = { kind: "edit"; router: RouterView | null } | { kind: "delete"; router: RouterView } | null
 
@@ -60,7 +59,7 @@ export default function RoutersPage() {
 
   return (
     <>
-      <PageHeader title="Roteadores" description="Prismas gerenciados por esta interface. Os tokens de acesso ficam cifrados no banco.">
+      <PageHeader title="Roteadores" description="Prismas gerenciados por esta interface, pela API gRPC de cada um.">
         {isAdmin && (
           <Button onClick={() => setDialog({ kind: "edit", router: null })}>
             <PlusIcon /> Cadastrar Prisma
@@ -74,7 +73,7 @@ export default function RoutersPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Nome</TableHead>
-                <TableHead>Endereço da API</TableHead>
+                <TableHead>Endereço gRPC</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Versão</TableHead>
                 <TableHead>Ligado há</TableHead>
@@ -107,12 +106,7 @@ export default function RoutersPage() {
                       {r.description && <div className="text-muted-foreground text-xs">{r.description}</div>}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs">{r.api_url}</span>
-                        {r.has_token && (
-                          <KeyRoundIcon className="text-muted-foreground size-3.5" aria-label="Usa token" />
-                        )}
-                      </div>
+                      <span className="font-mono text-xs">{r.api_url}</span>
                     </TableCell>
                     <TableCell>
                       {!s ? (
@@ -127,7 +121,7 @@ export default function RoutersPage() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{s?.system?.version ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{s?.version?.release ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground text-sm tabular-nums">
                       {s?.system ? formatUptime(s.system.uptime_seconds) : "—"}
                     </TableCell>
@@ -232,25 +226,19 @@ function RouterForm({
   const [name, setName] = useState(router?.name ?? "")
   const [url, setUrl] = useState(router?.api_url ?? "")
   const [description, setDescription] = useState(router?.description ?? "")
-  const [token, setToken] = useState("")
-  const [removeToken, setRemoveToken] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [tested, setTested] = useState<SystemInfo | null>(null)
+  const [tested, setTested] = useState<VersionInfo | null>(null)
 
   async function test() {
     setTesting(true)
     setError(null)
     setTested(null)
     try {
-      const sys = await api.post<SystemInfo>("/routers/test", {
-        api_url: url,
-        token: removeToken ? "" : token || undefined,
-        router_id: removeToken ? undefined : router?.id,
-      })
-      setTested(sys)
-      if (!name) setName(sys.hostname)
+      const v = await api.post<VersionInfo>("/routers/test", { api_url: url })
+      setTested(v)
+      if (!name) setName(v.hostname)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -264,16 +252,10 @@ function RouterForm({
     setError(null)
     try {
       if (router) {
-        await api.patch(`/routers/${router.id}`, {
-          name,
-          api_url: url,
-          description,
-          // Sem digitar nada, o token salvo é mantido.
-          ...(removeToken ? { token: "" } : token ? { token } : {}),
-        })
+        await api.patch(`/routers/${router.id}`, { name, api_url: url, description })
         toast.success(`${name} atualizado`)
       } else {
-        await api.post("/routers", { name, api_url: url, description, token: token || undefined })
+        await api.post("/routers", { name, api_url: url, description })
         toast.success(`${name} cadastrado`)
       }
       await onSaved()
@@ -289,7 +271,7 @@ function RouterForm({
     <form onSubmit={submit}>
       <DialogHeader>
         <DialogTitle>{router ? `Editar ${router.name}` : "Cadastrar Prisma"}</DialogTitle>
-        <DialogDescription>Informe o endereço da API do Prisma. IPv6 vai entre colchetes.</DialogDescription>
+        <DialogDescription>Endereço do servidor gRPC do Prisma (sem TLS por enquanto). IPv6 vai entre colchetes.</DialogDescription>
       </DialogHeader>
       <FieldGroup className="py-4">
         <Field>
@@ -302,7 +284,7 @@ function RouterForm({
                 setUrl(e.target.value)
                 setTested(null)
               }}
-              placeholder="http://[2001:db8::1]:8080"
+              placeholder="http://[2001:db8::1]:50051"
               className="font-mono"
               required
             />
@@ -312,7 +294,7 @@ function RouterForm({
           </div>
           {tested && (
             <FieldDescription className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2Icon className="size-4" /> Conectado: {tested.hostname} · {tested.version}
+              <CheckCircle2Icon className="size-4" /> Conectado: {tested.hostname} · Prisma {tested.release}
             </FieldDescription>
           )}
         </Field>
@@ -323,42 +305,6 @@ function RouterForm({
         <Field>
           <FieldLabel htmlFor="r-desc">Descrição</FieldLabel>
           <Input id="r-desc" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={120} placeholder="Opcional" />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="r-token">Token de acesso</FieldLabel>
-          <Input
-            id="r-token"
-            type="password"
-            value={token}
-            onChange={(e) => {
-              setToken(e.target.value)
-              setRemoveToken(false)
-              setTested(null)
-            }}
-            autoComplete="off"
-            placeholder={router?.has_token && !removeToken ? "•••••••• (mantido)" : "Opcional"}
-            className="font-mono"
-          />
-          {router?.has_token && (
-            <FieldDescription>
-              {removeToken ? (
-                <>
-                  O token será removido ao salvar.{" "}
-                  <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => setRemoveToken(false)}>
-                    Desfazer
-                  </button>
-                </>
-              ) : (
-                <>
-                  Deixe em branco para manter o token atual, ou{" "}
-                  <button type="button" className={cn("text-destructive underline-offset-4 hover:underline")} onClick={() => { setRemoveToken(true); setToken("") }}>
-                    remova o token
-                  </button>
-                  .
-                </>
-              )}
-            </FieldDescription>
-          )}
         </Field>
         {error && <FieldError>{error}</FieldError>}
       </FieldGroup>

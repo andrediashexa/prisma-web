@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFleetStatus } from "@/hooks/use-routers"
-import { formatUptime } from "@/lib/format"
+import { formatNumber, formatUptime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /** Todos os roteadores cadastrados, com estado e recursos. */
@@ -33,7 +33,8 @@ export function FleetWidget() {
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
           {data?.map((r) => {
             const s = r.system
-            const mem = s ? (s.memory_used_bytes / s.memory_total_bytes) * 100 : 0
+            const ses = r.sessions
+            const occ = ses && ses.sessions_fit > 0 ? (ses.sessions / ses.sessions_fit) * 100 : 0
             return (
               <Link
                 key={r.id}
@@ -59,12 +60,21 @@ export function FleetWidget() {
                 </div>
                 {s ? (
                   <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <Metric label="CPU" value={`${s.cpu_percent.toFixed(0)}%`} pct={s.cpu_percent} />
-                    <Metric label="Memória" value={`${mem.toFixed(0)}%`} pct={mem} />
+                    <Metric label="Sessões" value={ses ? formatNumber(ses.sessions) : "—"} pct={occ} />
+                    <div>
+                      <div className="text-muted-foreground">Assinantes</div>
+                      <div className="font-medium tabular-nums">{ses ? formatNumber(ses.subscribers) : "—"}</div>
+                    </div>
                     <div>
                       <div className="text-muted-foreground">Ligado</div>
                       <div className="font-medium tabular-nums">{formatUptime(s.uptime_seconds)}</div>
                     </div>
+                    {r.version && (
+                      <div className="text-muted-foreground col-span-3 truncate">
+                        Prisma {r.version.release}
+                        {!r.version.dataplane_current && <span className="text-amber-600 dark:text-amber-400"> · reinício pendente</span>}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="text-destructive mt-3 line-clamp-2 text-xs">{r.error}</p>

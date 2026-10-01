@@ -1,34 +1,58 @@
-//! Cadastro de roteadores Prisma e cache dos clientes HTTP de cada um.
+//! Cadastro de roteadores Prisma, canais gRPC de cada um e monitor da frota.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use prisma_api::{PrismaClient, SystemInfo};
+use prisma_proto::v1::config_service_client::ConfigServiceClient;
+use prisma_proto::v1::operational_service_client::OperationalServiceClient;
+use prisma_proto::v1::telemetry_service_client::TelemetryServiceClient;
+use prisma_proto::v1::{
+    GetSessionsSummaryRequest, GetSystemRequest, GetVersionRequest, SessionsSummary, SystemInfo, VersionInfo,
+};
 use serde::Serialize;
-use tokio::task::JoinSet;
 use sqlx::PgPool;
+use tokio::task::JoinSet;
+use tonic::transport::{Channel, Endpoint};
 use uuid::Uuid;
 
-use crate::crypto::SecretBox;
 use crate::error::{AppError, AppResult};
-
-pub struct RouterHandle {
-    pub id: Uuid,
-    pub name: String,
-    pub client: PrismaClient,
-}
+use crate::grpc;
+use crate::telemetry::Telemetry;
 
 /// Intervalo do monitor da frota e tempo máximo de resposta de cada Prisma.
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(4);
+
+pub struct RouterHandle {
+    pub id: Uuid,
+    pub name: String,
+    pub api_url: String,
+    channel: Channel,
+}
+
+impl RouterHandle {
+    pub fn ops(&self) -> OperationalServiceClient<Channel> {
+        OperationalServiceClient::new(self.channel.clone())
+    }
+
+    pub fn config(&self) -> ConfigServiceClient<Channel> {
+        ConfigServiceClient::new(self.channel.clone())
+    }
+
+    pub fn telemetry(&self) -> TelemetryServiceClient<Channel> {
+        TelemetryServiceClient::new(self.channel.clone())
+    }
+}
 
 #[derive(Clone, Serialize)]
 pub struct RouterStatus {
     pub id: Uuid,
     pub name: String,
     pub online: bool,
+    pub version: Option<VersionInfo>,
     pub system: Option<SystemInfo>,
+    pub sessions: Option<SessionsSummary>,
     pub error: Option<String>,
     pub latency_ms: Option<u64>,
     pub checked_at: chrono::DateTime<chrono::Utc>,
@@ -36,7 +60,7 @@ pub struct RouterStatus {
 
 pub struct Registry {
     db: PgPool,
-    pub secrets: SecretBox,
+    pub telemetry: Telemetry,
     cache: RwLock<HashMap<Uuid, Arc<RouterHandle>>>,
     status: RwLock<HashMap<Uuid, RouterStatus>>,
 }
@@ -46,24 +70,33 @@ struct Row {
     id: Uuid,
     name: String,
     api_url: String,
-    token_enc: Option<Vec<u8>>,
 }
 
 impl Registry {
-    pub fn new(db: PgPool, secrets: SecretBox) -> Self {
-        Self { db, secrets, cache: RwLock::new(HashMap::new()), status: RwLock::new(HashMap::new()) }
+    pub fn new(db: PgPool) -> Self {
+        Self {
+            telemetry: Telemetry::new(db.clone()),
+            db,
+            cache: RwLock::new(HashMap::new()),
+            status: RwLock::new(HashMap::new()),
+        }
     }
 
     pub async fn get(&self, id: Uuid) -> AppResult<Arc<RouterHandle>> {
         if let Some(h) = self.cache.read().unwrap().get(&id) {
             return Ok(h.clone());
         }
-        let row = sqlx::query_as::<_, Row>("SELECT id, name, api_url, token_enc FROM routers WHERE id = $1")
+        let row = sqlx::query_as::<_, Row>("SELECT id, name, api_url FROM routers WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.db)
             .await?
             .ok_or_else(|| AppError::NotFound("roteador não encontrado".into()))?;
-        let handle = Arc::new(self.build(row)?);
+        let handle = Arc::new(RouterHandle {
+            channel: channel(&row.api_url)?,
+            id: row.id,
+            name: row.name,
+            api_url: row.api_url,
+        });
         self.cache.write().unwrap().insert(id, handle.clone());
         Ok(handle)
     }
@@ -80,9 +113,11 @@ impl Registry {
         Ok(out)
     }
 
+    /// Chamado ao editar ou remover um roteador: descarta canal, status e coletor.
     pub fn invalidate(&self, id: Uuid) {
         self.cache.write().unwrap().remove(&id);
         self.status.write().unwrap().remove(&id);
+        self.telemetry.stop(id);
     }
 
     /// Status de todos os roteadores. Usa o cache do monitor; quem ainda não
@@ -104,23 +139,39 @@ impl Registry {
         for h in handles {
             set.spawn(async move {
                 let started = Instant::now();
-                let res = tokio::time::timeout(STATUS_TIMEOUT, h.client.system()).await;
+                let res = tokio::time::timeout(STATUS_TIMEOUT, async {
+                    let (mut a, mut b, mut c) = (h.ops(), h.ops(), h.ops());
+                    tokio::try_join!(
+                        a.get_version(GetVersionRequest {}),
+                        b.get_system(GetSystemRequest {}),
+                        c.get_sessions_summary(GetSessionsSummaryRequest {}),
+                    )
+                })
+                .await;
                 let latency = started.elapsed().as_millis() as u64;
-                let (system, error) = match res {
-                    Ok(Ok(s)) => (Some(s), None),
-                    Ok(Err(e)) => (None, Some(e.to_string())),
-                    Err(_) => (None, Some("tempo esgotado".to_string())),
-                };
-                let online = system.is_some();
-                RouterStatus {
+                let mut st = RouterStatus {
                     id: h.id,
                     name: h.name.clone(),
-                    online,
-                    system,
-                    error,
-                    latency_ms: online.then_some(latency),
+                    online: false,
+                    version: None,
+                    system: None,
+                    sessions: None,
+                    error: None,
+                    latency_ms: None,
                     checked_at: chrono::Utc::now(),
+                };
+                match res {
+                    Ok(Ok((v, s, ss))) => {
+                        st.online = true;
+                        st.latency_ms = Some(latency);
+                        st.version = Some(v.into_inner());
+                        st.system = Some(s.into_inner());
+                        st.sessions = Some(ss.into_inner());
+                    }
+                    Ok(Err(status)) => st.error = Some(grpc::describe(&status)),
+                    Err(_) => st.error = Some("tempo esgotado".into()),
                 }
+                st
             });
         }
         for st in set.join_all().await {
@@ -128,8 +179,8 @@ impl Registry {
         }
     }
 
-    /// Mantém o status da frota atualizado em segundo plano, para a interface
-    /// nunca esperar por um roteador lento ou fora do ar.
+    /// Mantém o status da frota e os coletores de telemetria em dia, para a
+    /// interface nunca esperar por um roteador lento ou fora do ar.
     pub async fn monitor(self: Arc<Self>) {
         let mut tick = tokio::time::interval(MONITOR_INTERVAL);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -138,36 +189,49 @@ impl Registry {
             match self.all().await {
                 Ok(handles) => {
                     let ids: Vec<Uuid> = handles.iter().map(|h| h.id).collect();
+                    for h in &handles {
+                        self.telemetry.ensure(h.clone());
+                    }
+                    self.telemetry.retain(&ids);
                     self.poll(handles).await;
-                    // Descarta status de roteadores removidos.
                     self.status.write().unwrap().retain(|id, _| ids.contains(id));
                 }
                 Err(e) => tracing::warn!(error = %e, "monitor da frota falhou"),
             }
         }
     }
-
-    pub fn client_for(&self, api_url: &str, token: Option<String>) -> AppResult<PrismaClient> {
-        Ok(PrismaClient::new(api_url, token).map_err(anyhow::Error::from)?)
-    }
-
-    fn build(&self, row: Row) -> AppResult<RouterHandle> {
-        let token = row
-            .token_enc
-            .map(|enc| self.secrets.decrypt(&enc, row.id.as_bytes()))
-            .transpose()?;
-        Ok(RouterHandle { id: row.id, name: row.name, client: self.client_for(&row.api_url, token)? })
-    }
 }
 
-/// Valida a URL base da API de um Prisma. Aceita IPv6 entre colchetes.
+/// Canal gRPC preguiçoso: conecta na primeira chamada e reconecta sozinho.
+fn channel(url: &str) -> AppResult<Channel> {
+    let endpoint = Endpoint::from_shared(url.to_string())
+        .map_err(|e| AppError::BadRequest(format!("endereço inválido: {e}")))?
+        .connect_timeout(Duration::from_secs(3))
+        .http2_keep_alive_interval(Duration::from_secs(30))
+        .keep_alive_while_idle(true);
+    Ok(endpoint.connect_lazy())
+}
+
+/// Canal avulso para testar um endereço antes de cadastrá-lo.
+pub fn probe_channel(url: &str) -> AppResult<Channel> {
+    channel(url)
+}
+
+/// Valida o endereço gRPC de um Prisma. Aceita IPv6 entre colchetes.
 pub fn validate_api_url(raw: &str) -> AppResult<String> {
     let url = raw.trim().trim_end_matches('/');
+    if url.starts_with("https://") {
+        return Err(AppError::BadRequest(
+            "TLS ainda não é suportado; use http:// (gRPC sem TLS) por enquanto".into(),
+        ));
+    }
     let rest = url
         .strip_prefix("http://")
-        .or_else(|| url.strip_prefix("https://"))
-        .ok_or_else(|| AppError::BadRequest("a URL deve começar com http:// ou https://".into()))?;
-    let authority = rest.split('/').next().unwrap_or_default();
+        .ok_or_else(|| AppError::BadRequest("o endereço deve começar com http://".into()))?;
+    if rest.contains('/') {
+        return Err(AppError::BadRequest("informe só host e porta, sem caminho: http://host:50051".into()));
+    }
+    let authority = rest;
     let host = if let Some(v6) = authority.strip_prefix('[') {
         let (addr, after) = v6
             .split_once(']')
@@ -181,7 +245,7 @@ pub fn validate_api_url(raw: &str) -> AppResult<String> {
     } else {
         if authority.matches(':').count() > 1 {
             return Err(AppError::BadRequest(
-                "endereços IPv6 precisam estar entre colchetes: http://[2001:db8::1]:8080".into(),
+                "endereços IPv6 precisam estar entre colchetes: http://[2001:db8::1]:50051".into(),
             ));
         }
         let (host, port) = authority.split_once(':').unwrap_or((authority, ""));
@@ -191,7 +255,7 @@ pub fn validate_api_url(raw: &str) -> AppResult<String> {
         host
     };
     if host.is_empty() || authority.contains('@') {
-        return Err(AppError::BadRequest("URL sem host válido".into()));
+        return Err(AppError::BadRequest("endereço sem host válido".into()));
     }
     Ok(url.to_string())
 }
@@ -206,13 +270,7 @@ mod tests {
 
     #[test]
     fn accepts_v4_v6_and_names() {
-        for ok in [
-            "http://prisma-mock:8080",
-            "https://router.example.com/",
-            "http://192.0.2.1:8080",
-            "http://[2001:db8::1]:8080",
-            "http://[fd00::1]",
-        ] {
+        for ok in ["http://prisma-mock:50051", "http://192.0.2.1:50051", "http://[2001:db8::1]:50051", "http://[fd00::1]"] {
             assert!(v(ok).is_ok(), "{ok}");
         }
         assert_eq!(v("http://x:1/").unwrap(), "http://x:1");
@@ -221,9 +279,11 @@ mod tests {
     #[test]
     fn rejects_bad_urls() {
         for bad in [
+            "https://x:50051",
             "ftp://x",
-            "prisma:8080",
-            "http://2001:db8::1:8080",
+            "prisma:50051",
+            "http://x:1/v1",
+            "http://2001:db8::1:50051",
             "http://[2001:db8::zz]:80",
             "http://[2001:db8::1]:99999",
             "http://user@host",

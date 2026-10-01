@@ -1,6 +1,17 @@
-import { CableIcon, LockIcon, NetworkIcon, RepeatIcon, TagIcon } from "lucide-react"
+import { BoxesIcon, CableIcon, LockIcon, NetworkIcon, RepeatIcon, TagIcon } from "lucide-react"
 
-import type { InterfaceKind } from "@/lib/types"
+/** O proto não informa o tipo da interface; deduzimos pelo nome para o ícone. */
+export type InterfaceKind = "ethernet" | "bridge" | "vlan" | "wireguard" | "loopback" | "bundle"
+
+export function guessKind(name: string): InterfaceKind {
+  const n = name.toLowerCase()
+  if (n === "lo" || n.startsWith("loop")) return "loopback"
+  if (n.startsWith("wg")) return "wireguard"
+  if (n.startsWith("bond") || n.startsWith("bundle")) return "bundle"
+  if (n.startsWith("br") || n.startsWith("bvi") || n.startsWith("lan")) return n.includes(".") ? "vlan" : "bridge"
+  if (n.includes(".")) return "vlan"
+  return "ethernet"
+}
 
 const ICONS: Record<InterfaceKind, React.ComponentType<{ className?: string }>> = {
   ethernet: CableIcon,
@@ -8,17 +19,10 @@ const ICONS: Record<InterfaceKind, React.ComponentType<{ className?: string }>> 
   vlan: TagIcon,
   wireguard: LockIcon,
   loopback: RepeatIcon,
+  bundle: BoxesIcon,
 }
 
-export const KIND_LABEL: Record<InterfaceKind, string> = {
-  ethernet: "Ethernet",
-  bridge: "Bridge",
-  vlan: "VLAN",
-  wireguard: "WireGuard",
-  loopback: "Loopback",
-}
-
-export function InterfaceIcon({ kind, className }: { kind: InterfaceKind; className?: string }) {
-  const Icon = ICONS[kind]
+export function InterfaceIcon({ name, className }: { name: string; className?: string }) {
+  const Icon = ICONS[guessKind(name)]
   return <Icon className={className} />
 }

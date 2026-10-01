@@ -1,0 +1,289 @@
+//! `ConfigService`: candidatos, compare, check, commit (e commit confirmed),
+//! rollback e save, no mesmo modelo do VTY.
+
+use chrono::Utc;
+use prisma_proto::v1::config_service_server::ConfigService;
+use prisma_proto::v1::diagnostic::Severity;
+use prisma_proto::v1::*;
+use prisma_proto::with_diagnostics;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
+use tonic::{Request, Response, Status};
+
+use crate::config::{self, diag, Config, BGP_PATH};
+use crate::state::{timestamp, Candidate, Pending, SharedRef};
+
+pub struct ConfigSvc(pub SharedRef);
+
+type R<T> = Result<Response<T>, Status>;
+
+/// Recusa com o relato do VTY anexado em `prisma-diagnostics-bin`.
+fn refused(code: tonic::Code, message: impl Into<String>, items: Vec<Diagnostic>) -> Status {
+    let message = message.into();
+    let output = items
+        .iter()
+        .map(|d| format!("error: {}", d.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let output = if output.is_empty() { format!("error: {message}") } else { output };
+    with_diagnostics(Status::new(code, message), &Diagnostics { items, output })
+}
+
+fn not_found(id: &str) -> Status {
+    refused(tonic::Code::NotFound, format!("candidate {id} does not exist"), vec![])
+}
+
+/// Portões do `commit check`: o que precisa ser reconhecido explicitamente.
+struct Gates {
+    remap: Vec<String>,
+    cutoff: Vec<String>,
+    diverge: Vec<String>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn gates(running: &Config, candidate: &Config, subscribers: u64) -> Gates {
+    let mut g = Gates { remap: vec![], cutoff: vec![], diverge: vec![], diagnostics: vec![] };
+
+    let wan_was_up = running.iface("wan0").is_some_and(|i| !i.shutdown);
+    if let Some(wan) = candidate.iface("wan0").filter(|i| i.shutdown && wan_was_up) {
+        g.cutoff.extend(wan.v4.iter().filter_map(|a| config::network(a)));
+        g.diagnostics.push(diag(
+            Severity::Warning,
+            "shutting down wan0 stops advertising the prefix carrying this session",
+            &["interface wan0".to_string()],
+            "shutdown",
+        ));
+    }
+
+    let (old_bs, new_bs) = (running.pool_block_size(), candidate.pool_block_size());
+    if old_bs != new_bs {
+        g.remap.push(format!("pool RFC6598: {subscribers} subscribers would move"));
+        g.diagnostics.push(diag(
+            Severity::Warning,
+            format!("block-size {old_bs} -> {new_bs} remaps every subscriber of pool RFC6598"),
+            &config::POOL_PATH.map(String::from),
+            &format!("block-size {new_bs}"),
+        ));
+    }
+
+    let removed: Vec<_> = running
+        .bgp_neighbors()
+        .into_iter()
+        .filter(|n| !candidate.bgp_neighbors().contains(n))
+        .collect();
+    if !removed.is_empty() {
+        g.diverge.push("RFC6598".into());
+        for (peer, _) in removed {
+            g.diagnostics.push(diag(
+                Severity::Warning,
+                format!("removing neighbor {peer} makes pool RFC6598 diverge from the HA peer"),
+                &BGP_PATH.map(String::from),
+                &format!("no neighbor {peer}"),
+            ));
+        }
+    }
+    g
+}
+
+impl ConfigSvc {
+    fn candidate_config(&self, id: &str) -> Result<Config, Status> {
+        let st = self.0.state.lock().unwrap();
+        st.candidates.get(id).map(|c| c.config.clone()).ok_or_else(|| not_found(id))
+    }
+}
+
+#[tonic::async_trait]
+impl ConfigService for ConfigSvc {
+    async fn open_candidate(&self, req: Request<OpenCandidateRequest>) -> R<OpenCandidateResponse> {
+        let req = req.into_inner();
+        let mut st = self.0.state.lock().unwrap();
+        let config = match req.from_revision {
+            Some(n) => st
+                .by_rollback_number(n)
+                .map(|r| r.config.clone())
+                .ok_or_else(|| refused(tonic::Code::InvalidArgument, format!("no revision {n}"), vec![]))?,
+            None => st.running.clone(),
+        };
+        let id: String = rand::thread_rng().sample_iter(&Alphanumeric).take(12).map(char::from).collect();
+        let base = st.revision();
+        let text = config.render();
+        st.candidates.insert(id.clone(), Candidate { base_revision: base, config });
+        Ok(Response::new(OpenCandidateResponse { candidate_id: id, base_revision: format!("r{base}"), text }))
+    }
+
+    async fn edit(&self, req: Request<EditRequest>) -> R<EditResponse> {
+        let req = req.into_inner();
+        let mut st = self.0.state.lock().unwrap();
+        let cand = st.candidates.get_mut(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
+        match cand.config.edit(&req.path, &req.lines) {
+            Ok(diagnostics) => {
+                let output = diagnostics.iter().map(|d| format!("note: {}", d.message)).collect::<Vec<_>>().join("\n");
+                Ok(Response::new(EditResponse { diagnostics, output }))
+            }
+            Err(r) => Err(refused(tonic::Code::InvalidArgument, r.message, vec![r.diagnostic])),
+        }
+    }
+
+    async fn show_candidate(&self, req: Request<CandidateRef>) -> R<ConfigText> {
+        let c = self.candidate_config(&req.into_inner().candidate_id)?;
+        Ok(Response::new(ConfigText { text: c.render(), revision: String::new() }))
+    }
+
+    async fn compare(&self, req: Request<CandidateRef>) -> R<CompareResponse> {
+        let c = self.candidate_config(&req.into_inner().candidate_id)?;
+        let running = self.0.state.lock().unwrap().running.render();
+        let diff = config::compare(&running, &c.render());
+        Ok(Response::new(CompareResponse { changed: !diff.is_empty(), diff }))
+    }
+
+    async fn check(&self, req: Request<CandidateRef>) -> R<CheckResponse> {
+        let c = self.candidate_config(&req.into_inner().candidate_id)?;
+        let st = self.0.state.lock().unwrap();
+        let g = gates(&st.running, &c, st.subscribers as u64);
+        let mut out: Vec<String> = g.diagnostics.iter().map(|d| format!("warning: {}", d.message)).collect();
+        for (word, list) in [("remap", &g.remap), ("cutoff", &g.cutoff), ("diverge", &g.diverge)] {
+            for item in list {
+                out.push(format!("{word}: {item} (commit needs acknowledge {word})"));
+            }
+        }
+        out.push("configuration check succeeds".into());
+        Ok(Response::new(CheckResponse {
+            passed: true,
+            diagnostics: g.diagnostics,
+            remap: g.remap,
+            cutoff: g.cutoff,
+            diverge: g.diverge,
+            output: out.join("\n"),
+        }))
+    }
+
+    async fn commit(&self, req: Request<CommitRequest>) -> R<CommitResponse> {
+        let req = req.into_inner();
+        let shared = self.0.clone();
+        let mut st = shared.state.lock().unwrap();
+        let cand = st.candidates.get(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
+        if let Some(p) = &st.pending {
+            return Err(refused(
+                tonic::Code::FailedPrecondition,
+                format!("a commit confirmed is pending (rollback at {})", p.deadline.to_rfc3339()),
+                vec![],
+            ));
+        }
+        if cand.base_revision != st.revision() {
+            return Err(refused(
+                tonic::Code::FailedPrecondition,
+                "running configuration changed since the candidate was opened",
+                vec![],
+            ));
+        }
+        let g = gates(&st.running, &cand.config, st.subscribers as u64);
+        let mut missing = Vec::new();
+        for (word, list, ack) in [
+            ("remap", &g.remap, req.acknowledge_remap),
+            ("cutoff", &g.cutoff, req.acknowledge_cutoff),
+            ("diverge", &g.diverge, req.acknowledge_diverge),
+        ] {
+            if !list.is_empty() && !ack {
+                let message = match word {
+                    "remap" => "commit would remap subscribers; acknowledge remap".to_string(),
+                    "cutoff" => "commit would stop advertising the prefix carrying this session; acknowledge cutoff".to_string(),
+                    _ => "commit would make pools diverge from the HA peer; acknowledge diverge".to_string(),
+                };
+                missing.push(diag(Severity::Error, message, &[], ""));
+            }
+        }
+        if !missing.is_empty() {
+            let first = missing[0].message.clone();
+            return Err(refused(tonic::Code::FailedPrecondition, first, missing));
+        }
+
+        let cand = st.candidates.remove(&req.candidate_id).expect("candidato verificado acima");
+        let previous = std::mem::replace(&mut st.running, cand.config);
+        let comment = if req.comment.is_empty() { "commit".to_string() } else { req.comment.clone() };
+        let number = st.push_revision(comment.clone());
+        shared.emit("commit", comment);
+
+        let mut confirm_deadline = None;
+        let mut output = format!("commit complete (revision r{number})");
+        if req.confirmed_minutes > 0 {
+            let token = st.next_token;
+            st.next_token += 1;
+            let deadline = Utc::now() + chrono::Duration::minutes(i64::from(req.confirmed_minutes));
+            st.pending = Some(Pending { token, deadline, previous });
+            confirm_deadline = Some(timestamp(deadline));
+            output = format!(
+                "commit confirmed will be automatically rolled back in {} minutes unless confirmed (revision r{number})",
+                req.confirmed_minutes
+            );
+            shared.emit("confirm-pending", format!("rollback at {}", deadline.to_rfc3339()));
+            let timer = shared.clone();
+            let wait = std::time::Duration::from_secs(u64::from(req.confirmed_minutes) * 60);
+            tokio::spawn(async move {
+                tokio::time::sleep(wait).await;
+                let mut st = timer.state.lock().unwrap();
+                if st.pending.as_ref().is_some_and(|p| p.token == token) {
+                    let p = st.pending.take().expect("verificado acima");
+                    st.running = p.previous;
+                    st.push_revision("rolled back: commit confirmed expired".into());
+                    timer.emit("rolled-back", "commit confirmed expired");
+                }
+            });
+        }
+
+        Ok(Response::new(CommitResponse { revision: format!("r{number}"), confirm_deadline, diagnostics: vec![], output }))
+    }
+
+    async fn confirm(&self, _: Request<ConfirmRequest>) -> R<ConfirmResponse> {
+        let mut st = self.0.state.lock().unwrap();
+        if st.pending.take().is_none() {
+            return Err(refused(tonic::Code::FailedPrecondition, "no commit confirmed is pending", vec![]));
+        }
+        self.0.emit("confirmed", format!("revision r{}", st.revision()));
+        Ok(Response::new(ConfirmResponse { diagnostics: vec![], output: "commit confirmed".into() }))
+    }
+
+    async fn rollback(&self, req: Request<RollbackRequest>) -> R<EditResponse> {
+        let req = req.into_inner();
+        let mut st = self.0.state.lock().unwrap();
+        let snapshot = st
+            .by_rollback_number(req.revision)
+            .map(|r| r.config.clone())
+            .ok_or_else(|| refused(tonic::Code::InvalidArgument, format!("no revision {}", req.revision), vec![]))?;
+        let cand = st.candidates.get_mut(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
+        cand.config = snapshot;
+        Ok(Response::new(EditResponse { diagnostics: vec![], output: "load complete".into() }))
+    }
+
+    async fn save(&self, _: Request<SaveRequest>) -> R<SaveResponse> {
+        self.0.emit("saved", "/etc/prisma/prisma.conf");
+        Ok(Response::new(SaveResponse { output: "configuration saved to /etc/prisma/prisma.conf".into() }))
+    }
+
+    async fn close_candidate(&self, req: Request<CandidateRef>) -> R<CloseResponse> {
+        let id = req.into_inner().candidate_id;
+        let mut st = self.0.state.lock().unwrap();
+        st.candidates.remove(&id).ok_or_else(|| not_found(&id))?;
+        Ok(Response::new(CloseResponse {}))
+    }
+
+    async fn get_running(&self, _: Request<GetRunningRequest>) -> R<ConfigText> {
+        let st = self.0.state.lock().unwrap();
+        Ok(Response::new(ConfigText { text: st.running.render(), revision: format!("r{}", st.revision()) }))
+    }
+
+    async fn list_revisions(&self, _: Request<ListRevisionsRequest>) -> R<ListRevisionsResponse> {
+        let st = self.0.state.lock().unwrap();
+        let revisions = st
+            .revisions
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(n, r)| Revision {
+                number: n as u32,
+                committed_at: Some(timestamp(r.committed_at)),
+                comment: r.comment.clone(),
+            })
+            .collect();
+        Ok(Response::new(ListRevisionsResponse { revisions }))
+    }
+}

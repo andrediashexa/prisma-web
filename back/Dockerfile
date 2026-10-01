@@ -4,8 +4,8 @@ FROM rust:1-bookworm AS build
 ARG BIN
 WORKDIR /src
 COPY . .
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     cargo build --release --locked -p ${BIN} \
  && cp target/release/${BIN} /app
 

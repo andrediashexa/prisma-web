@@ -411,7 +411,7 @@ function WidgetConfigForm({
   const [routerId, setRouterId] = useState(initial.routerId ?? (def.perRouter ? routers[0]?.id : undefined))
   const [iface, setIface] = useState(initial.interface)
   const [minutes, setMinutes] = useState(String(initial.minutes ?? 60))
-  const { data: ifaces } = useSWR<RouterInterface[]>(
+  const { data: ifaces } = useSWR<{ interfaces: RouterInterface[] }>(
     def.traffic && routerId ? routerApi(routerId, "/interfaces") : null,
     fetcher,
   )
@@ -455,8 +455,8 @@ function WidgetConfigForm({
                   <SelectValue placeholder={ifaces ? "Primeira disponível" : "Carregando…"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {ifaces
-                    ?.filter((i) => i.kind !== "loopback")
+                  {ifaces?.interfaces
+                    .filter((i) => i.name !== "lo")
                     .map((i) => (
                       <SelectItem key={i.name} value={i.name}>
                         {i.name}
