@@ -2,8 +2,8 @@
 
 **TL;DR:** o que o prisma-web precisa saber ou receber do Prisma para usar o contrato `prisma.v1`
 por inteiro. O guia da API e um equipamento de laboratório já responderam parte das perguntas.
-O que bloqueia o uso com um equipamento real agora é o **mTLS obrigatório** (#4) e o equipamento
-estar na 0.148.3, sem API. As lacunas da seção 2 são sugestões de campos novos, todas compatíveis
+O que bloqueia o uso com um equipamento real agora é o **mTLS obrigatório** (#4) e a API ainda
+não estar habilitada no equipamento, que já tem o servidor desde a 0.148.3. As lacunas da seção 2 são sugestões de campos novos, todas compatíveis
 com a v1.
 
 As palavras-chave MUST, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -44,8 +44,11 @@ que não foi feito. O mapeamento fica num arquivo só (`front/src/lib/vty.ts`).
 
 ### 🔴 1.2 Acesso ao equipamento — respondida
 - **Porta 50051** no endereço de gerência (`api listen-address`). A API vem desligada
-  (`api enabled yes` a liga) e existe **a partir da 0.149.0**. O equipamento de laboratório está
-  na 0.148.3 e ainda não tem API. (guia, equipamento)
+  (`api enabled yes` a liga). O guia diz "a partir da 0.149.0", mas o equipamento mostra que o
+  servidor e o comando `api` já estão na **0.148.3**: o `apiserver.py`, o `prismash.py`, o
+  `config.py` e o `doors.py` têm o mesmo md5 na 0.148.3 em execução e na imagem 0.148.4. No
+  laboratório, a API existe mas não está habilitada, e `/etc/prisma-routing/api/` está vazio.
+  (guia, equipamento, 2026-10-01)
 - **Só mTLS**: o servidor não sobe sem `server.key`, `server.crt` e `clients-ca.crt`, e recusa
   cliente sem certificado. Não existe modo sem TLS. Por isso a #4 é pré-requisito para usar um
   equipamento real. (guia)
