@@ -15,6 +15,12 @@ versões minor são publicadas como release, e versões patch como pré-release.
 | **How** | Escrito à mão a partir das issues, nunca gerado dos commits. |
 | **How much** | Uma seção por versão. |
 
+## 0.4.1 - Hostname do Prisma — 2026-10-01
+
+### Correções
+- O nome dos Prismas 0.148.4 aparecia vazio: a API deles devolve o hostname vazio (bug do Prisma, corrigido na 0.148.6). O prisma-web passa a tirar o nome da configuração em uso, lida no máximo a cada 10 min (#13).
+- "Reinício pendente" passa a dizer "reboot pendente para concluir o upgrade" e explica que o dataplane só troca de versão no reboot (#13).
+
 ## 0.4.0 - mTLS com o Prisma real — 2026-10-01
 
 ### Mudanças de comportamento
