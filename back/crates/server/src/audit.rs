@@ -1,4 +1,4 @@
-//! Registro de mudanças e eventos de segurança na tabela `audit_log`.
+//! Records changes and security events in the `audit_log` table.
 
 use serde_json::Value;
 use sqlx::PgPool;
@@ -47,7 +47,7 @@ impl<'a> Entry<'a> {
     pub fn system(action: &'a str, target: Option<&'a str>) -> Self {
         Self {
             user_id: None,
-            username: Some("sistema"),
+            username: Some("system"),
             action,
             target,
             router_id: None,
@@ -78,8 +78,8 @@ impl<'a> Entry<'a> {
     }
 }
 
-/// Grava o evento. Falhas são apenas logadas: auditoria nunca derruba a ação,
-/// mas fica registrado em log se o banco recusar.
+/// Writes the event. Failures are only logged: auditing never breaks the action,
+/// but a database refusal is recorded in the log.
 pub async fn record(db: &PgPool, e: Entry<'_>) {
     let res = sqlx::query(
         "INSERT INTO audit_log (user_id, username, action, target, router_id, success, ip, details)
@@ -96,6 +96,6 @@ pub async fn record(db: &PgPool, e: Entry<'_>) {
     .execute(db)
     .await;
     if let Err(err) = res {
-        tracing::error!(error = %err, action = e.action, "falha ao gravar auditoria");
+        tracing::error!(error = %err, action = e.action, "failed to write audit entry");
     }
 }

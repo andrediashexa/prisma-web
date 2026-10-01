@@ -70,7 +70,7 @@ impl FromRequestParts<AppState> for CurrentUser {
     }
 }
 
-/// IP e user-agent de quem fez a requisição, para sessões e auditoria.
+/// IP and user agent of the requester, for sessions and auditing.
 #[derive(Debug, Clone)]
 pub struct ClientMeta {
     pub ip: Option<IpAddr>,
@@ -98,7 +98,7 @@ impl FromRequestParts<AppState> for ClientMeta {
             .extensions
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ConnectInfo(addr)| addr.ip());
-        // Socket dual-stack entrega IPv4 como ::ffff:a.b.c.d; normaliza para IPv4.
+        // A dual-stack socket delivers IPv4 as ::ffff:a.b.c.d; normalize to IPv4.
         let ip = forwarded.or(peer).map(|ip| ip.to_canonical());
         let user_agent = parts
             .headers
@@ -119,20 +119,20 @@ pub async fn hash_password(password: String) -> AppResult<String> {
         Argon2::default()
             .hash_password(password.as_bytes(), &salt)
             .map(|h| h.to_string())
-            .map_err(|e| anyhow::anyhow!("hash de senha: {e}"))
+            .map_err(|e| anyhow::anyhow!("password hash: {e}"))
     })
     .await
     .map_err(anyhow::Error::from)?
     .map_err(AppError::from)
 }
 
-/// Hash fixo usado quando o usuário não existe, para que o tempo de resposta
-/// não revele quais usernames são válidos.
+/// Fixed hash used when the user does not exist, so the response time
+/// does not reveal which usernames are valid.
 static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
         .hash_password(b"prisma-web-dummy-password", &salt)
-        .expect("hash fixo")
+        .expect("fixed hash")
         .to_string()
 });
 
@@ -149,11 +149,11 @@ pub async fn verify_password(password: String, hash: Option<String>) -> bool {
 pub fn validate_password(password: &str) -> AppResult<()> {
     if password.chars().count() < PASSWORD_MIN_LEN {
         return Err(AppError::BadRequest(format!(
-            "a senha precisa ter pelo menos {PASSWORD_MIN_LEN} caracteres"
+            "the password must have at least {PASSWORD_MIN_LEN} characters"
         )));
     }
     if password.len() > 1024 {
-        return Err(AppError::BadRequest("senha longa demais".into()));
+        return Err(AppError::BadRequest("password too long".into()));
     }
     Ok(())
 }
@@ -167,12 +167,12 @@ pub fn validate_username(username: &str) -> AppResult<()> {
         Ok(())
     } else {
         Err(AppError::BadRequest(
-            "usuário deve ter 3 a 32 caracteres: letras, números, '.', '_' ou '-'".into(),
+            "username must have 3 to 32 characters: letters, digits, '.', '_' or '-'".into(),
         ))
     }
 }
 
-/// Cria a sessão no banco e devolve o cookie a ser enviado ao navegador.
+/// Creates the session in the database and returns the cookie to send to the browser.
 pub async fn create_session(
     db: &PgPool,
     cfg: &Config,
@@ -212,7 +212,7 @@ pub fn removal_cookie() -> Cookie<'static> {
     c
 }
 
-/// Na primeira subida (tabela de usuários vazia), cria o administrador inicial.
+/// On first start (empty users table), creates the initial administrator.
 pub async fn bootstrap_admin(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM users").fetch_one(db).await?;
     if count > 0 {
@@ -250,10 +250,10 @@ pub async fn bootstrap_admin(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
         tracing::warn!(
             username = %cfg.admin_username,
             password = %password,
-            "administrador inicial criado com senha aleatória; troque-a no primeiro acesso"
+            "initial administrator created with a random password; change it on first login"
         );
     } else {
-        tracing::info!(username = %cfg.admin_username, "administrador inicial criado");
+        tracing::info!(username = %cfg.admin_username, "initial administrator created");
     }
     Ok(())
 }
@@ -266,7 +266,7 @@ pub async fn purge_expired_sessions(db: PgPool) {
             .execute(&db)
             .await
         {
-            tracing::warn!(error = %e, "falha ao limpar sessões expiradas");
+            tracing::warn!(error = %e, "failed to purge expired sessions");
         }
     }
 }

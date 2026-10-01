@@ -1,6 +1,6 @@
 {
-	# HTTP puro por enquanto. Para HTTPS, troque ":80" pelo domínio (ou ":443")
-	# e remova esta linha; também ajuste COOKIE_SECURE=true no back.
+	# Plain HTTP for now. For HTTPS, replace ":80" with the domain (or ":443")
+	# and remove this line; also set COOKIE_SECURE=true on the back end.
 	auto_https off
 	admin off
 }

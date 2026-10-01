@@ -1,5 +1,5 @@
-//! Estado compartilhado do mock: configuração, revisões, candidatos e a
-//! simulação dos contadores de tráfego.
+//! Shared mock state: configuration, revisions, candidates and the
+//! traffic counter simulation.
 
 use std::collections::HashMap;
 use std::f64::consts::TAU;
@@ -25,7 +25,7 @@ pub struct Candidate {
     pub config: Config,
 }
 
-/// `commit confirmed` aguardando `Confirm`.
+/// `commit confirmed` awaiting `Confirm`.
 pub struct Pending {
     pub token: u64,
     pub deadline: DateTime<Utc>,
@@ -35,9 +35,9 @@ pub struct Pending {
 pub struct IfaceSim {
     pub name: String,
     pub mac: Option<String>,
-    /// Pico de tráfego em bits/s para a curva sintética.
+    /// Traffic peak in bits/s for the synthetic curve.
     pub peak_bps: f64,
-    /// Fatores de variação que mudam devagar, para a curva parecer tráfego real.
+    /// Slowly changing variation factors, so the curve looks like real traffic.
     pub drift: (f64, f64),
     pub counters: InterfaceCounters,
 }
@@ -45,7 +45,7 @@ pub struct IfaceSim {
 pub struct State {
     pub started: Instant,
     pub running: Config,
-    /// Revisões em ordem de commit; a última é a atual.
+    /// Revisions in commit order; the last one is the current one.
     pub revisions: Vec<Revision>,
     pub candidates: HashMap<String, Candidate>,
     pub pending: Option<Pending>,
@@ -59,8 +59,8 @@ pub struct State {
 pub struct Shared {
     pub state: Mutex<State>,
     pub events: broadcast::Sender<Event>,
-    /// O processo operacional da conta no Prisma 0.148.4/0.148.5: atende uma
-    /// chamada por vez, `Show` incluído (issue #14 do prisma-web).
+    /// The account's operational process on Prisma 0.148.4/0.148.5: serves one
+    /// call at a time, `Show` included (prisma-web issue #14).
     pub ops: tokio::sync::Mutex<()>,
 }
 
@@ -71,7 +71,7 @@ impl State {
         let running = Config::seed(hostname);
         let sim = |name: &str, mac: Option<&str>, peak: f64| {
             let peak = peak * scale;
-            // Contadores começam como se o equipamento estivesse ligado há 3 dias.
+            // Counters start as if the box had been up for 3 days.
             let base = (peak * 0.5 * 3.0 * 86_400.0 / 8.0) as u64;
             IfaceSim {
                 name: name.into(),
@@ -117,11 +117,11 @@ impl State {
     }
 
     pub fn uptime_seconds(&self) -> u64 {
-        // Finge que o equipamento estava ligado há 3 dias.
+        // Pretends the box has been up for 3 days.
         self.started.elapsed().as_secs() + 3 * 86_400 + 7_342
     }
 
-    /// Revisão pelo número do `rollback` (0 é a mais nova).
+    /// Revision by its `rollback` number (0 is the newest).
     pub fn by_rollback_number(&self, n: u32) -> Option<&Revision> {
         let len = self.revisions.len();
         (n as usize).lt(&len).then(|| &self.revisions[len - 1 - n as usize])
@@ -142,10 +142,10 @@ impl State {
         self.sims.iter().find(|s| s.name == name)
     }
 
-    /// Avança a simulação em `secs` segundos.
+    /// Advances the simulation by `secs` seconds.
     pub fn step(&mut self, at: DateTime<Utc>, secs: u64) {
         let mut rng = rand::thread_rng();
-        // Curva diária com pico às 21h (horário de Brasília, UTC-3).
+        // Daily curve peaking at 21:00 local time (UTC-3).
         let hour = ((at.timestamp() as f64 / 3600.0) - 3.0).rem_euclid(24.0);
         let daily = 0.55 + 0.45 * ((hour - 21.0) / 24.0 * TAU).cos();
 
@@ -158,7 +158,7 @@ impl State {
             }
             let jitter = |rng: &mut rand::rngs::ThreadRng| rng.gen_range(0.97..1.03);
             let rx = sim.peak_bps * daily * sim.drift.0 * jitter(&mut rng);
-            // Download domina; upload ~25% do download.
+            // Download dominates; upload is ~25% of download.
             let tx = sim.peak_bps * daily * 0.25 * sim.drift.1 * jitter(&mut rng);
 
             let c = &mut sim.counters;
@@ -188,7 +188,7 @@ impl State {
 
 impl Shared {
     pub fn emit(&self, kind: &str, text: impl Into<String>) {
-        // Sem assinantes o envio falha; é esperado.
+        // With no subscribers the send fails; that is expected.
         let _ = self.events.send(Event { kind: kind.into(), account: "mock".into(), text: text.into() });
     }
 }

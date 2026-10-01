@@ -51,8 +51,8 @@ async fn main() -> anyhow::Result<()> {
         .acquire_timeout(Duration::from_secs(5))
         .connect(&cfg.database_url)
         .await
-        .context("conectando ao PostgreSQL")?;
-    sqlx::migrate!("./migrations").run(&db).await.context("aplicando migrações")?;
+        .context("connecting to PostgreSQL")?;
+    sqlx::migrate!("./migrations").run(&db).await.context("applying migrations")?;
 
     auth::bootstrap_admin(&db, &cfg).await?;
     routes::routers::seed_from_env(&db, &cfg).await?;
@@ -71,8 +71,8 @@ async fn main() -> anyhow::Result<()> {
     let app = routes::router(state);
     let listener = tokio::net::TcpListener::bind(cfg.bind_addr)
         .await
-        .with_context(|| format!("abrindo {}", cfg.bind_addr))?;
-    tracing::info!(addr = %cfg.bind_addr, "prisma-web-server ouvindo");
+        .with_context(|| format!("binding {}", cfg.bind_addr))?;
+    tracing::info!(addr = %cfg.bind_addr, "prisma-web-server listening");
 
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
@@ -92,7 +92,7 @@ async fn shutdown_signal() {
     tokio::select! { _ = ctrl_c => {}, _ = term => {} }
 }
 
-/// Usado pelo HEALTHCHECK do container (a imagem não tem shell nem curl).
+/// Used by the container HEALTHCHECK (the image has no shell or curl).
 fn healthcheck() -> anyhow::Result<()> {
     use std::io::{Read, Write};
     let port = std::env::var("BIND_ADDR")
@@ -107,6 +107,6 @@ fn healthcheck() -> anyhow::Result<()> {
     write!(s, "GET /api/health HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
     let mut buf = [0u8; 12];
     s.read_exact(&mut buf)?;
-    anyhow::ensure!(&buf[9..12] == b"200", "status inesperado");
+    anyhow::ensure!(&buf[9..12] == b"200", "unexpected status");
     Ok(())
 }

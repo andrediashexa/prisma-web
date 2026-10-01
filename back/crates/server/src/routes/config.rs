@@ -1,8 +1,8 @@
-//! Configuração de cada Prisma pelo modelo do VTY (`ConfigService`):
+//! Configuration of each Prisma through the VTY model (`ConfigService`):
 //! candidate → edit → compare → check → commit [confirmed] → confirm.
 //!
-//! O Prisma vê uma conta só para a interface inteira, então a posse de cada
-//! candidate (qual usuário da web o abriu) é controlada aqui.
+//! Prisma sees a single account for the whole web UI, so the ownership of each
+//! candidate (which web user opened it) is tracked here.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -24,9 +24,9 @@ use crate::grpc::req;
 use crate::telemetry::PendingConfirm;
 use crate::AppState;
 
-/// Candidates abertos há mais tempo que isso são descartados.
+/// Candidates open for longer than this are discarded.
 const CANDIDATE_TTL: Duration = Duration::from_secs(3600);
-/// Tamanho máximo do diff guardado no log de mudanças.
+/// Maximum size of the diff kept in the change log.
 const MAX_DIFF_LOG: usize = 20_000;
 
 struct Owner {
@@ -44,9 +44,9 @@ impl Candidates {
         match map.get(cid) {
             Some(o) if o.router_id == router_id && o.user_id == user.id => Ok(()),
             Some(o) if o.router_id == router_id => {
-                Err(AppError::Conflict("este candidate foi aberto por outro usuário".into()))
+                Err(AppError::Conflict("this candidate was opened by another user".into()))
             }
-            _ => Err(AppError::NotFound("candidate não encontrado; abra uma nova alteração".into())),
+            _ => Err(AppError::NotFound("candidate not found; open a new change".into())),
         }
     }
 
@@ -54,7 +54,7 @@ impl Candidates {
         self.0.lock().unwrap().remove(cid);
     }
 
-    /// Remove e devolve os candidates vencidos, para serem fechados no Prisma.
+    /// Removes and returns the expired candidates, so they can be closed on Prisma.
     fn expired(&self) -> Vec<(Uuid, String)> {
         let mut map = self.0.lock().unwrap();
         let old: Vec<(Uuid, String)> = map
@@ -96,7 +96,7 @@ pub struct Pending {
 pub struct PendingView {
     #[serde(flatten)]
     inner: PendingConfirm,
-    /// Se quem está vendo pode confirmar.
+    /// Whether the viewer can confirm.
     can_confirm: bool,
 }
 
@@ -152,7 +152,7 @@ pub async fn edit(
     st.candidates.check(id, &cid, &user)?;
     let lines: Vec<String> = body.lines.into_iter().map(|l| l.trim_end().to_string()).filter(|l| !l.trim().is_empty()).collect();
     if lines.is_empty() {
-        return Err(AppError::BadRequest("nenhuma linha para aplicar".into()));
+        return Err(AppError::BadRequest("no lines to apply".into()));
     }
     let r = st.routers.get(id).await?;
     let msg = EditRequest { candidate_id: cid, path: body.path, lines };
@@ -245,18 +245,18 @@ pub async fn commit(
     user.require(Role::Operator)?;
     st.candidates.check(id, &cid, &user)?;
     if body.confirmed_minutes > 60 {
-        return Err(AppError::BadRequest("commit confirmed aceita no máximo 60 minutos".into()));
+        return Err(AppError::BadRequest("commit confirmed accepts at most 60 minutes".into()));
     }
     let comment = body.comment.trim();
     if comment.chars().count() > 200 || comment.contains(['\n', '\r']) {
-        return Err(AppError::BadRequest("o comentário deve ter uma linha de até 200 caracteres".into()));
+        return Err(AppError::BadRequest("the comment must be a single line of up to 200 characters".into()));
     }
     let r = st.routers.get(id).await?;
 
-    // O diff vai para o log: é o registro do que esta alteração mudou.
+    // The diff goes to the log: it records what this change changed.
     let diff = r.config().compare(req(cref(&cid))).await?.into_inner().diff;
-    // Todos os usuários da web usam a mesma conta no Prisma; o comentário
-    // leva o usuário para a trilha do próprio equipamento.
+    // Every web user shares the same Prisma account; the comment carries
+    // the user into the box's own audit trail.
     let box_comment = if comment.is_empty() {
         format!("[prisma-web:{}]", user.username)
     } else {
@@ -290,7 +290,7 @@ pub async fn commit(
             details["revision"] = json!(resp.revision);
             audit::record(&st.db, entry.details(details)).await;
             st.candidates.forget(&cid);
-            // Se o Prisma não fechar o candidate sozinho no commit, fecha aqui.
+            // If Prisma does not close the candidate on commit by itself, close it here.
             let _ = r.config().close_candidate(req(cref(&cid))).await;
             if body.confirmed_minutes > 0 {
                 let deadline = resp
@@ -331,7 +331,7 @@ pub async fn confirm(
     if let Some(p) = &pending {
         if !can_confirm(p, &user) {
             return Err(AppError::Conflict(format!(
-                "o commit pendente é de {}; só ele ou um administrador pode confirmar",
+                "the pending commit belongs to {}; only that user or an administrator can confirm it",
                 p.by
             )));
         }
@@ -385,7 +385,7 @@ fn truncate(s: &str, max: usize) -> String {
     while !s.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}\n… (diff truncado)", &s[..end])
+    format!("{}\n… (diff truncated)", &s[..end])
 }
 
 #[cfg(test)]
@@ -404,7 +404,7 @@ mod tests {
         c.0.lock().unwrap().insert("c1".into(), Owner { router_id: router, user_id: owner, opened: Instant::now() });
         assert!(c.check(router, "c1", &user(owner)).is_ok());
         assert!(matches!(c.check(router, "c1", &user(other)), Err(AppError::Conflict(_))));
-        // Mesmo id em outro roteador não vale.
+        // The same id on another router does not count.
         assert!(matches!(c.check(Uuid::new_v4(), "c1", &user(owner)), Err(AppError::NotFound(_))));
         c.forget("c1");
         assert!(matches!(c.check(router, "c1", &user(owner)), Err(AppError::NotFound(_))));
@@ -422,17 +422,18 @@ mod tests {
         let mut viewer = user(author);
         viewer.role = Role::Viewer;
         assert!(!can_confirm(&p, &viewer));
-        // Commit feito no próprio equipamento (sem autor na web): qualquer operador.
+        // Commit made on the box itself (no web author): any operator.
         let boxp = PendingConfirm { user_id: None, ..p };
         assert!(can_confirm(&boxp, &user(Uuid::new_v4())));
     }
 
     #[test]
     fn truncate_respects_utf8_boundaries() {
-        let s = "ação".repeat(10);
-        let t = truncate(&s, 5);
-        assert!(t.starts_with("açã") || t.starts_with("aç"));
-        assert!(t.ends_with("(diff truncado)"));
-        assert_eq!(truncate("curto", 50), "curto");
+        // "a€" is 1 + 3 bytes: byte 6 falls inside the second '€'.
+        let s = "a€".repeat(10);
+        let t = truncate(&s, 6);
+        assert!(t.starts_with("a€a\n"));
+        assert!(t.ends_with("(diff truncated)"));
+        assert_eq!(truncate("short", 50), "short");
     }
 }

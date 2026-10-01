@@ -52,7 +52,7 @@ pub async fn login(
     .fetch_optional(&st.db)
     .await?;
 
-    // Verifica a senha mesmo sem usuário para não vazar quais usernames existem.
+    // Verify the password even with no user, so as not to leak which usernames exist.
     let valid = auth::verify_password(req.password, row.as_ref().map(|r| r.password_hash.clone())).await;
 
     let user = match row {
@@ -62,9 +62,9 @@ pub async fn login(
                 st.limiter.record_failure(ip);
             }
             let reason = match other {
-                None => "usuário inexistente",
-                Some(r) if r.disabled && valid => "usuário desativado",
-                Some(_) => "senha incorreta",
+                None => "unknown user",
+                Some(r) if r.disabled && valid => "user disabled",
+                Some(_) => "wrong password",
             };
             audit::record(
                 &st.db,
@@ -73,7 +73,7 @@ pub async fn login(
                     .details(json!({ "reason": reason })),
             )
             .await;
-            return Err(AppError::BadRequest("usuário ou senha inválidos".into()));
+            return Err(AppError::BadRequest("invalid username or password".into()));
         }
     };
 
@@ -144,7 +144,7 @@ pub async fn change_password(
 ) -> AppResult<StatusCode> {
     auth::validate_password(&req.new_password)?;
     if req.new_password == req.current_password {
-        return Err(AppError::BadRequest("a nova senha deve ser diferente da atual".into()));
+        return Err(AppError::BadRequest("the new password must differ from the current one".into()));
     }
 
     let hash: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
@@ -153,7 +153,7 @@ pub async fn change_password(
         .await?;
     if !auth::verify_password(req.current_password, Some(hash)).await {
         audit::record(&st.db, Entry::by(&user, &meta, "auth.password_change").failed()).await;
-        return Err(AppError::BadRequest("senha atual incorreta".into()));
+        return Err(AppError::BadRequest("wrong current password".into()));
     }
 
     let new_hash = auth::hash_password(req.new_password).await?;
@@ -166,7 +166,7 @@ pub async fn change_password(
     .bind(user.id)
     .execute(&mut *tx)
     .await?;
-    // Derruba as outras sessões do usuário; mantém a atual.
+    // Drop the user's other sessions; keep the current one.
     sqlx::query("DELETE FROM sessions WHERE user_id = $1 AND id <> $2")
         .bind(user.id)
         .bind(user.session_id)

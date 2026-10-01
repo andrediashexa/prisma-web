@@ -1,6 +1,6 @@
 [package]
 name = "prisma-proto"
-description = "Cliente e servidor gRPC gerados de proto/prisma/v1/prisma.proto"
+description = "gRPC client and server generated from proto/prisma/v1/prisma.proto"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
@@ -15,6 +15,6 @@ tonic.workspace = true
 tonic-prost.workspace = true
 
 [build-dependencies]
-# protox compila o .proto em Rust puro: a imagem de build não precisa de protoc.
+# protox compiles the .proto in pure Rust: the build image does not need protoc.
 protox = "0.9"
 tonic-prost-build = "0.14"

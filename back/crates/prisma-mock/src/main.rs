@@ -1,6 +1,6 @@
-//! Prisma simulado: implementa `prisma.v1` (back/proto/prisma/v1/prisma.proto)
-//! em gRPC, com configuração no modelo do VTY e tráfego sintético, para que o
-//! prisma-web possa ser desenvolvido sem um equipamento real.
+//! Simulated Prisma: implements `prisma.v1` (back/proto/prisma/v1/prisma.proto)
+//! over gRPC, with configuration in the VTY model and synthetic traffic, so that
+//! prisma-web can be developed without a real box.
 
 mod config;
 mod config_service;
@@ -46,11 +46,11 @@ async fn main() -> anyhow::Result<()> {
     let addr = bind_addr()?;
     let mut builder = Server::builder();
     let tls = tls_from_env()?;
-    let mode = if tls.is_some() { "mTLS" } else { "sem TLS" };
+    let mode = if tls.is_some() { "mTLS" } else { "no TLS" };
     if let Some(cfg) = tls {
         builder = builder.tls_config(cfg)?;
     }
-    tracing::info!(%addr, %hostname, mode, "prisma-mock (gRPC) ouvindo");
+    tracing::info!(%addr, %hostname, mode, "prisma-mock (gRPC) listening");
     router_with(builder, shared, hostname)
         .serve_with_shutdown(addr, async {
             let _ = tokio::signal::ctrl_c().await;
@@ -64,8 +64,8 @@ fn new_shared(hostname: &str, scale: f64) -> SharedRef {
     Arc::new(Shared { state: Mutex::new(State::new(hostname, scale)), events, ops: tokio::sync::Mutex::new(()) })
 }
 
-/// Como o Prisma real: com `MOCK_TLS_DIR`, serve só mTLS e exige um
-/// certificado de cliente assinado por `clients-ca.crt` (docs/prisma-api.md).
+/// Like the real Prisma: with `MOCK_TLS_DIR`, serves mTLS only and requires a
+/// client certificate signed by `clients-ca.crt` (docs/prisma-api.md).
 fn tls_from_env() -> anyhow::Result<Option<ServerTlsConfig>> {
     let Some(dir) = std::env::var_os("MOCK_TLS_DIR").filter(|d| !d.is_empty()) else { return Ok(None) };
     let dir = std::path::PathBuf::from(dir);
@@ -90,7 +90,7 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
         .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared)))
 }
 
-/// Avança a simulação a cada segundo.
+/// Advances the simulation every second.
 async fn ticker(shared: SharedRef) {
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     loop {
@@ -99,8 +99,8 @@ async fn ticker(shared: SharedRef) {
     }
 }
 
-/// Usado pelo HEALTHCHECK do container (a imagem não tem shell): só testa se
-/// a porta aceita conexão.
+/// Used by the container HEALTHCHECK (the image has no shell): only tests whether
+/// the port accepts a connection.
 fn healthcheck() -> anyhow::Result<()> {
     let port = bind_addr().map_or(50051, |a| a.port());
     std::net::TcpStream::connect_timeout(&SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)), Duration::from_secs(2))?;
@@ -136,12 +136,12 @@ mod tests {
 
     #[tokio::test]
     async fn config_flow_and_refusals() {
-        let ch = start("prisma-teste").await;
+        let ch = start("prisma-test").await;
         let mut op = OperationalServiceClient::new(ch.clone());
         let mut cfg = ConfigServiceClient::new(ch.clone());
 
         let v = op.get_version(GetVersionRequest {}).await.unwrap().into_inner();
-        assert_eq!(v.hostname, "prisma-teste");
+        assert_eq!(v.hostname, "prisma-test");
 
         let c = cfg.open_candidate(OpenCandidateRequest { from_revision: None }).await.unwrap().into_inner();
         assert_eq!(c.base_revision, "r1");
@@ -153,23 +153,23 @@ mod tests {
         };
         cfg.edit(edit(&["interface lan0"], &["mtu 9000"])).await.unwrap();
 
-        // Recusa com Diagnostics no metadado.
+        // Refusal with Diagnostics in the metadata.
         let err = cfg.edit(edit(&["interface lan0"], &["mtu 1000"])).await.unwrap_err();
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
-        let d = prisma_proto::diagnostics(&err).expect("diagnostics no metadado");
+        let d = prisma_proto::diagnostics(&err).expect("diagnostics in the metadata");
         assert_eq!(d.items[0].message, "mtu must be between 1280 and 9216");
         assert_eq!(d.items[0].path, s(&["interface lan0"]));
 
         let cmp = cfg.compare(CandidateRef { candidate_id: cid.clone() }).await.unwrap().into_inner();
         assert!(cmp.changed && cmp.diff.contains("+  mtu 9000"), "{}", cmp.diff);
 
-        // Mudar o block-size exige reconhecer o remap.
+        // Changing the block-size requires acknowledging the remap.
         cfg.edit(edit(&["nat", "cgnat", "pool RFC6598"], &["block-size 512"])).await.unwrap();
         let chk = cfg.check(CandidateRef { candidate_id: cid.clone() }).await.unwrap().into_inner();
         assert!(chk.passed && chk.remap.len() == 1, "{chk:?}");
         let commit = |ack| CommitRequest {
             candidate_id: cid.clone(),
-            comment: "teste".into(),
+            comment: "test".into(),
             acknowledge_remap: ack,
             ..Default::default()
         };
@@ -180,17 +180,17 @@ mod tests {
 
         let running = cfg.get_running(GetRunningRequest {}).await.unwrap().into_inner();
         assert!(
-            running.text.contains("interface lan0\n description Rede interna\n ipv4 address 192.168.10.1/24\n ipv6 address 2001:db8:200:10::1/64\n mtu 9000\n exit\n"),
+            running.text.contains("interface lan0\n description Internal network\n ipv4 address 192.168.10.1/24\n ipv6 address 2001:db8:200:10::1/64\n mtu 9000\n exit\n"),
             "{}",
             running.text
         );
         assert!(running.text.contains("   block-size 512\n"));
         let revs = cfg.list_revisions(ListRevisionsRequest {}).await.unwrap().into_inner().revisions;
         assert_eq!(revs.len(), 2);
-        assert_eq!((revs[0].number, revs[0].comment.as_str()), (0, "teste"));
+        assert_eq!((revs[0].number, revs[0].comment.as_str()), (0, "test"));
         assert_eq!(revs[1].comment, "loaded from file");
 
-        // Candidato antigo sobre base desatualizada é recusado.
+        // An old candidate on an outdated base is refused.
         let old = cfg.open_candidate(OpenCandidateRequest { from_revision: Some(1) }).await.unwrap().into_inner();
         assert!(old.text.contains(" mtu 1500"));
         let c2 = cfg.open_candidate(OpenCandidateRequest { from_revision: None }).await.unwrap().into_inner();
@@ -208,7 +208,7 @@ mod tests {
         cfg.confirm(ConfirmRequest {}).await.unwrap();
         assert!(cfg.confirm(ConfirmRequest {}).await.is_err());
 
-        // Show recusa comandos de configuração.
+        // Show refuses configuration commands.
         let err = op.show(ShowRequest { command: "configure terminal".into() }).await.unwrap_err();
         assert!(err.message().starts_with("not an operational command"));
         let r6 = op.show(ShowRequest { command: "show ipv6 route".into() }).await.unwrap().into_inner().text;
@@ -217,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn telemetry_stream() {
-        let ch = start("prisma-filial").await;
+        let ch = start("prisma-branch").await;
         let mut tel = TelemetryServiceClient::new(ch.clone());
         assert!(tel.subscribe(SubscribeRequest { interval_ms: 100, ..Default::default() }).await.is_err());
         let mut stream = tel
@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(batch.samples.len(), 1);
         assert!(batch.samples[0].counters.unwrap().rx_bytes > 0);
 
-        // Um save gera evento no stream.
+        // A save produces an event on the stream.
         ConfigServiceClient::new(ch.clone()).save(SaveRequest {}).await.unwrap();
         let mut saw_event = false;
         for _ in 0..5 {

@@ -1,18 +1,18 @@
-//! Tipos, cliente e servidor gRPC da API do Prisma (`prisma.v1`), gerados de
-//! `back/proto/prisma/v1/prisma.proto`. Para atualizar, copie o proto novo do
-//! Prisma para lá e recompile.
+//! Types, gRPC client and server of the Prisma API (`prisma.v1`), generated from
+//! `back/proto/prisma/v1/prisma.proto`. To update, copy Prisma's new proto
+//! there and rebuild.
 
 pub mod v1 {
     tonic::include_proto!("prisma.v1");
 }
 
-/// Serializadores usados pelos atributos gerados no build.rs.
+/// Serializers used by the attributes generated in build.rs.
 mod ser {
     use serde::Serializer;
 
     use crate::v1::diagnostic::Severity;
 
-    /// Timestamp do protobuf como RFC 3339 (o que o front entende).
+    /// Protobuf timestamp as RFC 3339 (what the front end understands).
     pub fn timestamp<S: Serializer>(ts: &Option<prost_types::Timestamp>, s: S) -> Result<S::Ok, S::Error> {
         match ts.as_ref().and_then(|t| chrono::DateTime::from_timestamp(t.seconds, t.nanos.max(0) as u32)) {
             Some(dt) => s.serialize_str(&dt.to_rfc3339()),
@@ -30,17 +30,17 @@ mod ser {
     }
 }
 
-/// Metadado de resposta com o relato do VTY sobre uma chamada recusada.
+/// Response metadata carrying the VTY's report on a rejected call.
 pub const DIAGNOSTICS_KEY: &str = "prisma-diagnostics-bin";
 
-/// Extrai os `Diagnostics` que o Prisma anexa a um status de erro.
+/// Extracts the `Diagnostics` that Prisma attaches to an error status.
 pub fn diagnostics(status: &tonic::Status) -> Option<v1::Diagnostics> {
     use prost::Message;
     let raw = status.metadata().get_bin(DIAGNOSTICS_KEY)?.to_bytes().ok()?;
     v1::Diagnostics::decode(raw).ok()
 }
 
-/// Anexa `Diagnostics` a um status de erro (usado pelo mock).
+/// Attaches `Diagnostics` to an error status (used by the mock).
 pub fn with_diagnostics(mut status: tonic::Status, diag: &v1::Diagnostics) -> tonic::Status {
     use prost::Message;
     status.metadata_mut().insert_bin(

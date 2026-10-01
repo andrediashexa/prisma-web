@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Uma imagem por binário do workspace: BIN=prisma-web-server ou BIN=prisma-mock.
+# One image per workspace binary: BIN=prisma-web-server or BIN=prisma-mock.
 FROM rust:1-bookworm AS build
 ARG BIN
 WORKDIR /src

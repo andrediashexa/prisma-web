@@ -1,9 +1,9 @@
-//! Telemetria dos Prismas: um `Subscribe` permanente por roteador.
+//! Prisma telemetry: one permanent `Subscribe` per router.
 //!
-//! O Prisma entrega contadores ao vivo; o histórico (24 h) é montado aqui, em
-//! memória, a partir das diferenças entre amostras. Os eventos de configuração
-//! do stream (commits feitos no próprio equipamento, rollbacks automáticos de
-//! `commit confirmed`) vão para o log de mudanças.
+//! Prisma delivers live counters; the history (24 h) is built here, in
+//! memory, from the differences between samples. The stream's configuration
+//! events (commits made on the box itself, automatic rollbacks of
+//! `commit confirmed`) go to the change log.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -24,8 +24,8 @@ use crate::registry::RouterHandle;
 const SAMPLE_MS: u32 = 5_000;
 const RETENTION: Duration = Duration::from_secs(24 * 3600);
 const MAX_POINTS: usize = 180;
-/// Eventos que chegam logo depois de uma ação feita pela própria interface são
-/// o eco dela e não viram uma segunda entrada no log.
+/// Events that arrive right after an action taken through the web UI are its
+/// echo and do not become a second log entry.
 const ECHO_WINDOW: Duration = Duration::from_secs(8);
 
 #[derive(Clone, Copy, Serialize)]
@@ -48,15 +48,15 @@ pub struct CgnatSample {
 pub struct Series<T> {
     pub step_seconds: u32,
     pub samples: Vec<T>,
-    /// `false` quando o stream de telemetria do roteador está caído.
+    /// `false` when the router's telemetry stream is down.
     pub live: bool,
 }
 
-/// Um `commit confirmed` aguardando `Confirm`.
+/// A `commit confirmed` awaiting `Confirm`.
 #[derive(Clone, Serialize)]
 pub struct PendingConfirm {
     pub deadline: Option<DateTime<Utc>>,
-    /// Usuário da web que fez o commit, ou a conta do equipamento.
+    /// Web user who made the commit, or the box account.
     pub by: String,
     #[serde(skip)]
     pub user_id: Option<Uuid>,
@@ -91,7 +91,7 @@ impl Telemetry {
         }
     }
 
-    /// Garante um coletor rodando para o roteador.
+    /// Ensures a collector is running for the router.
     pub fn ensure(&self, h: Arc<RouterHandle>) {
         let mut collectors = self.collectors.lock().unwrap();
         if collectors.get(&h.id).is_some_and(|j| !j.is_finished()) {
@@ -108,7 +108,7 @@ impl Telemetry {
         self.shared.routers.lock().unwrap().remove(&id);
     }
 
-    /// Para os coletores de roteadores que não existem mais.
+    /// Stops the collectors of routers that no longer exist.
     pub fn retain(&self, ids: &[Uuid]) {
         let gone: Vec<Uuid> = self.collectors.lock().unwrap().keys().filter(|id| !ids.contains(id)).copied().collect();
         for id in gone {
@@ -153,7 +153,7 @@ impl Telemetry {
         self.shared.routers.lock().unwrap().entry(id).or_default().pending = p;
     }
 
-    /// Marca que a interface acabou de mudar o roteador (para ignorar o eco).
+    /// Marks that the web UI has just changed the router (to ignore the echo).
     pub fn web_action(&self, id: Uuid) {
         self.shared.routers.lock().unwrap().entry(id).or_default().web_action_at = Some(Instant::now());
     }
@@ -216,13 +216,13 @@ async fn run(h: Arc<RouterHandle>, shared: Arc<Shared>) {
                         Ok(Some(update)) => handle(&shared, &h, update).await,
                         Ok(None) => break,
                         Err(e) => {
-                            tracing::debug!(router = %h.name, error = %e, "stream de telemetria caiu");
+                            tracing::debug!(router = %h.name, error = %e, "telemetry stream dropped");
                             break;
                         }
                     }
                 }
             }
-            Err(e) => tracing::debug!(router = %h.name, error = %e, "falha ao assinar telemetria"),
+            Err(e) => tracing::debug!(router = %h.name, error = %e, "failed to subscribe to telemetry"),
         }
         set_live(&shared, h.id, false);
         tokio::time::sleep(backoff).await;
@@ -235,8 +235,8 @@ fn set_live(shared: &Shared, id: Uuid, live: bool) {
     let d = routers.entry(id).or_default();
     d.live = live;
     if !live {
-        // Sem a última amostra, a próxima conexão não calcula uma taxa falsa
-        // com a diferença acumulada durante a queda.
+        // Without the last sample, the next connection does not compute a false
+        // rate from the difference accumulated during the outage.
         d.last.clear();
     }
 }
@@ -268,13 +268,13 @@ async fn handle(shared: &Shared, h: &RouterHandle, u: TelemetryUpdate) {
     }
 }
 
-/// Converte contadores absolutos em taxas (bps) pela diferença com a amostra anterior.
+/// Converts absolute counters into rates (bps) from the difference with the previous sample.
 fn apply_counters(d: &mut RouterData, at: DateTime<Utc>, samples: Vec<prisma_proto::v1::InterfaceSample>) {
     for s in samples {
         let Some(c) = s.counters else { continue };
         if let Some((t0, rx0, tx0)) = d.last.insert(s.name.clone(), (at, c.rx_bytes, c.tx_bytes)) {
             let dt = (at - t0).num_milliseconds() as f64 / 1000.0;
-            // Contador zerado (reboot, clear counters) não vira um pico nem uma taxa negativa.
+            // A counter reset (reboot, clear counters) becomes neither a spike nor a negative rate.
             if dt > 0.0 && c.rx_bytes >= rx0 && c.tx_bytes >= tx0 {
                 let q = d.ifaces.entry(s.name).or_default();
                 q.push_back(RateSample {
@@ -301,12 +301,12 @@ async fn on_event(shared: &Shared, h: &RouterHandle, e: Event) {
         }
         d.web_action_at.is_some_and(|t| t.elapsed() < ECHO_WINDOW)
     };
-    // Rollback automático sempre entra no log: ninguém o pediu pela interface.
+    // An automatic rollback always goes to the log: nobody asked for it through the web UI.
     if echo && e.kind != "rolled-back" {
         return;
     }
     let action = format!("box.{}", e.kind);
-    let username = format!("{} (no equipamento)", if e.account.is_empty() { "?" } else { &e.account });
+    let username = format!("{} (on the box)", if e.account.is_empty() { "?" } else { &e.account });
     let mut entry = Entry::system(&action, Some(&h.name)).router(h.id).details(json!({ "text": e.text, "account": e.account }));
     entry.username = Some(&username);
     audit::record(&shared.db, entry).await;
@@ -333,8 +333,8 @@ mod tests {
     fn first_sample_has_no_rate_then_rate_is_delta_in_bits() {
         let mut d = RouterData::default();
         apply_counters(&mut d, at(0), vec![sample("wan0", 1_000, 500)]);
-        assert!(d.ifaces.get("wan0").is_none(), "sem amostra anterior não há taxa");
-        // 5 s depois: +6_250_000 bytes rx = 10 Mbps; +625_000 tx = 1 Mbps.
+        assert!(d.ifaces.get("wan0").is_none(), "no previous sample, no rate");
+        // 5 s later: +6_250_000 bytes rx = 10 Mbps; +625_000 tx = 1 Mbps.
         apply_counters(&mut d, at(5), vec![sample("wan0", 6_251_000, 625_500)]);
         let s = d.ifaces["wan0"].back().unwrap();
         assert_eq!((s.rx_bps, s.tx_bps), (10_000_000, 1_000_000));
@@ -345,8 +345,8 @@ mod tests {
         let mut d = RouterData::default();
         apply_counters(&mut d, at(0), vec![sample("wan0", 9_000_000, 9_000_000)]);
         apply_counters(&mut d, at(5), vec![sample("wan0", 100, 100)]);
-        assert!(d.ifaces.get("wan0").is_none(), "zerar o contador não pode gerar taxa");
-        // A amostra pós-reset vira a nova base.
+        assert!(d.ifaces.get("wan0").is_none(), "a counter reset must not produce a rate");
+        // The post-reset sample becomes the new baseline.
         apply_counters(&mut d, at(10), vec![sample("wan0", 625_100, 100)]);
         assert_eq!(d.ifaces["wan0"].back().unwrap().rx_bps, 1_000_000);
     }

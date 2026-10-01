@@ -13,9 +13,9 @@ use crate::AppState;
 pub struct AuditQuery {
     #[serde(default = "default_limit")]
     limit: i64,
-    /// Paginação por cursor: devolve eventos com id menor que este.
+    /// Cursor pagination: returns events with an id lower than this one.
     before: Option<i64>,
-    /// Prefixo da ação, ex.: `auth.` ou `router.interface.update`.
+    /// Action prefix, e.g. `auth.` or `router.interface.update`.
     action: Option<String>,
     username: Option<String>,
     router_id: Option<Uuid>,

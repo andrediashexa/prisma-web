@@ -30,7 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/test", post(routers::test))
         .route("/routers/tls-profiles", get(routers::tls_profiles))
         .route("/routers/{id}", get(routers::get).patch(routers::update).delete(routers::delete))
-        // Dados operacionais e telemetria
+        // Operational data and telemetry
         .route("/routers/{id}/version", get(ops::version))
         .route("/routers/{id}/system", get(ops::system))
         .route("/routers/{id}/interfaces", get(ops::interfaces))
@@ -45,7 +45,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/show", post(ops::show))
         .route("/routers/{id}/metrics/traffic", get(ops::traffic))
         .route("/routers/{id}/metrics/cgnat", get(ops::cgnat))
-        // Configuração
+        // Configuration
         .route("/routers/{id}/config/running", get(config::running))
         .route("/routers/{id}/config/revisions", get(config::revisions))
         .route("/routers/{id}/config/pending", get(config::pending))

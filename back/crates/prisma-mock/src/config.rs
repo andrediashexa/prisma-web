@@ -1,8 +1,8 @@
-//! Modelo de configuração do mock, renderizado no formato de texto do VTY.
+//! The mock's configuration model, rendered in the VTY text format.
 //!
-//! Interfaces são estruturadas (para a simulação saber o que está desligado);
-//! o resto é guardado como blocos genéricos: um caminho de hierarquia e as
-//! linhas digitadas nele, exatamente como o operador as escreveu.
+//! Interfaces are structured (so the simulation knows what is shut down);
+//! the rest is kept as generic blocks: a hierarchy path and the lines
+//! typed in it, exactly as the operator wrote them.
 
 use std::net::IpAddr;
 
@@ -35,7 +35,7 @@ pub struct Config {
     pub blocks: Vec<Block>,
 }
 
-/// Recusa de uma linha: mensagem do VTY e o diagnóstico correspondente.
+/// Refusal of a line: the VTY message and the matching diagnostic.
 pub struct Refusal {
     pub message: String,
     pub diagnostic: Diagnostic,
@@ -67,10 +67,10 @@ impl Config {
         Self {
             hostname: hostname.into(),
             interfaces: vec![
-                iface("wan0", "Uplink operadora", 1500, &["203.0.113.10/29"], &["2001:db8:100::2/64"]),
-                iface("lan0", "Rede interna", 1500, &["192.168.10.1/24"], &["2001:db8:200:10::1/64"]),
-                iface("lan0.20", "VLAN convidados", 1500, &["192.168.20.1/24"], &["2001:db8:200:20::1/64"]),
-                iface("wg0", "VPN de acesso remoto", 1420, &["10.8.0.1/24"], &["fd00:8::1/64"]),
+                iface("wan0", "Carrier uplink", 1500, &["203.0.113.10/29"], &["2001:db8:100::2/64"]),
+                iface("lan0", "Internal network", 1500, &["192.168.10.1/24"], &["2001:db8:200:10::1/64"]),
+                iface("lan0.20", "Guest VLAN", 1500, &["192.168.20.1/24"], &["2001:db8:200:20::1/64"]),
+                iface("wg0", "Remote access VPN", 1420, &["10.8.0.1/24"], &["fd00:8::1/64"]),
                 Iface {
                     name: "lo".into(),
                     description: None,
@@ -116,7 +116,7 @@ impl Config {
             .unwrap_or(256)
     }
 
-    /// Endereços de `prefix-outside` do pool (para a capacidade).
+    /// The pool's `prefix-outside` addresses (for the capacity).
     pub fn pool_outside_addresses(&self) -> u64 {
         self.pool_prefixes("prefix-outside ")
             .iter()
@@ -157,7 +157,7 @@ impl Config {
             .unwrap_or_default()
     }
 
-    /// Texto como `show running-config` o imprime.
+    /// Text as `show running-config` prints it.
     pub fn render(&self) -> String {
         let mut out = vec![format!("hostname {}", self.hostname), "!".to_string()];
         for i in &self.interfaces {
@@ -165,7 +165,7 @@ impl Config {
             if let Some(d) = &i.description {
                 out.push(format!(" description {d}"));
             }
-            // Ordem e palavras como no `show running-config` de um Prisma real (issue #9).
+            // Order and wording as in a real Prisma's `show running-config` (issue #9).
             out.extend(i.v4.iter().map(|a| format!(" ipv4 address {a}")));
             out.extend(i.v6.iter().map(|a| format!(" ipv6 address {a}")));
             if i.shutdown {
@@ -182,7 +182,7 @@ impl Config {
         out.join("\n") + "\n"
     }
 
-    /// Próximos segmentos sob `prefix`, na ordem em que aparecem.
+    /// Next segments under `prefix`, in the order they appear.
     fn children(&self, prefix: &[String]) -> Vec<String> {
         let mut seen: Vec<String> = Vec::new();
         for b in &self.blocks {
@@ -195,7 +195,7 @@ impl Config {
 
     fn render_tree(&self, path: &[String], depth: usize, out: &mut Vec<String>) {
         let indent = " ".repeat(depth);
-        out.push(format!("{indent}{}", path.last().expect("caminho não vazio")));
+        out.push(format!("{indent}{}", path.last().expect("non-empty path")));
         if let Some(b) = self.blocks.iter().find(|b| b.path == path) {
             out.extend(b.lines.iter().map(|l| format!("{indent} {l}")));
         }
@@ -206,7 +206,7 @@ impl Config {
         }
     }
 
-    /// Aplica as linhas na ordem; para na primeira recusada, mantendo as anteriores.
+    /// Applies the lines in order; stops at the first refused one, keeping the earlier ones.
     pub fn edit(&mut self, path: &[String], lines: &[String]) -> Result<Vec<Diagnostic>, Refusal> {
         let mut notes = Vec::new();
         for raw in lines {
@@ -292,7 +292,7 @@ impl Config {
             lines.retain(|l| l != rest.trim());
             return;
         }
-        // Palavras-chave de valor único substituem a linha existente.
+        // Single-value keywords replace the existing line.
         let key = line.split_whitespace().next().unwrap_or_default();
         if matches!(key, "block-size" | "mode" | "policy") {
             if let Some(existing) = lines.iter_mut().find(|l| l.split_whitespace().next() == Some(key)) {
@@ -316,7 +316,7 @@ pub fn valid_cidr(cidr: &str, v6: bool) -> bool {
     }
 }
 
-/// Rede de um endereço CIDR: `203.0.113.10/29` → `203.0.113.8/29`.
+/// Network of a CIDR address: `203.0.113.10/29` → `203.0.113.8/29`.
 pub fn network(cidr: &str) -> Option<String> {
     let (addr, len) = cidr.split_once('/')?;
     let len: u32 = len.parse().ok()?;
@@ -332,8 +332,8 @@ pub fn network(cidr: &str) -> Option<String> {
     }
 }
 
-/// Diferença linha a linha (LCS), no estilo de `show configuration compare`:
-/// `+ `/`- ` para o que muda e até duas linhas de contexto ao redor.
+/// Line-by-line diff (LCS), in the style of `show configuration compare`:
+/// `+ `/`- ` for what changes and up to two lines of context around it.
 pub fn compare(old: &str, new: &str) -> String {
     let a: Vec<&str> = old.lines().collect();
     let b: Vec<&str> = new.lines().collect();
@@ -344,7 +344,7 @@ pub fn compare(old: &str, new: &str) -> String {
             lcs[i][j] = if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
         }
     }
-    // ops: (marcador, linha)
+    // ops: (marker, line)
     let mut ops: Vec<(char, &str)> = Vec::new();
     let (mut i, mut j) = (0, 0);
     while i < n || j < m {
@@ -393,27 +393,27 @@ mod tests {
     fn render_and_edit() {
         let mut c = Config::seed("x");
         let text = c.render();
-        assert!(text.starts_with("hostname x\n!\ninterface wan0\n description Uplink operadora\n ipv4 address"));
+        assert!(text.starts_with("hostname x\n!\ninterface wan0\n description Carrier uplink\n ipv4 address"));
         assert!(text.contains("nat\n cgnat\n  pool RFC6598\n   prefix-inside 100.64.0.0/10\n"));
         c.edit(&p(&["interface wan0"]), &p(&["mtu 9000", "no description"])).ok().unwrap();
         c.edit(&p(&POOL_PATH), &p(&["block-size 512"])).ok().unwrap();
         assert_eq!(c.pool_block_size(), 512);
         let err = c.edit(&p(&["interface wan0"]), &p(&["mtu 1400", "mtu 1000"])).err().unwrap();
         assert_eq!(err.message, "mtu must be between 1280 and 9216");
-        assert_eq!(c.iface("wan0").unwrap().mtu, 1400, "linhas antes da recusa ficam");
+        assert_eq!(c.iface("wan0").unwrap().mtu, 1400, "lines before the refusal are kept");
         assert!(c.edit(&p(&["interface eth9"]), &p(&["mtu 1500"])).is_err());
         assert!(c.edit(&p(&["interface wan0"]), &p(&["ipv6 address 10.0.0.1/24"])).is_err());
     }
 
-    /// Gramática observada no `show running-config` de um Prisma 0.148.3 real
-    /// (issue #9): `ipv4 address`, `shutdown` antes de `mtu`, bloco fechado com `exit`.
+    /// Grammar observed in a real Prisma 0.148.3's `show running-config`
+    /// (issue #9): `ipv4 address`, `shutdown` before `mtu`, block closed with `exit`.
     #[test]
     fn interface_grammar_matches_real_box() {
         let mut c = Config::seed("x");
         c.edit(&p(&["interface wan0"]), &p(&["shutdown"])).ok().unwrap();
         let text = c.render();
         assert!(
-            text.contains("interface wan0\n description Uplink operadora\n ipv4 address 203.0.113.10/29\n ipv6 address 2001:db8:100::2/64\n shutdown\n mtu 1500\n exit\n"),
+            text.contains("interface wan0\n description Carrier uplink\n ipv4 address 203.0.113.10/29\n ipv6 address 2001:db8:100::2/64\n shutdown\n mtu 1500\n exit\n"),
             "{text}"
         );
         assert!(!text.contains(" ip address "));

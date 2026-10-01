@@ -1,4 +1,4 @@
-//! Cadastro dos roteadores Prisma gerenciados por esta instância.
+//! Registry of the Prisma routers managed by this instance.
 
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use crate::registry::{validate_api_url, RouterStatus, TlsTarget};
 use crate::tls::{self, ProfileInfo};
 use crate::AppState;
 
-/// Tempo máximo para um Prisma responder ao teste de conexão.
+/// Maximum time for a Prisma to answer the connection test.
 const STATUS_TIMEOUT: Duration = Duration::from_secs(4);
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -33,7 +33,7 @@ pub struct RouterView {
     description: Option<String>,
     tls_profile: Option<String>,
     tls_server_name: Option<String>,
-    /// CN do certificado do perfil: a conta que o Prisma vê. Preenchido fora do SQL.
+    /// CN of the profile certificate: the account Prisma sees. Filled in outside SQL.
     #[sqlx(skip)]
     tls_account: Option<String>,
     created_at: DateTime<Utc>,
@@ -64,14 +64,14 @@ pub async fn get(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid
     Ok(Json(with_account(&st, fetch(&st.db, id).await?)))
 }
 
-/// Perfis TLS disponíveis no diretório montado (sem nunca expor a chave).
+/// TLS profiles available in the mounted directory (never exposing the key).
 pub async fn tls_profiles(State(st): State<AppState>, user: CurrentUser) -> AppResult<Json<Vec<ProfileInfo>>> {
     user.require(Role::Admin)?;
     Ok(Json(tls::list(&st.routers.tls_root)))
 }
 
-/// Endereço e TLS validados juntos: `https://` exige perfil e nome do servidor;
-/// `http://` (só os mocks) não aceita perfil.
+/// Address and TLS validated together: `https://` requires a profile and a server name;
+/// `http://` (mocks only) accepts no profile.
 struct Connection {
     url: String,
     tls: Option<(String, String)>,
@@ -86,18 +86,18 @@ impl Connection {
             (true, Some(p)) => {
                 let info = tls::check(&st.routers.tls_root, p)?;
                 if let Some(e) = info.error {
-                    return Err(AppError::BadRequest(format!("perfil TLS '{p}': {e}")));
+                    return Err(AppError::BadRequest(format!("TLS profile '{p}': {e}")));
                 }
                 let name = tls::validate_server_name(server_name.unwrap_or("prisma-api"))?;
                 Some((p.to_string(), name))
             }
             (true, None) => {
                 return Err(AppError::BadRequest(
-                    "https:// exige um perfil TLS (certificado do cliente) — o Prisma só aceita mTLS".into(),
+                    "https:// requires a TLS profile (client certificate) — Prisma only accepts mTLS".into(),
                 ))
             }
             (false, Some(_)) => {
-                return Err(AppError::BadRequest("perfil TLS só vale com https://".into()));
+                return Err(AppError::BadRequest("a TLS profile only applies to https://".into()));
             }
             (false, None) => None,
         };
@@ -124,11 +124,11 @@ pub struct TestRequest {
 pub struct TestResult {
     #[serde(flatten)]
     version: VersionInfo,
-    /// Conta (CN) com que o Prisma nos viu; `None` sem TLS.
+    /// Account (CN) Prisma saw us as; `None` without TLS.
     account: Option<String>,
 }
 
-/// Testa a conexão com um Prisma antes de salvar o cadastro.
+/// Tests the connection to a Prisma before saving the registration.
 pub async fn test(
     State(st): State<AppState>,
     user: CurrentUser,
@@ -139,11 +139,11 @@ pub async fn test(
     let mut client = OperationalServiceClient::new(st.routers.channel(&conn.url, conn.target())?);
     let version = tokio::time::timeout(STATUS_TIMEOUT, client.get_version(grpc::req(GetVersionRequest {})))
         .await
-        .map_err(|_| AppError::BadRequest("o Prisma não respondeu a tempo".into()))?
+        .map_err(|_| AppError::BadRequest("Prisma did not answer in time".into()))?
         .map_err(|s| AppError::BadRequest(grpc::describe(&s)))?;
     let mut version = version.into_inner();
     if version.hostname.is_empty() {
-        // Mesmo contorno do status da frota (Prisma 0.148.4, issue #13).
+        // Same workaround as the fleet status (Prisma 0.148.4, issue #13).
         let mut cfg = prisma_proto::v1::config_service_client::ConfigServiceClient::new(
             st.routers.channel(&conn.url, conn.target())?,
         );
@@ -199,7 +199,7 @@ pub async fn create(
 #[derive(Deserialize)]
 pub struct UpdateRouter {
     name: Option<String>,
-    /// Endereço e TLS mudam juntos: com `api_url`, os campos de TLS valem como enviados.
+    /// Address and TLS change together: with `api_url`, the TLS fields apply as sent.
     api_url: Option<String>,
     tls_profile: Option<String>,
     tls_server_name: Option<String>,
@@ -301,7 +301,7 @@ pub async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Na primeira subida, cadastra o roteador de `PRISMA_API_URL` (se definido).
+/// On first start, registers the router from `PRISMA_API_URL` (if set).
 pub async fn seed_from_env(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     let Some(raw_url) = &cfg.seed_router_url else { return Ok(()) };
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM routers").fetch_one(db).await?;
@@ -310,7 +310,7 @@ pub async fn seed_from_env(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     }
     let url = validate_api_url(raw_url).map_err(|e| anyhow::anyhow!("PRISMA_API_URL: {e}"))?;
     if url.starts_with("https://") {
-        anyhow::bail!("PRISMA_API_URL só aceita http:// (mocks); cadastre um Prisma com mTLS pela interface");
+        anyhow::bail!("PRISMA_API_URL only accepts http:// (mocks); register a Prisma with mTLS through the UI");
     }
     let id = Uuid::new_v4();
     let name = url
@@ -321,11 +321,11 @@ pub async fn seed_from_env(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
         .unwrap_or("prisma")
         .to_string();
     let conn = Connection { url: url.clone(), tls: None };
-    insert(db, id, &name, &conn, Some("Cadastrado a partir de PRISMA_API_URL"))
+    insert(db, id, &name, &conn, Some("Registered from PRISMA_API_URL"))
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     audit::record(db, Entry::system("router.create", Some(&name)).router(id)).await;
-    tracing::info!(%name, %url, "roteador inicial cadastrado");
+    tracing::info!(%name, %url, "initial router registered");
     Ok(())
 }
 
@@ -355,7 +355,7 @@ fn map_unique(res: Result<sqlx::postgres::PgQueryResult, sqlx::Error>, name: &st
     match res {
         Ok(_) => Ok(()),
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-            Err(AppError::Conflict(format!("já existe um roteador chamado '{name}'")))
+            Err(AppError::Conflict(format!("a router named '{name}' already exists")))
         }
         Err(e) => Err(e.into()),
     }
@@ -366,13 +366,13 @@ async fn fetch(db: &PgPool, id: Uuid) -> AppResult<RouterView> {
         .bind(id)
         .fetch_optional(db)
         .await?
-        .ok_or_else(|| AppError::NotFound("roteador não encontrado".into()))
+        .ok_or_else(|| AppError::NotFound("router not found".into()))
 }
 
 fn validate_name(name: &str) -> AppResult<String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 48 {
-        return Err(AppError::BadRequest("o nome deve ter de 1 a 48 caracteres".into()));
+        return Err(AppError::BadRequest("the name must have 1 to 48 characters".into()));
     }
     Ok(name.to_string())
 }
@@ -380,7 +380,7 @@ fn validate_name(name: &str) -> AppResult<String> {
 fn clean_description(d: Option<String>) -> AppResult<Option<String>> {
     let d = d.map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
     if d.as_ref().is_some_and(|d| d.chars().count() > 120) {
-        return Err(AppError::BadRequest("a descrição deve ter no máximo 120 caracteres".into()));
+        return Err(AppError::BadRequest("the description must have at most 120 characters".into()));
     }
     Ok(d)
 }

@@ -1,4 +1,4 @@
-//! Cadastro de roteadores Prisma, canais gRPC de cada um e monitor da frota.
+//! Registry of Prisma routers, the gRPC channel of each one and the fleet monitor.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -23,10 +23,10 @@ use crate::grpc;
 use crate::telemetry::Telemetry;
 use crate::tls;
 
-/// Intervalo do monitor da frota e tempo máximo de resposta de cada Prisma.
+/// Fleet monitor interval and maximum response time of each Prisma.
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(4);
-/// Quanto tempo vale o hostname tirado do `GetRunning` (ver `hostname_fallback`).
+/// How long the hostname taken from `GetRunning` stays valid (see `hostname_fallback`).
 const HOSTNAME_TTL: Duration = Duration::from_secs(600);
 
 type HostnameCache = Arc<RwLock<HashMap<Uuid, (String, Instant)>>>;
@@ -63,24 +63,24 @@ pub struct RouterStatus {
     pub error: Option<String>,
     pub latency_ms: Option<u64>,
     pub checked_at: chrono::DateTime<chrono::Utc>,
-    /// O Prisma não respondeu porque um comando do console está ocupando o
-    /// processo da conta; os dados são os da última consulta (issue #14).
+    /// Prisma did not answer because a console command is holding the
+    /// account's process; the data is from the last query (issue #14).
     pub busy: bool,
 }
 
 pub struct Registry {
     db: PgPool,
-    /// Raiz dos perfis TLS montados no container (`PRISMA_TLS_DIR`).
+    /// Root of the TLS profiles mounted in the container (`PRISMA_TLS_DIR`).
     pub tls_root: PathBuf,
     pub telemetry: Telemetry,
     cache: RwLock<HashMap<Uuid, Arc<RouterHandle>>>,
     status: RwLock<HashMap<Uuid, RouterStatus>>,
     hostnames: HostnameCache,
-    /// `Show` do console em andamento, por roteador.
+    /// Console `Show` in progress, per router.
     consoles: Arc<std::sync::Mutex<HashMap<Uuid, usize>>>,
 }
 
-/// Marca um comando de console em andamento enquanto existir.
+/// Marks a console command as in progress for as long as it exists.
 pub struct ConsoleGuard {
     id: Uuid,
     consoles: Arc<std::sync::Mutex<HashMap<Uuid, usize>>>,
@@ -107,7 +107,7 @@ struct Row {
     tls_server_name: Option<String>,
 }
 
-/// Perfil TLS e nome do servidor de um roteador acessado por `https://`.
+/// TLS profile and server name of a router reached through `https://`.
 pub struct TlsTarget<'a> {
     pub profile: &'a str,
     pub server_name: &'a str,
@@ -136,7 +136,7 @@ impl Registry {
             .bind(id)
             .fetch_optional(&self.db)
             .await?
-            .ok_or_else(|| AppError::NotFound("roteador não encontrado".into()))?;
+            .ok_or_else(|| AppError::NotFound("router not found".into()))?;
         let tls = row
             .tls_profile
             .as_deref()
@@ -152,7 +152,7 @@ impl Registry {
         Ok(handle)
     }
 
-    /// Todos os roteadores cadastrados, em ordem de nome.
+    /// Every registered router, ordered by name.
     pub async fn all(&self) -> AppResult<Vec<Arc<RouterHandle>>> {
         let ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM routers ORDER BY lower(name)")
             .fetch_all(&self.db)
@@ -164,9 +164,9 @@ impl Registry {
         Ok(out)
     }
 
-    /// No Prisma 0.148.4/0.148.5 o `Show` divide com as leituras o processo da
-    /// conta, que atende uma chamada por vez: um `ping` longo faz o monitor
-    /// estourar o tempo. O console avisa aqui enquanto roda (issue #14).
+    /// On Prisma 0.148.4/0.148.5 `Show` shares the account's process with the
+    /// reads, and it serves one call at a time: a long `ping` makes the monitor
+    /// time out. The console reports here while it runs (issue #14).
     pub fn console_started(&self, id: Uuid) -> ConsoleGuard {
         *self.consoles.lock().unwrap().entry(id).or_default() += 1;
         ConsoleGuard { id, consoles: self.consoles.clone() }
@@ -176,7 +176,7 @@ impl Registry {
         self.consoles.lock().unwrap().contains_key(&id)
     }
 
-    /// Chamado ao editar ou remover um roteador: descarta canal, status e coletor.
+    /// Called when a router is edited or removed: drops its channel, status and collector.
     pub fn invalidate(&self, id: Uuid) {
         self.cache.write().unwrap().remove(&id);
         self.status.write().unwrap().remove(&id);
@@ -184,8 +184,8 @@ impl Registry {
         self.telemetry.stop(id);
     }
 
-    /// Status de todos os roteadores. Usa o cache do monitor; quem ainda não
-    /// tem status (recém-cadastrado) é consultado agora.
+    /// Status of every router. Uses the monitor's cache; a router with no
+    /// status yet (just registered) is queried now.
     pub async fn fleet_status(&self) -> AppResult<Vec<RouterStatus>> {
         let handles = self.all().await?;
         let missing: Vec<_> = {
@@ -197,7 +197,7 @@ impl Registry {
         Ok(handles.iter().filter_map(|h| cache.get(&h.id).cloned()).collect())
     }
 
-    /// Consulta os roteadores em paralelo e atualiza o cache de status.
+    /// Queries the routers in parallel and updates the status cache.
     async fn poll(&self, handles: Vec<Arc<RouterHandle>>) {
         let mut set = JoinSet::new();
         for h in handles {
@@ -246,26 +246,26 @@ impl Registry {
                         st.sessions = Some(ss.into_inner());
                     }
                     Ok(Err(status)) => st.error = Some(grpc::describe(&status)),
-                    Err(_) => st.error = Some("tempo esgotado".into()),
+                    Err(_) => st.error = Some("timed out".into()),
                 }
                 st
             });
         }
         for mut st in set.join_all().await {
             if !st.online && self.console_active(st.id) {
-                // Sem resposta porque o console ocupa a conta: não é queda.
+                // No answer because the console is holding the account: not an outage.
                 let prev = self.status.read().unwrap().get(&st.id).cloned();
                 st = match prev.filter(|p| p.online) {
                     Some(p) => RouterStatus { busy: true, ..p },
-                    None => RouterStatus { busy: true, error: Some("ocupado por um comando do console".into()), ..st },
+                    None => RouterStatus { busy: true, error: Some("busy with a console command".into()), ..st },
                 };
             }
             self.status.write().unwrap().insert(st.id, st);
         }
     }
 
-    /// Mantém o status da frota e os coletores de telemetria em dia, para a
-    /// interface nunca esperar por um roteador lento ou fora do ar.
+    /// Keeps the fleet status and the telemetry collectors up to date, so the
+    /// web UI never waits for a slow or unreachable router.
     pub async fn monitor(self: Arc<Self>) {
         let mut tick = tokio::time::interval(MONITOR_INTERVAL);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -281,18 +281,18 @@ impl Registry {
                     self.poll(handles).await;
                     self.status.write().unwrap().retain(|id, _| ids.contains(id));
                 }
-                Err(e) => tracing::warn!(error = %e, "monitor da frota falhou"),
+                Err(e) => tracing::warn!(error = %e, "fleet monitor failed"),
             }
         }
     }
 }
 
 impl Registry {
-    /// Canal gRPC preguiçoso: conecta na primeira chamada e reconecta sozinho.
-    /// Com `tls`, faz mTLS com o perfil e confere o nome do servidor.
+    /// Lazy gRPC channel: connects on the first call and reconnects by itself.
+    /// With `tls`, does mTLS with the profile and checks the server name.
     pub fn channel(&self, url: &str, tls: Option<TlsTarget>) -> AppResult<Channel> {
         let mut endpoint = Endpoint::from_shared(url.to_string())
-            .map_err(|e| AppError::BadRequest(format!("endereço inválido: {e}")))?
+            .map_err(|e| AppError::BadRequest(format!("invalid address: {e}")))?
             .connect_timeout(Duration::from_secs(3))
             .http2_keep_alive_interval(Duration::from_secs(30))
             .keep_alive_while_idle(true);
@@ -300,16 +300,16 @@ impl Registry {
             let cfg = tls::client_config(&self.tls_root, t.profile, t.server_name)?;
             endpoint = endpoint
                 .tls_config(cfg)
-                .map_err(|e| AppError::BadRequest(format!("configuração TLS inválida: {e}")))?;
+                .map_err(|e| AppError::BadRequest(format!("invalid TLS configuration: {e}")))?;
         }
         Ok(endpoint.connect_lazy())
     }
 }
 
-/// O Prisma 0.148.4 devolve o hostname vazio no GetVersion e não o preenche no
-/// GetSystem (bug confirmado pela equipe do Prisma, corrigido na 0.148.6). Até
-/// lá o nome vem da linha `hostname` do GetRunning, lido no máximo a cada 10 min
-/// por roteador. Com o hostname preenchido pelo Prisma, isto nem é chamado (issue #13).
+/// Prisma 0.148.4 returns an empty hostname in GetVersion and does not fill it in
+/// GetSystem (a bug confirmed by the Prisma team, fixed in 0.148.6). Until then
+/// the name comes from GetRunning's `hostname` line, read at most every 10 min
+/// per router. When Prisma fills in the hostname, this is not called at all (issue #13).
 async fn hostname_fallback(h: &RouterHandle, cache: &HostnameCache) -> Option<String> {
     if let Some((name, at)) = cache.read().unwrap().get(&h.id) {
         if at.elapsed() < HOSTNAME_TTL {
@@ -322,7 +322,7 @@ async fn hostname_fallback(h: &RouterHandle, cache: &HostnameCache) -> Option<St
     Some(name)
 }
 
-/// Nome na linha de topo `hostname <nome>` de um texto de running-config.
+/// Name in the top-level `hostname <name>` line of a running-config text.
 pub fn hostname_from_running(text: &str) -> Option<String> {
     text.lines()
         .find_map(|l| l.strip_prefix("hostname "))
@@ -331,41 +331,41 @@ pub fn hostname_from_running(text: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Valida o endereço gRPC de um Prisma. Aceita IPv6 entre colchetes.
+/// Validates the gRPC address of a Prisma. Accepts IPv6 in brackets.
 pub fn validate_api_url(raw: &str) -> AppResult<String> {
     let url = raw.trim().trim_end_matches('/');
     let rest = url
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
-        .ok_or_else(|| AppError::BadRequest("o endereço deve começar com https:// (mTLS) ou http:// (só mocks)".into()))?;
+        .ok_or_else(|| AppError::BadRequest("the address must start with https:// (mTLS) or http:// (mocks only)".into()))?;
     if rest.contains('/') {
-        return Err(AppError::BadRequest("informe só host e porta, sem caminho: http://host:50051".into()));
+        return Err(AppError::BadRequest("give only host and port, no path: http://host:50051".into()));
     }
     let authority = rest;
     let host = if let Some(v6) = authority.strip_prefix('[') {
         let (addr, after) = v6
             .split_once(']')
-            .ok_or_else(|| AppError::BadRequest("endereço IPv6 sem ']' de fechamento".into()))?;
+            .ok_or_else(|| AppError::BadRequest("IPv6 address without a closing ']'".into()))?;
         addr.parse::<std::net::Ipv6Addr>()
-            .map_err(|_| AppError::BadRequest(format!("IPv6 inválido: {addr}")))?;
+            .map_err(|_| AppError::BadRequest(format!("invalid IPv6: {addr}")))?;
         if !(after.is_empty() || after.strip_prefix(':').is_some_and(valid_port)) {
-            return Err(AppError::BadRequest("porta inválida".into()));
+            return Err(AppError::BadRequest("invalid port".into()));
         }
         addr
     } else {
         if authority.matches(':').count() > 1 {
             return Err(AppError::BadRequest(
-                "endereços IPv6 precisam estar entre colchetes: http://[2001:db8::1]:50051".into(),
+                "IPv6 addresses must be in brackets: http://[2001:db8::1]:50051".into(),
             ));
         }
         let (host, port) = authority.split_once(':').unwrap_or((authority, ""));
         if !port.is_empty() && !valid_port(port) {
-            return Err(AppError::BadRequest("porta inválida".into()));
+            return Err(AppError::BadRequest("invalid port".into()));
         }
         host
     };
     if host.is_empty() || authority.contains('@') {
-        return Err(AppError::BadRequest("endereço sem host válido".into()));
+        return Err(AppError::BadRequest("address without a valid host".into()));
     }
     Ok(url.to_string())
 }
@@ -418,8 +418,8 @@ mod hostname_tests {
     fn hostname_comes_from_the_running_config() {
         let running = "! cgnat\nhostname prisma-routing\ninterface enp6s18\n ipv4 address 192.0.2.166/24\n exit\n";
         assert_eq!(hostname_from_running(running).as_deref(), Some("prisma-routing"));
-        // Só a linha de topo: um `description hostname x` aninhado não conta.
-        assert_eq!(hostname_from_running(" description hostname falso\n"), None);
+        // Top-level line only: a nested `description hostname x` does not count.
+        assert_eq!(hostname_from_running(" description hostname fake\n"), None);
         assert_eq!(hostname_from_running("hostname   \n"), None);
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "prisma-mock"
-description = "Prisma simulado para desenvolvimento do prisma-web"
+description = "Simulated Prisma for prisma-web development"
 edition.workspace = true
 version.workspace = true
 license.workspace = true
