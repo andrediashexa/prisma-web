@@ -42,6 +42,9 @@ mapeamento fica em `front/src/lib/vty.ts`.
   está com a API **habilitada** e os certificados em `/etc/prisma-routing/api/`.
 - **Porta 50051** no endereço de gerência. Endpoint de teste: `https://192.0.2.166:50051`.
 - **Só mTLS**: o servidor não sobe sem certificados e recusa cliente sem certificado (guia).
+- **Hostname:** a 0.148.4 e a 0.148.5 devolvem o `hostname` vazio no `GetVersion` e no
+  `GetSystem`. O prisma-web o tira da configuração em uso (#13). A 0.148.6 o preenche direto
+  (verificado no laboratório em 2026-10-01).
 - **A conta é o CN do certificado do cliente**, e o papel vem do VTY. O certificado do prisma-web
   tem CN `prisma-web`, com papel de administrador (Prisma).
 - **Nome do servidor no certificado: `prisma-api`**, e o IP também está no SAN (Prisma).
