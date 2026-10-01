@@ -131,11 +131,27 @@ def tls_checks(admin, args):
         st, sysinfo = admin.get(f"/routers/{r['id']}/system")
         check(st == 200 and sysinfo.get("boot_time") and sysinfo.get("dataplane_restarted") is True,
               "mock with a restarted dataplane reports dataplane_restarted", sysinfo)
+        candidate_expiry_checks(admin, f"/routers/{r['id']}")
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
     st, b = tls_test(admin, m, "../etc", args.server_name)
     check(st == 422 and "invalid TLS profile" in b["error"]["message"], "profile with ../ is refused", b)
+
+
+def candidate_expiry_checks(admin, R):
+    """prisma-mock-2 closes a candidate idle for 15 s, as the box does after 30 min (#11)."""
+    st, c = admin.post(f"{R}/config/candidates")
+    check(st == 200, "candidate opened on the short-idle mock", c)
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    st, b = admin.post(f"{C}/edit", {"path": ["interface lan0"], "lines": ["description e2e idle"]})
+    check(st == 200, "edit within the idle limit", b)
+    time.sleep(17)
+    st, b = admin.post(f"{C}/edit", {"path": ["interface lan0"], "lines": ["mtu 1400"]})
+    check(st == 410 and b["error"]["code"] == "candidate_expired" and "idle" in b["error"]["message"],
+          "a candidate Prisma closed for idleness answers candidate_expired with the reason, not 'not found'", b)
+    st, b = admin.get(f"{C}/compare")
+    check(st == 404, "the expired candidate is forgotten by the back", b)
 
 
 def health_checks(admin, router_id):

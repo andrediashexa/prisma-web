@@ -67,9 +67,10 @@ a client meets*). The effect of this on prisma-web is in issue #14. (Prisma, gui
 
 ### ✅ 1.4 Abandoned candidates — answered
 The server closes a candidate **idle for 30 min** and an account's operational process idle for
-5 min. The cleanup happens on the next API call, not on a timer (Prisma). prisma-web closes its own
-after 1 h, longer than the server's 30 min, and this needs adjusting: after 30 min idle, the
-candidate may no longer exist.
+5 min. The cleanup happens on the next API call, not on a timer (Prisma). prisma-web treats a
+candidate idle for 25 min, counted from its last call, as expired, and turns the box's `NOT_FOUND`
+for a candidate into `candidate_expired` (410) with the reason. The configuration screen then
+offers to reopen and apply the same lines again, in order (#11).
 
 ### ✅ 1.5 One account for all web users — answered
 One certificate per user is the recommendation for the future, so each one appears under their own

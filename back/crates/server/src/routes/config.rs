@@ -25,25 +25,37 @@ use crate::registry::RouterHandle;
 use crate::telemetry::PendingConfirm;
 use crate::AppState;
 
-/// Candidates open for longer than this are discarded.
-const CANDIDATE_TTL: Duration = Duration::from_secs(3600);
+/// A candidate idle for longer than this is treated as expired. Prisma closes
+/// one nobody has touched for 30 minutes; 25 leaves room for a slow last call (#11).
+const CANDIDATE_IDLE: Duration = Duration::from_secs(25 * 60);
+const EXPIRED: &str = "this change sat idle for over 25 minutes and Prisma closed it; open a new change to apply the lines again";
 /// Maximum size of the diff kept in the change log.
 const MAX_DIFF_LOG: usize = 20_000;
 
 struct Owner {
     router_id: Uuid,
     user_id: Uuid,
-    opened: Instant,
+    /// Last call that named the candidate: idleness counts from here, not from opening.
+    last_used: Instant,
 }
 
 #[derive(Default)]
 pub struct Candidates(Mutex<HashMap<String, Owner>>);
 
 impl Candidates {
+    /// The candidate belongs to this user on this router, and is not idle;
+    /// counts as its last use.
     fn check(&self, router_id: Uuid, cid: &str, user: &CurrentUser) -> AppResult<()> {
-        let map = self.0.lock().unwrap();
-        match map.get(cid) {
-            Some(o) if o.router_id == router_id && o.user_id == user.id => Ok(()),
+        let mut map = self.0.lock().unwrap();
+        match map.get_mut(cid) {
+            Some(o) if o.router_id == router_id && o.user_id == user.id => {
+                if o.last_used.elapsed() > CANDIDATE_IDLE {
+                    map.remove(cid);
+                    return Err(AppError::Expired(EXPIRED.into()));
+                }
+                o.last_used = Instant::now();
+                Ok(())
+            }
             Some(o) if o.router_id == router_id => {
                 Err(AppError::Conflict("this candidate was opened by another user".into()))
             }
@@ -60,13 +72,27 @@ impl Candidates {
         let mut map = self.0.lock().unwrap();
         let old: Vec<(Uuid, String)> = map
             .iter()
-            .filter(|(_, o)| o.opened.elapsed() > CANDIDATE_TTL)
+            .filter(|(_, o)| o.last_used.elapsed() > CANDIDATE_IDLE)
             .map(|(cid, o)| (o.router_id, cid.clone()))
             .collect();
         for (_, cid) in &old {
             map.remove(cid);
         }
         old
+    }
+}
+
+/// Prisma answers NOT_FOUND for a candidate it closed (idle, or restarted):
+/// the user gets the reason instead of "not found" (#11).
+fn gone<'a>(st: &'a AppState, cid: &'a str) -> impl FnOnce(tonic::Status) -> AppError + 'a {
+    let candidates = &st.candidates;
+    move |s| {
+        if s.code() == tonic::Code::NotFound {
+            candidates.forget(cid);
+            AppError::Expired(EXPIRED.into())
+        } else {
+            s.into()
+        }
     }
 }
 
@@ -133,7 +159,7 @@ pub async fn open(
     let resp = r.config().open_candidate(req(OpenCandidateRequest { from_revision, ..Default::default() })).await?.into_inner();
     st.candidates.0.lock().unwrap().insert(
         resp.candidate_id.clone(),
-        Owner { router_id: id, user_id: user.id, opened: Instant::now() },
+        Owner { router_id: id, user_id: user.id, last_used: Instant::now() },
     );
     Ok(Json(resp))
 }
@@ -157,8 +183,8 @@ pub async fn edit(
         return Err(AppError::BadRequest("no lines to apply".into()));
     }
     let r = st.routers.get(id).await?;
-    let msg = EditRequest { candidate_id: cid, path: body.path, lines, ..Default::default() };
-    Ok(Json(r.config().edit(req(msg)).await?.into_inner()))
+    let msg = EditRequest { candidate_id: cid.clone(), path: body.path, lines, ..Default::default() };
+    Ok(Json(r.config().edit(req(msg)).await.map_err(gone(&st, &cid))?.into_inner()))
 }
 
 pub async fn show_candidate(
@@ -168,7 +194,7 @@ pub async fn show_candidate(
 ) -> AppResult<Json<ConfigText>> {
     st.candidates.check(id, &cid, &user)?;
     let r = st.routers.get(id).await?;
-    Ok(Json(r.config().show_candidate(req(cref(&cid))).await?.into_inner()))
+    Ok(Json(r.config().show_candidate(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner()))
 }
 
 pub async fn compare(
@@ -178,7 +204,7 @@ pub async fn compare(
 ) -> AppResult<Json<CompareResponse>> {
     st.candidates.check(id, &cid, &user)?;
     let r = st.routers.get(id).await?;
-    Ok(Json(r.config().compare(req(cref(&cid))).await?.into_inner()))
+    Ok(Json(r.config().compare(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner()))
 }
 
 pub async fn check(
@@ -188,7 +214,7 @@ pub async fn check(
 ) -> AppResult<Json<CheckResponse>> {
     st.candidates.check(id, &cid, &user)?;
     let r = st.routers.get(id).await?;
-    Ok(Json(r.config().check(req(cref(&cid))).await?.into_inner()))
+    Ok(Json(r.config().check(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner()))
 }
 
 #[derive(Deserialize)]
@@ -204,8 +230,8 @@ pub async fn rollback(
 ) -> AppResult<Json<EditResponse>> {
     st.candidates.check(id, &cid, &user)?;
     let r = st.routers.get(id).await?;
-    let msg = RollbackRequest { candidate_id: cid, revision: body.revision, ..Default::default() };
-    Ok(Json(r.config().rollback(req(msg)).await?.into_inner()))
+    let msg = RollbackRequest { candidate_id: cid.clone(), revision: body.revision, ..Default::default() };
+    Ok(Json(r.config().rollback(req(msg)).await.map_err(gone(&st, &cid))?.into_inner()))
 }
 
 pub async fn close(
@@ -256,7 +282,7 @@ pub async fn commit(
     let r = st.routers.get(id).await?;
 
     // The diff goes to the log: it records what this change changed.
-    let diff = r.config().compare(req(cref(&cid))).await?.into_inner().diff;
+    let diff = r.config().compare(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner().diff;
     // Every web user shares the same Prisma account; the comment carries
     // the user into the box's own audit trail.
     let box_comment = if comment.is_empty() {
@@ -421,13 +447,30 @@ mod tests {
     fn candidate_belongs_to_whoever_opened_it() {
         let c = Candidates::default();
         let (router, owner, other) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        c.0.lock().unwrap().insert("c1".into(), Owner { router_id: router, user_id: owner, opened: Instant::now() });
+        c.0.lock().unwrap().insert("c1".into(), Owner { router_id: router, user_id: owner, last_used: Instant::now() });
         assert!(c.check(router, "c1", &user(owner)).is_ok());
         assert!(matches!(c.check(router, "c1", &user(other)), Err(AppError::Conflict(_))));
         // The same id on another router does not count.
         assert!(matches!(c.check(Uuid::new_v4(), "c1", &user(owner)), Err(AppError::NotFound(_))));
         c.forget("c1");
         assert!(matches!(c.check(router, "c1", &user(owner)), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn idle_counts_from_the_last_action_not_from_opening() {
+        let c = Candidates::default();
+        let (router, owner) = (Uuid::new_v4(), Uuid::new_v4());
+        let ago = |m: u64| Instant::now() - Duration::from_secs(m * 60);
+        // Opened 40 minutes ago but used 20 minutes ago: alive, and the check counts as a use.
+        c.0.lock().unwrap().insert("busy".into(), Owner { router_id: router, user_id: owner, last_used: ago(20) });
+        assert!(c.check(router, "busy", &user(owner)).is_ok());
+        assert!(c.0.lock().unwrap()["busy"].last_used.elapsed() < Duration::from_secs(5));
+        // Idle for 26 minutes: expired with the reason, and forgotten.
+        c.0.lock().unwrap().insert("idle".into(), Owner { router_id: router, user_id: owner, last_used: ago(26) });
+        assert!(matches!(c.check(router, "idle", &user(owner)), Err(AppError::Expired(_))));
+        assert!(matches!(c.check(router, "idle", &user(owner)), Err(AppError::NotFound(_))));
+        c.0.lock().unwrap().insert("idle2".into(), Owner { router_id: router, user_id: owner, last_used: ago(26) });
+        assert_eq!(c.expired(), vec![(router, "idle2".to_string())]);
     }
 
     #[test]

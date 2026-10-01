@@ -199,8 +199,12 @@ sequenceDiagram
   Prisma. That is why the back MUST control candidate ownership (`routes/config.rs`). The commit
   MUST carry the user in the comment, and `Confirm`, which applies to the whole account, is only
   accepted from the author or an admin.
-- **Orphaned candidates:** those open for more than 1 h are closed on the next `OpenCandidate`, and
-  the configuration screen closes its own on exit. A crash of the back still leaves candidates open
+- **Orphaned and idle candidates:** a candidate idle for 25 min (from its last call, under the
+  box's 30) is expired: the next call on it answers `candidate_expired` (410), and it is closed on
+  the next `OpenCandidate`. A `NOT_FOUND` from the box on a candidate gets the same answer. The
+  configuration screen closes its own on exit, and after an expiry reopens one and applies the
+  same lines again (#11). `prisma-mock-2` closes candidates after 15 s
+  (`MOCK_CANDIDATE_IDLE_SECS`) so e2e sees it happen. A crash of the back still leaves candidates open
   on the Prisma until the Prisma discards them (question 1.4 of `prisma-integration.md`).
 - **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,
   `mtu` and `shutdown` lines. They are an assumption until the Prisma confirms them.
