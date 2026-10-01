@@ -54,8 +54,9 @@ segundo é cadastrado em **Roteadores** com o endereço `http://prisma-mock-2:50
 
 **Ainda não é possível.** O servidor gRPC do Prisma só aceita mTLS
 ([`docs/prisma-api.md`](docs/prisma-api.md), o guia oficial da API), e o prisma-web ainda conecta
-sem TLS. O suporte a mTLS é a issue #4. O Prisma também MUST estar na versão 0.149.0 ou mais nova,
-com `api enabled yes`. Hoje o cadastro funciona com os mocks, por exemplo
+sem TLS. O suporte a mTLS é a issue #4. No Prisma, a API MUST estar habilitada (`api enabled yes`, com os
+certificados em `/etc/prisma-routing/api/`). O servidor já existe na 0.148.3, embora o guia cite
+a 0.149.0. Hoje o cadastro funciona com os mocks, por exemplo
 `http://[2001:db8::1]:50051`, e recusa `https://`. O que falta do lado do Prisma está em
 [`docs/prisma-integracao.md`](docs/prisma-integracao.md).
 
