@@ -121,6 +121,8 @@ services:
       MOCK_TRAFFIC_SCALE: "0.3"
       # Shows the "dataplane restarted by itself" warning (Prisma 0.148.7, #20).
       MOCK_DATAPLANE_RESTARTED: "1"
+      # Closes a candidate idle for 15 s instead of the box's 30 min, so e2e sees one expire (#11).
+      MOCK_CANDIDATE_IDLE_SECS: "15"
       MOCK_TLS_DIR: /run/tls
     volumes:
       - ./dev-certs/mock-server:/run/tls:ro

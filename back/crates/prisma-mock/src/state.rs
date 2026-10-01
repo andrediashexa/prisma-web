@@ -23,6 +23,8 @@ pub struct Revision {
 pub struct Candidate {
     pub base_revision: u64,
     pub config: Config,
+    /// Last call that named it: the box closes a candidate idle for 30 minutes.
+    pub touched: Instant,
 }
 
 /// `commit confirmed` awaiting `Confirm`.
@@ -185,6 +187,18 @@ impl State {
         number
     }
 
+    /// The candidate, touched; `None` if it does not exist or sat idle longer
+    /// than the box allows (then it is closed, as the box does).
+    pub fn candidate(&mut self, id: &str) -> Option<&mut Candidate> {
+        let idle = candidate_idle();
+        if self.candidates.get(id).is_some_and(|c| c.touched.elapsed() > idle) {
+            self.candidates.remove(id);
+        }
+        let c = self.candidates.get_mut(id)?;
+        c.touched = Instant::now();
+        Some(c)
+    }
+
     pub fn sim(&self, name: &str) -> Option<&IfaceSim> {
         self.sims.iter().find(|s| s.name == name)
     }
@@ -263,6 +277,13 @@ impl Shared {
         // With no subscribers the send fails; that is expected.
         let _ = self.events.send(Event { kind: kind.into(), account: "mock".into(), text, revision, comment, ..Default::default() });
     }
+}
+
+/// Idle limit of a candidate: 30 minutes on the box; `MOCK_CANDIDATE_IDLE_SECS`
+/// shortens it so e2e can see one expire (#11).
+pub fn candidate_idle() -> std::time::Duration {
+    let secs = std::env::var("MOCK_CANDIDATE_IDLE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(30 * 60);
+    std::time::Duration::from_secs(secs)
 }
 
 pub fn timestamp(at: DateTime<Utc>) -> prost_types::Timestamp {

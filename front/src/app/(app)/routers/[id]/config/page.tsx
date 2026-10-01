@@ -4,7 +4,7 @@ import { useParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import useSWR from "swr"
 import { toast } from "sonner"
-import { FilePenLineIcon, HardDriveDownloadIcon, HistoryIcon, Loader2Icon, PlayIcon, Trash2Icon } from "lucide-react"
+import { FilePenLineIcon, HardDriveDownloadIcon, HistoryIcon, Loader2Icon, PlayIcon, RotateCcwIcon, Trash2Icon } from "lucide-react"
 
 import { ChangeReview, discardCandidate } from "@/components/config/change-review"
 import { DiagnosticsList } from "@/components/config/diagnostics"
@@ -60,6 +60,8 @@ export default function ConfigPage() {
   const [opening, setOpening] = useState(false)
   const [saving, setSaving] = useState(false)
   const [askSave, setAskSave] = useState(false)
+  /** Edits carried over from an expired candidate into its replacement (#11). */
+  const [carried, setCarried] = useState<AppliedEdit[]>([])
 
   // Don't leave an orphan candidate on Prisma when leaving the page.
   const open = useRef<string | null>(null)
@@ -89,6 +91,24 @@ export default function ConfigPage() {
     }
   }
 
+  /** Prisma closed an idle candidate: open a new one and apply the same lines again, in order. */
+  async function reopen(edits: AppliedEdit[]) {
+    const c = await api.post<OpenCandidateResponse>(routerApi(id, "/config/candidates"), {})
+    const redone: AppliedEdit[] = []
+    try {
+      for (const e of edits) {
+        const r = await api.post<EditResponse>(routerApi(id, `/config/candidates/${c.candidate_id}/edit`), { path: e.path, lines: e.lines })
+        redone.push({ ...e, diagnostics: r.diagnostics })
+      }
+      if (edits.length) toast.success(`New candidate opened and ${edits.length} edit(s) applied again.`)
+    } catch (err) {
+      // The running configuration may have moved on since: the rest is left for the user to redo.
+      toast.error(`Applied ${redone.length} of ${edits.length} edit(s) again: ${errorMessage(err)}`)
+    }
+    setCarried(redone)
+    setCandidate(c)
+  }
+
   async function save() {
     setSaving(true)
     try {
@@ -104,11 +124,15 @@ export default function ConfigPage() {
   if (candidate) {
     return (
       <CandidateEditor
+        key={candidate.candidate_id}
         routerId={id}
         candidate={candidate}
+        initialApplied={carried}
+        onReopen={reopen}
         onDone={async (committed) => {
           if (!committed) await discardCandidate(id, candidate.candidate_id)
           setCandidate(null)
+          setCarried([])
           await mutateRunning()
         }}
       />
@@ -204,21 +228,32 @@ export default function ConfigPage() {
   )
 }
 
+function isExpired(err: unknown) {
+  return err instanceof ApiError && err.code === "candidate_expired"
+}
+
 function CandidateEditor({
   routerId,
   candidate,
+  initialApplied,
+  onReopen,
   onDone,
 }: {
   routerId: string
   candidate: OpenCandidateResponse
+  initialApplied: AppliedEdit[]
+  onReopen: (edits: AppliedEdit[]) => Promise<void>
   onDone: (committed: boolean) => Promise<void>
 }) {
   const base = routerApi(routerId, `/config/candidates/${candidate.candidate_id}`)
-  const { data: text, mutate } = useSWR<{ text: string }>(base, fetcher, { fallbackData: { text: candidate.text } })
+  const { data: text, mutate, error: textError } = useSWR<{ text: string }>(base, fetcher, { fallbackData: { text: candidate.text } })
   const [path, setPath] = useState("")
   const [lines, setLines] = useState("")
   const [applying, setApplying] = useState(false)
-  const [applied, setApplied] = useState<AppliedEdit[]>([])
+  const [applied, setApplied] = useState<AppliedEdit[]>(initialApplied)
+  const [expiredNow, setExpiredNow] = useState(false)
+  const [reopening, setReopening] = useState(false)
+  const expired = expiredNow || isExpired(textError)
   const [refusal, setRefusal] = useState<{ message: string; items: Diagnostic[] } | null>(null)
   const [reviewing, setReviewing] = useState(false)
 
@@ -233,6 +268,10 @@ function CandidateEditor({
       setApplied((a) => [...a, { ...body, diagnostics: r.diagnostics }])
       setLines("")
     } catch (err) {
+      if (isExpired(err)) {
+        setExpiredNow(true)
+        return
+      }
       setRefusal({
         message: err instanceof Error ? err.message : "Rejected",
         items: err instanceof ApiError ? (err.diagnostics?.items ?? []) : [],
@@ -257,11 +296,35 @@ function CandidateEditor({
           <Button variant="outline" onClick={() => onDone(false)}>
             <Trash2Icon /> Discard
           </Button>
-          <Button onClick={() => setReviewing(true)}>
+          <Button onClick={() => setReviewing(true)} disabled={expired}>
             <PlayIcon /> Review and apply
           </Button>
         </div>
       </div>
+
+      {expired && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+          <span>
+            This change sat idle for over 25 minutes and Prisma closed it. Nothing was applied to the router.
+            {applied.length > 0 && ` Your ${applied.length} edit(s) can be applied again on a new candidate.`}
+          </span>
+          <Button
+            size="sm"
+            disabled={reopening}
+            onClick={async () => {
+              setReopening(true)
+              try {
+                await onReopen(applied)
+              } catch (err) {
+                toast.error(errorMessage(err))
+                setReopening(false)
+              }
+            }}
+          >
+            {reopening ? <Loader2Icon className="animate-spin" /> : <RotateCcwIcon />} Reopen{applied.length > 0 && " and apply again"}
+          </Button>
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-5">
         <Card className="xl:col-span-2">
