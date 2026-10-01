@@ -16,6 +16,21 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.5.0 - English — 2026-10-01
+
+### Behaviour changes
+- prisma-web is now written in **English**: every screen, message, error and toast, the documentation and the source comments. Dates and numbers are formatted as en-US (#15, #16, #17, #18, #19).
+- Error messages returned by the API are in English. Clients that matched the Portuguese texts need to match the new ones (#17).
+- `docs/arquitetura.md` and `docs/prisma-integracao.md` are now `docs/architecture.md` and `docs/prisma-integration.md` (#19).
+- The simulated Prismas are now named `prisma-hq` and `prisma-branch`, and the development TLS profiles `dev/other-ca` and `dev/intruder` (#17).
+
+### Internal
+- `scripts/check-docs.py` enforces English in every `*.md` file and source comment; tool-generated files have their own exception block in CONTRIBUTING (#16).
+- Fixed after the 0.4.2 release, without a release of their own: the Prisma 0.148.6 behaviour (hostname filled directly; `Show` no longer blocks the reads, measured on the lab box) is recorded in the documentation.
+
+### Limits
+- Issues #1–#14, the releases published before this one and their names stay in Portuguese, as historical record. So do the comments of SQL migrations already applied, which sqlx checksums, and the audit rows written before the change (#15, #17).
+
 ## 0.4.2 - Console sem falso offline — 2026-10-01
 
 ### Fixed
