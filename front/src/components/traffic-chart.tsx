@@ -46,7 +46,10 @@ export function TrafficChart({
   const { data: ifs } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(routerId, "/interfaces"), fetcher, {
     refreshInterval: 30_000,
   })
-  const candidates = ifs?.interfaces.filter((i) => i.name !== "lo") ?? []
+  // Interfaces com link primeiro: a padrão do gráfico deve ter tráfego para mostrar.
+  const candidates = [...(ifs?.interfaces.filter((i) => i.name !== "lo") ?? [])].sort(
+    (a, b) => Number(b.link_up) - Number(a.link_up),
+  )
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "")
   const [iface, setIface] = useState<string | undefined>(defaultInterface)
   const [minutes, setMinutes] = useState(String(defaultMinutes))

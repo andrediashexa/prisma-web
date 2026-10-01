@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { useState } from "react"
+import useSWR from "swr"
 import { toast } from "sonner"
-import { CheckCircle2Icon, Loader2Icon, MoreHorizontalIcon, PencilIcon, PlugZapIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { CheckCircle2Icon, LockIcon, Loader2Icon, TriangleAlertIcon, MoreHorizontalIcon, PencilIcon, PlugZapIcon, PlusIcon, Trash2Icon } from "lucide-react"
 
 import { PageHeader } from "@/components/page-header"
 import {
@@ -36,13 +37,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useMe } from "@/hooks/use-me"
 import { useFleetStatus, useRouters } from "@/hooks/use-routers"
-import { api, errorMessage } from "@/lib/api"
+import { api, errorMessage, fetcher } from "@/lib/api"
 import { formatUptime } from "@/lib/format"
-import { hasRole, type RouterView, type VersionInfo } from "@/lib/types"
+import { hasRole, type RouterView, type TlsProfile, type VersionInfo } from "@/lib/types"
 
 type Dialogs = { kind: "edit"; router: RouterView | null } | { kind: "delete"; router: RouterView } | null
 
@@ -106,7 +108,20 @@ export default function RoutersPage() {
                       {r.description && <div className="text-muted-foreground text-xs">{r.description}</div>}
                     </TableCell>
                     <TableCell>
-                      <span className="font-mono text-xs">{r.api_url}</span>
+                      <div className="flex items-center gap-1.5">
+                        {r.tls_profile ? (
+                          <LockIcon className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-label="mTLS" />
+                        ) : (
+                          <TriangleAlertIcon className="size-3.5 text-amber-600 dark:text-amber-400" aria-label="sem TLS" />
+                        )}
+                        <span className="font-mono text-xs">{r.api_url}</span>
+                      </div>
+                      {r.tls_profile && (
+                        <div className="text-muted-foreground text-xs">
+                          conta <span className="font-mono">{r.tls_account ?? "?"}</span> · perfil{" "}
+                          <span className="font-mono">{r.tls_profile}</span>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       {!s ? (
@@ -229,14 +244,24 @@ function RouterForm({
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [tested, setTested] = useState<VersionInfo | null>(null)
+  const [tested, setTested] = useState<(VersionInfo & { account: string | null }) | null>(null)
+  const [profile, setProfile] = useState(router?.tls_profile ?? "")
+  const [serverName, setServerName] = useState(router?.tls_server_name ?? "prisma-api")
+  const { data: profiles } = useSWR<TlsProfile[]>("/routers/tls-profiles", fetcher)
+  const https = url.trim().startsWith("https://")
+  // Os campos de TLS só valem com https:// (o Prisma real só aceita mTLS).
+  const connection = {
+    api_url: url,
+    tls_profile: https ? profile || undefined : undefined,
+    tls_server_name: https ? serverName : undefined,
+  }
 
   async function test() {
     setTesting(true)
     setError(null)
     setTested(null)
     try {
-      const v = await api.post<VersionInfo>("/routers/test", { api_url: url })
+      const v = await api.post<VersionInfo & { account: string | null }>("/routers/test", connection)
       setTested(v)
       if (!name) setName(v.hostname)
     } catch (err) {
@@ -252,10 +277,10 @@ function RouterForm({
     setError(null)
     try {
       if (router) {
-        await api.patch(`/routers/${router.id}`, { name, api_url: url, description })
+        await api.patch(`/routers/${router.id}`, { name, description, ...connection })
         toast.success(`${name} atualizado`)
       } else {
-        await api.post("/routers", { name, api_url: url, description })
+        await api.post("/routers", { name, description, ...connection })
         toast.success(`${name} cadastrado`)
       }
       await onSaved()
@@ -271,7 +296,10 @@ function RouterForm({
     <form onSubmit={submit}>
       <DialogHeader>
         <DialogTitle>{router ? `Editar ${router.name}` : "Cadastrar Prisma"}</DialogTitle>
-        <DialogDescription>Endereço do servidor gRPC do Prisma (sem TLS por enquanto). IPv6 vai entre colchetes.</DialogDescription>
+        <DialogDescription>
+          Endereço gRPC do Prisma. Um Prisma real usa <span className="font-mono">https://</span> com mTLS; <span className="font-mono">http://</span>{" "}
+          serve só para os simulados. IPv6 vai entre colchetes.
+        </DialogDescription>
       </DialogHeader>
       <FieldGroup className="py-4">
         <Field>
@@ -284,7 +312,7 @@ function RouterForm({
                 setUrl(e.target.value)
                 setTested(null)
               }}
-              placeholder="http://[2001:db8::1]:50051"
+              placeholder="https://[2001:db8::1]:50051"
               className="font-mono"
               required
             />
@@ -294,10 +322,51 @@ function RouterForm({
           </div>
           {tested && (
             <FieldDescription className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2Icon className="size-4" /> Conectado: {tested.hostname} · Prisma {tested.release}
+              <CheckCircle2Icon className="size-4" /> Conectado: {[tested.hostname, `Prisma ${tested.release}`].filter(Boolean).join(" · ")}
+              {tested.account && <> · conta {tested.account}</>}
             </FieldDescription>
           )}
         </Field>
+        {https && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field>
+              <FieldLabel>Perfil TLS</FieldLabel>
+              <Select
+                value={profile}
+                onValueChange={(v) => {
+                  setProfile(v)
+                  setTested(null)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={profiles?.length ? "Escolha o certificado" : "Nenhum perfil no host"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles?.map((p) => (
+                    <SelectItem key={p.id} value={p.id} disabled={!!p.error}>
+                      <span className="font-mono">{p.id}</span>
+                      <span className="text-muted-foreground"> — {p.error ?? `conta ${p.account ?? "?"}`}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>Certificados em diretórios do host, montados somente leitura.</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="r-sni">Nome no certificado do servidor</FieldLabel>
+              <Input
+                id="r-sni"
+                value={serverName}
+                onChange={(e) => {
+                  setServerName(e.target.value)
+                  setTested(null)
+                }}
+                className="font-mono"
+                required
+              />
+            </Field>
+          </div>
+        )}
         <Field>
           <FieldLabel htmlFor="r-name">Nome</FieldLabel>
           <Input id="r-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={48} required placeholder="Matriz" />

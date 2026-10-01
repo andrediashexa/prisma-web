@@ -260,6 +260,11 @@ export interface RouterView {
   name: string
   api_url: string
   description: string | null
+  /** Perfil TLS (diretório de certificados no host); null nos mocks sem TLS. */
+  tls_profile: string | null
+  tls_server_name: string | null
+  /** CN do certificado do perfil: a conta que o Prisma vê. */
+  tls_account: string | null
   created_at: string
   updated_at: string
 }
@@ -278,4 +283,12 @@ export interface RouterStatus {
 /** Caminho da API de um roteador específico: `/routers/{id}/...`. */
 export function routerApi(id: string, path: string) {
   return `/routers/${encodeURIComponent(id)}${path}`
+}
+
+export interface TlsProfile {
+  id: string
+  account: string | null
+  ca: string | null
+  not_after: string | null
+  error: string | null
 }

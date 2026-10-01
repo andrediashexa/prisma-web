@@ -7,6 +7,7 @@ mod limiter;
 mod registry;
 mod routes;
 mod telemetry;
+mod tls;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -55,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
 
     auth::bootstrap_admin(&db, &cfg).await?;
     routes::routers::seed_from_env(&db, &cfg).await?;
-    let routers = Arc::new(Registry::new(db.clone()));
+    let routers = Arc::new(Registry::new(db.clone(), cfg.tls_dir.clone()));
     tokio::spawn(auth::purge_expired_sessions(db.clone()));
     tokio::spawn(routers.clone().monitor());
 

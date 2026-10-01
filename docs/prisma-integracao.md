@@ -2,8 +2,8 @@
 
 **TL;DR:** o que o prisma-web precisa saber ou receber do Prisma para usar o contrato `prisma.v1`
 por inteiro. As cinco perguntas estão respondidas, e as sugestões de campos novos foram aceitas
-pelo Prisma (prismarouting #533). A API existe a partir da 0.148.4 e já está habilitada no
-equipamento de laboratório. Do lado do prisma-web, falta o mTLS (#4). As lacunas da seção 2 são sugestões de campos novos, todas compatíveis
+pelo Prisma (prismarouting #533). A API existe a partir da 0.148.4, está habilitada no equipamento
+de laboratório, e o prisma-web já conecta a ele por mTLS (#4). As lacunas da seção 2 são sugestões de campos novos, todas compatíveis
 com a v1.
 
 As palavras-chave MUST, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
