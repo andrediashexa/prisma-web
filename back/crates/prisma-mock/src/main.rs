@@ -37,6 +37,7 @@ struct IfaceSim {
 }
 
 struct Mock {
+    hostname: String,
     started: Instant,
     cpu_percent: f32,
     mem_used: u64,
@@ -54,7 +55,7 @@ struct AppState {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     if std::env::args().nth(1).as_deref() == Some("healthcheck") {
-        return healthcheck("/v1/system");
+        return healthcheck("/healthz");
     }
 
     tracing_subscriber::fmt()
@@ -82,6 +83,8 @@ async fn main() -> anyhow::Result<()> {
         .route(paths::ROUTES, get(routes))
         .route(paths::METRICS_TRAFFIC, get(traffic))
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
+        // Fora da autenticação: usado só pelo HEALTHCHECK do container.
+        .route("/healthz", get(|| async { "ok" }))
         .with_state(state);
 
     let addr: SocketAddr = std::env::var("BIND_ADDR")
@@ -130,6 +133,9 @@ fn cidr(s: &str) -> IpCidr {
 
 impl Mock {
     fn new() -> Self {
+        // Permite subir vários mocks diferentes: nome e volume de tráfego por env.
+        let hostname = std::env::var("MOCK_HOSTNAME").unwrap_or_else(|_| "prisma-mock".into());
+        let scale: f64 = std::env::var("MOCK_TRAFFIC_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
         let mk = |name: &str, kind, desc: &str, mac: Option<&str>, mtu, addrs: &[&str], peak| IfaceSim {
             iface: Interface {
                 name: name.into(),
@@ -142,12 +148,13 @@ impl Mock {
                 addresses: addrs.iter().map(|a| cidr(a)).collect(),
                 counters: Counters::default(),
             },
-            peak_bps: peak,
+            peak_bps: peak * scale,
             drift: (1.0, 1.0),
             history: VecDeque::with_capacity(HISTORY),
         };
 
         Self {
+            hostname,
             started: Instant::now(),
             cpu_percent: 12.0,
             mem_used: 1_400 * 1024 * 1024,
@@ -275,7 +282,7 @@ async fn system(State(s): State<AppState>) -> Response {
     let m = s.mock.lock().unwrap();
     let load = m.cpu_percent / 100.0 * 4.0;
     Json(SystemInfo {
-        hostname: "prisma-mock".into(),
+        hostname: m.hostname.clone(),
         version: format!("prisma-mock {}", env!("CARGO_PKG_VERSION")),
         // Finge que o roteador já estava ligado há 3 dias.
         uptime_seconds: m.started.elapsed().as_secs() + 3 * 86_400 + 7_342,

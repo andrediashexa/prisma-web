@@ -1,7 +1,8 @@
 # prisma-web
 
-Interface web para o **Prisma**, roteador em desenvolvimento. Roda inteira em Docker,
-com suporte completo a IPv4 e IPv6, contas locais e log de todas as mudanças.
+Interface web para o **Prisma**, roteador em desenvolvimento. Gerencia **vários Prismas ao mesmo
+tempo**, roda inteira em Docker, com suporte completo a IPv4 e IPv6, contas locais, homepage
+personalizável por usuário e log de todas as mudanças.
 
 ```
              IPv4 / IPv6 :80
@@ -14,9 +15,9 @@ com suporte completo a IPv4 e IPv6, contas locais e log de todas as mudanças.
           │ back  │ │ front │  Rust (Axum)  ·  Next.js + shadcn/ui
           └─┬───┬─┘ └───────┘
             │   │ API HTTP (back/crates/prisma-api)
-     ┌──────▼┐ ┌▼────────────┐
-     │  db   │ │ Prisma      │  PostgreSQL  ·  roteador (ou prisma-mock)
-     └───────┘ └─────────────┘
+     ┌──────▼┐ ┌▼──────────────────────┐
+     │  db   │ │ Prisma · Prisma · …   │  PostgreSQL  ·  N roteadores cadastrados
+     └───────┘ └───────────────────────┘
 ```
 
 | Container     | Papel                                                                 |
@@ -25,17 +26,37 @@ com suporte completo a IPv4 e IPv6, contas locais e log de todas as mudanças.
 | `front`       | Next.js 16, shadcn/ui, Recharts. Painéis, gráficos e telas de gestão. |
 | `back`        | Rust/Axum. Login, sessões, papéis, log de mudanças, ponte com o Prisma. |
 | `db`          | PostgreSQL 17. Usuários (hash Argon2id), sessões e log de mudanças. Sem porta exposta. |
-| `prisma-mock` | Prisma simulado (perfil `mock`) até o roteador real expor a API.      |
+| `prisma-mock`, `prisma-mock-2` | Dois Prismas simulados (perfil `mock`) para desenvolver sem o roteador real. |
 
 ## Subindo
 
 ```bash
-cp .env.example .env        # defina POSTGRES_PASSWORD
+cp .env.example .env        # defina POSTGRES_PASSWORD e APP_SECRET_KEY (openssl rand -base64 32)
 docker compose up -d --build
 docker compose logs back | grep "administrador inicial"   # senha gerada do admin
 ```
 
 Acesse `http://<ip-v4>/` ou `http://[<ip-v6>]/`. No primeiro login a troca de senha é exigida.
+
+## Vários Prismas
+
+Cada roteador é cadastrado em **Roteadores** (só administradores) com nome, URL da API e token
+opcional — o botão *Testar* valida a conexão antes de salvar. O token fica cifrado no banco com
+ChaCha20-Poly1305 usando `APP_SECRET_KEY`; se a chave mudar, os tokens precisam ser recadastrados.
+
+O back mantém um monitor em segundo plano que consulta todos os Prismas a cada 5 s; a interface lê
+esse cache, então um roteador lento ou fora do ar não atrasa as telas. Cada alteração no log de
+mudanças registra em qual roteador aconteceu.
+
+Para testar com os mocks: o primeiro (`http://prisma-mock:8080`) é cadastrado sozinho a partir de
+`PRISMA_API_URL`; cadastre o segundo com `http://prisma-mock-2:8080` e token `filial-token-de-teste`.
+
+## Homepage personalizável
+
+A *Visão geral* é uma grade de widgets salva por usuário. Em **Personalizar** dá para adicionar,
+remover, arrastar para reordenar, escolher a largura e configurar de qual Prisma cada widget mostra
+dados. Widgets: frota de roteadores, recursos por roteador (gráfico comparativo), indicadores, tráfego,
+interfaces e atividade recente. *Restaurar padrão* volta ao layout inicial.
 
 ## Acesso e auditoria
 
@@ -59,13 +80,9 @@ Acesse `http://<ip-v4>/` ou `http://[<ip-v6>]/`. No primeiro login a troca de se
 ## Conectando ao Prisma real
 
 O contrato está em [`docs/prisma-api.md`](docs/prisma-api.md) e, como código, em
-`back/crates/prisma-api`. Quando o Prisma implementar a API, no `.env`:
-
-```bash
-COMPOSE_PROFILES=                       # desliga o prisma-mock
-PRISMA_API_URL=http://[2001:db8::1]:8080
-PRISMA_API_TOKEN=<token compartilhado>
-```
+`back/crates/prisma-api`. Quando o Prisma implementar a API, cadastre-o pela interface com a URL
+(ex.: `http://[2001:db8::1]:8080`) e o token. Para desligar os mocks, deixe `COMPOSE_PROFILES=`
+vazio no `.env`.
 
 ## HTTPS
 

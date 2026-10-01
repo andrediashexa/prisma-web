@@ -27,6 +27,7 @@ export interface AuditEntry {
   username: string | null
   action: string
   target: string | null
+  router_id: string | null
   success: boolean
   ip: string | null
   details: Record<string, unknown>
@@ -108,4 +109,28 @@ const ROLE_RANK: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 }
 
 export function hasRole(user: CurrentUser | undefined, role: Role) {
   return !!user && ROLE_RANK[user.role] >= ROLE_RANK[role]
+}
+
+export interface RouterView {
+  id: string
+  name: string
+  api_url: string
+  description: string | null
+  has_token: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface RouterStatus {
+  id: string
+  name: string
+  online: boolean
+  system: SystemInfo | null
+  error: string | null
+  latency_ms: number | null
+}
+
+/** Caminho da API de um roteador específico: `/routers/{id}/...`. */
+export function routerApi(id: string, path: string) {
+  return `/routers/${encodeURIComponent(id)}${path}`
 }

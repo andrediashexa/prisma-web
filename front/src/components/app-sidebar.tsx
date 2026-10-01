@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { Fragment } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   ChevronsUpDownIcon,
@@ -8,8 +9,7 @@ import {
   KeyRoundIcon,
   LayoutDashboardIcon,
   LogOutIcon,
-  NetworkIcon,
-  RouteIcon,
+  ServerIcon,
   UsersIcon,
 } from "lucide-react"
 
@@ -34,20 +34,30 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useFleetStatus, useRouters } from "@/hooks/use-routers"
+import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import { hasRole, ROLE_LABEL, type CurrentUser, type Role } from "@/lib/types"
 
 type NavItem = { href: string; label: string; icon: React.ComponentType; role?: Role }
 
+const ROUTER_PAGES = [
+  { href: "", label: "Painel" },
+  { href: "/interfaces", label: "Interfaces" },
+  { href: "/routes", label: "Rotas" },
+]
+
 const NAV: { label: string; items: NavItem[] }[] = [
   {
-    label: "Roteador",
+    label: "Geral",
     items: [
-      { href: "/", label: "Painel", icon: LayoutDashboardIcon },
-      { href: "/interfaces", label: "Interfaces", icon: NetworkIcon },
-      { href: "/routes", label: "Rotas", icon: RouteIcon },
+      { href: "/", label: "Visão geral", icon: LayoutDashboardIcon },
+      { href: "/routers", label: "Roteadores", icon: ServerIcon },
     ],
   },
   {
@@ -62,6 +72,8 @@ const NAV: { label: string; items: NavItem[] }[] = [
 export function AppSidebar({ user }: { user: CurrentUser }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { data: routers } = useRouters()
+  const { data: fleet } = useFleetStatus()
 
   async function logout() {
     await api.post("/auth/logout").catch(() => {})
@@ -87,16 +99,17 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
       </SidebarHeader>
 
       <SidebarContent>
-        {NAV.map((group) => {
+        {NAV.map((group, gi) => {
           const items = group.items.filter((i) => !i.role || hasRole(user, i.role))
           if (items.length === 0) return null
           return (
-            <SidebarGroup key={group.label}>
+            <Fragment key={group.label}>
+            <SidebarGroup>
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {items.map((item) => {
-                    const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+                    const active = item.href === "/" || item.href === "/routers" ? pathname === item.href : pathname.startsWith(item.href)
                     return (
                       <SidebarMenuItem key={item.href}>
                         <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
@@ -111,6 +124,49 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
+            {gi === 0 && routers && routers.length > 0 && (
+              <SidebarGroup>
+                <SidebarGroupLabel>Prismas</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {routers.map((r) => {
+                      const base = `/routers/${r.id}`
+                      const open = pathname === base || pathname.startsWith(base + "/")
+                      const status = fleet?.find((f) => f.id === r.id)
+                      return (
+                        <SidebarMenuItem key={r.id}>
+                          <SidebarMenuButton asChild isActive={open && pathname === base} tooltip={r.name}>
+                            <Link href={base}>
+                              <span className="flex size-4 shrink-0 items-center justify-center">
+                                <span
+                                  className={cn(
+                                    "size-2 rounded-full",
+                                    !status ? "bg-muted-foreground/50" : status.online ? "bg-emerald-500" : "bg-destructive",
+                                  )}
+                                />
+                              </span>
+                              <span className="truncate">{r.name}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                          {open && (
+                            <SidebarMenuSub>
+                              {ROUTER_PAGES.map((p) => (
+                                <SidebarMenuSubItem key={p.label}>
+                                  <SidebarMenuSubButton asChild isActive={pathname === base + p.href}>
+                                    <Link href={base + p.href}>{p.label}</Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              ))}
+                            </SidebarMenuSub>
+                          )}
+                        </SidebarMenuItem>
+                      )
+                    })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
+            </Fragment>
           )
         })}
       </SidebarContent>

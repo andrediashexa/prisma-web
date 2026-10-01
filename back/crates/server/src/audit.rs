@@ -11,6 +11,7 @@ pub struct Entry<'a> {
     pub username: Option<&'a str>,
     pub action: &'a str,
     pub target: Option<&'a str>,
+    pub router_id: Option<Uuid>,
     pub success: bool,
     pub ip: Option<String>,
     pub details: Value,
@@ -23,6 +24,7 @@ impl<'a> Entry<'a> {
             username: Some(&user.username),
             action,
             target: None,
+            router_id: None,
             success: true,
             ip: meta.ip_string(),
             details: Value::Object(Default::default()),
@@ -35,6 +37,7 @@ impl<'a> Entry<'a> {
             username,
             action,
             target: None,
+            router_id: None,
             success: true,
             ip: meta.ip_string(),
             details: Value::Object(Default::default()),
@@ -47,6 +50,7 @@ impl<'a> Entry<'a> {
             username: Some("sistema"),
             action,
             target,
+            router_id: None,
             success: true,
             ip: None,
             details: Value::Object(Default::default()),
@@ -55,6 +59,11 @@ impl<'a> Entry<'a> {
 
     pub fn target(mut self, target: &'a str) -> Self {
         self.target = Some(target);
+        self
+    }
+
+    pub fn router(mut self, id: Uuid) -> Self {
+        self.router_id = Some(id);
         self
     }
 
@@ -73,13 +82,14 @@ impl<'a> Entry<'a> {
 /// mas fica registrado em log se o banco recusar.
 pub async fn record(db: &PgPool, e: Entry<'_>) {
     let res = sqlx::query(
-        "INSERT INTO audit_log (user_id, username, action, target, success, ip, details)
-         VALUES ($1, $2, $3, $4, $5, $6::inet, $7)",
+        "INSERT INTO audit_log (user_id, username, action, target, router_id, success, ip, details)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::inet, $8)",
     )
     .bind(e.user_id)
     .bind(e.username)
     .bind(e.action)
     .bind(e.target)
+    .bind(e.router_id)
     .bind(e.success)
     .bind(&e.ip)
     .bind(&e.details)

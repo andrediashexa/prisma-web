@@ -1,6 +1,8 @@
 mod audit;
 mod auth;
+mod dashboard;
 mod router;
+pub mod routers;
 mod users;
 
 use axum::extract::DefaultBodyLimit;
@@ -21,11 +23,16 @@ pub fn router(state: AppState) -> Router {
         .route("/users", get(users::list).post(users::create))
         .route("/users/{id}", patch(users::update).delete(users::delete))
         .route("/audit", get(audit::list))
-        .route("/router/system", get(router::system))
-        .route("/router/interfaces", get(router::interfaces))
-        .route("/router/interfaces/{name}", patch(router::update_interface))
-        .route("/router/routes", get(router::routes))
-        .route("/router/metrics/traffic", get(router::traffic));
+        .route("/dashboard", get(dashboard::get).put(dashboard::put).delete(dashboard::reset))
+        .route("/routers", get(routers::list).post(routers::create))
+        .route("/routers/status", get(routers::status))
+        .route("/routers/test", post(routers::test))
+        .route("/routers/{id}", get(routers::get).patch(routers::update).delete(routers::delete))
+        .route("/routers/{id}/system", get(router::system))
+        .route("/routers/{id}/interfaces", get(router::interfaces))
+        .route("/routers/{id}/interfaces/{name}", patch(router::update_interface))
+        .route("/routers/{id}/routes", get(router::routes))
+        .route("/routers/{id}/metrics/traffic", get(router::traffic));
 
     Router::new()
         .nest("/api", api)

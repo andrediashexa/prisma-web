@@ -7,8 +7,11 @@ use anyhow::{bail, Context};
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub database_url: String,
-    pub prisma_api_url: String,
-    pub prisma_api_token: Option<String>,
+    /// Chave de 32 bytes (base64) que cifra os tokens dos roteadores no banco.
+    pub secret_key: [u8; 32],
+    /// Se definido e não houver roteadores, cadastra este como o primeiro.
+    pub seed_router_url: Option<String>,
+    pub seed_router_token: Option<String>,
     pub session_ttl: Duration,
     /// Marca o cookie de sessão como `Secure`. Deve ser `true` quando houver HTTPS.
     pub cookie_secure: bool,
@@ -25,8 +28,9 @@ impl Config {
         let cfg = Self {
             bind_addr: parse("BIND_ADDR", "[::]:8000")?,
             database_url: required("DATABASE_URL")?,
-            prisma_api_url: var("PRISMA_API_URL").unwrap_or_else(|| "http://prisma-mock:8080".into()),
-            prisma_api_token: var("PRISMA_API_TOKEN"),
+            secret_key: secret_key()?,
+            seed_router_url: var("PRISMA_API_URL"),
+            seed_router_token: var("PRISMA_API_TOKEN"),
             session_ttl: Duration::from_secs(parse::<u64>("SESSION_TTL_HOURS", "12")? * 3600),
             cookie_secure: parse("COOKIE_SECURE", "false")?,
             trust_proxy: parse("TRUST_PROXY", "true")?,
@@ -40,6 +44,17 @@ impl Config {
         }
         Ok(cfg)
     }
+}
+
+fn secret_key() -> anyhow::Result<[u8; 32]> {
+    use base64::Engine;
+    let raw = required("APP_SECRET_KEY")?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(raw.trim())
+        .context("APP_SECRET_KEY deve estar em base64 (gere com: openssl rand -base64 32)")?;
+    bytes
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("APP_SECRET_KEY deve ter exatamente 32 bytes"))
 }
 
 fn var(name: &str) -> Option<String> {

@@ -13,6 +13,7 @@ argon2 = { version = "0.5", features = ["std"] }
 axum.workspace = true
 axum-extra = { version = "0.10", features = ["cookie"] }
 base64 = "0.22"
+chacha20poly1305 = "0.10"
 chrono.workspace = true
 rand.workspace = true
 serde.workspace = true

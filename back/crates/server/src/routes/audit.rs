@@ -18,6 +18,7 @@ pub struct AuditQuery {
     /// Prefixo da ação, ex.: `auth.` ou `router.interface.update`.
     action: Option<String>,
     username: Option<String>,
+    router_id: Option<Uuid>,
 }
 
 fn default_limit() -> i64 {
@@ -32,6 +33,7 @@ pub struct AuditEntry {
     username: Option<String>,
     action: String,
     target: Option<String>,
+    router_id: Option<Uuid>,
     success: bool,
     ip: Option<String>,
     details: Value,
@@ -51,17 +53,19 @@ pub async fn list(
     user.require(Role::Operator)?;
     let limit = q.limit.clamp(1, 200);
     let items = sqlx::query_as::<_, AuditEntry>(
-        "SELECT id, at, user_id, username, action, target, success, host(ip) AS ip, details
+        "SELECT id, at, user_id, username, action, target, router_id, success, host(ip) AS ip, details
            FROM audit_log
           WHERE ($1::bigint IS NULL OR id < $1)
             AND ($2::text IS NULL OR action LIKE $2 || '%')
             AND ($3::text IS NULL OR lower(username) = lower($3))
+            AND ($4::uuid IS NULL OR router_id = $4)
           ORDER BY id DESC
-          LIMIT $4",
+          LIMIT $5",
     )
     .bind(q.before)
     .bind(q.action.filter(|a| !a.is_empty()).map(|a| a.replace(['%', '_'], "")))
     .bind(q.username.filter(|u| !u.is_empty()))
+    .bind(q.router_id)
     .bind(limit)
     .fetch_all(&st.db)
     .await?;

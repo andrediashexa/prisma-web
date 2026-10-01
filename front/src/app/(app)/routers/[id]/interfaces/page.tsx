@@ -1,5 +1,6 @@
 "use client"
 
+import { useParams } from "next/navigation"
 import { useState } from "react"
 import useSWR from "swr"
 import { toast } from "sonner"
@@ -7,7 +8,6 @@ import { Loader2Icon, PencilIcon } from "lucide-react"
 
 import { AddressList } from "@/components/address-list"
 import { InterfaceIcon, KIND_LABEL } from "@/components/interface-icon"
-import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -28,17 +28,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useMe } from "@/hooks/use-me"
 import { api, errorMessage, fetcher } from "@/lib/api"
 import { formatBytes, formatNumber } from "@/lib/format"
-import { hasRole, MTU_MAX, MTU_MIN, type InterfaceUpdate, type RouterInterface } from "@/lib/types"
+import { hasRole, MTU_MAX, MTU_MIN, routerApi, type InterfaceUpdate, type RouterInterface } from "@/lib/types"
 
 export default function InterfacesPage() {
+  const { id } = useParams<{ id: string }>()
   const { data: me } = useMe()
-  const { data, mutate } = useSWR<RouterInterface[]>("/router/interfaces", fetcher, { refreshInterval: 10_000 })
+  const { data, mutate } = useSWR<RouterInterface[]>(routerApi(id, "/interfaces"), fetcher, { refreshInterval: 10_000 })
   const [editing, setEditing] = useState<RouterInterface | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
   const canEdit = hasRole(me, "operator")
 
   async function update(name: string, body: InterfaceUpdate) {
-    const updated = await api.patch<RouterInterface>(`/router/interfaces/${encodeURIComponent(name)}`, body)
+    const updated = await api.patch<RouterInterface>(routerApi(id, `/interfaces/${encodeURIComponent(name)}`), body)
     await mutate((list) => list?.map((i) => (i.name === name ? updated : i)), { revalidate: false })
     return updated
   }
@@ -57,7 +58,6 @@ export default function InterfacesPage() {
 
   return (
     <>
-      <PageHeader title="Interfaces" description="Interfaces de rede do roteador. Toda alteração fica registrada no log de mudanças." />
       <Card className="py-0">
         <div className="overflow-x-auto">
           <Table>

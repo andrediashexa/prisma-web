@@ -1,8 +1,10 @@
 mod audit;
 mod auth;
 mod config;
+mod crypto;
 mod error;
 mod limiter;
+mod registry;
 mod routes;
 
 use std::net::SocketAddr;
@@ -10,17 +12,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use prisma_api::PrismaClient;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use crate::config::Config;
+use crate::crypto::SecretBox;
 use crate::limiter::LoginLimiter;
+use crate::registry::Registry;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
-    pub prisma: PrismaClient,
+    pub routers: Arc<Registry>,
     pub cfg: Arc<Config>,
     pub limiter: Arc<LoginLimiter>,
 }
@@ -49,11 +52,14 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&db).await.context("aplicando migrações")?;
 
     auth::bootstrap_admin(&db, &cfg).await?;
+    let routers = Arc::new(Registry::new(db.clone(), SecretBox::new(&cfg.secret_key)));
+    routes::routers::seed_from_env(&db, &routers, &cfg).await?;
     tokio::spawn(auth::purge_expired_sessions(db.clone()));
+    tokio::spawn(routers.clone().monitor());
 
     let state = AppState {
         db,
-        prisma: PrismaClient::new(&cfg.prisma_api_url, cfg.prisma_api_token.clone())?,
+        routers,
         limiter: Arc::new(LoginLimiter::new(cfg.login_max_failures, cfg.login_window)),
         cfg: cfg.clone(),
     };
@@ -62,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(cfg.bind_addr)
         .await
         .with_context(|| format!("abrindo {}", cfg.bind_addr))?;
-    tracing::info!(addr = %cfg.bind_addr, prisma = %cfg.prisma_api_url, "prisma-web-server ouvindo");
+    tracing::info!(addr = %cfg.bind_addr, "prisma-web-server ouvindo");
 
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())

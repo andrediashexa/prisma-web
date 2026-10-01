@@ -1,26 +1,31 @@
-//! Ponte autenticada entre a interface e a API do Prisma.
+//! Ponte autenticada entre a interface e a API de cada Prisma cadastrado.
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
 use prisma_api::{Interface, InterfaceUpdate, Route, SystemInfo, TrafficSeries, MTU_MAX, MTU_MIN};
 use serde::Deserialize;
 use serde_json::{json, Map};
+use uuid::Uuid;
 
 use crate::audit::{self, Entry};
 use crate::auth::{ClientMeta, CurrentUser, Role};
 use crate::error::{AppError, AppResult};
 use crate::AppState;
 
-pub async fn system(State(st): State<AppState>, _: CurrentUser) -> AppResult<Json<SystemInfo>> {
-    Ok(Json(st.prisma.system().await?))
+pub async fn system(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<SystemInfo>> {
+    Ok(Json(st.routers.get(id).await?.client.system().await?))
 }
 
-pub async fn interfaces(State(st): State<AppState>, _: CurrentUser) -> AppResult<Json<Vec<Interface>>> {
-    Ok(Json(st.prisma.interfaces().await?))
+pub async fn interfaces(
+    State(st): State<AppState>,
+    _: CurrentUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<Interface>>> {
+    Ok(Json(st.routers.get(id).await?.client.interfaces().await?))
 }
 
-pub async fn routes(State(st): State<AppState>, _: CurrentUser) -> AppResult<Json<Vec<Route>>> {
-    Ok(Json(st.prisma.routes().await?))
+pub async fn routes(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<Vec<Route>>> {
+    Ok(Json(st.routers.get(id).await?.client.routes().await?))
 }
 
 #[derive(Deserialize)]
@@ -37,16 +42,18 @@ fn default_minutes() -> u32 {
 pub async fn traffic(
     State(st): State<AppState>,
     _: CurrentUser,
+    Path(id): Path<Uuid>,
     Query(q): Query<TrafficQuery>,
 ) -> AppResult<Json<TrafficSeries>> {
-    Ok(Json(st.prisma.traffic(&q.interface, q.minutes.clamp(1, 24 * 60)).await?))
+    let router = st.routers.get(id).await?;
+    Ok(Json(router.client.traffic(&q.interface, q.minutes.clamp(1, 24 * 60)).await?))
 }
 
 pub async fn update_interface(
     State(st): State<AppState>,
     user: CurrentUser,
     meta: ClientMeta,
-    Path(name): Path<String>,
+    Path((id, name)): Path<(Uuid, String)>,
     Json(mut req): Json<InterfaceUpdate>,
 ) -> AppResult<Json<Interface>> {
     user.require(Role::Operator)?;
@@ -65,7 +72,8 @@ pub async fn update_interface(
         }
     }
 
-    let before = st.prisma.interface(&name).await?;
+    let router = st.routers.get(id).await?;
+    let before = router.client.interface(&name).await?;
     let mut changes = Map::new();
     if let Some(v) = req.admin_up.filter(|v| *v != before.admin_up) {
         changes.insert("admin_up".into(), json!({ "from": before.admin_up, "to": v }));
@@ -80,29 +88,14 @@ pub async fn update_interface(
         return Ok(Json(before));
     }
 
-    match st.prisma.update_interface(&name, &req).await {
-        Ok(after) => {
-            audit::record(
-                &st.db,
-                Entry::by(&user, &meta, "router.interface.update")
-                    .target(&name)
-                    .details(changes.into()),
-            )
-            .await;
-            Ok(Json(after))
-        }
-        Err(e) => {
-            let mut details = changes;
-            details.insert("error".into(), json!(e.to_string()));
-            audit::record(
-                &st.db,
-                Entry::by(&user, &meta, "router.interface.update")
-                    .target(&name)
-                    .failed()
-                    .details(details.into()),
-            )
-            .await;
-            Err(e.into())
-        }
+    // Alvo no formato "roteador/interface" para o log ser legível com vários Prismas.
+    let target = format!("{}/{}", router.name, name);
+    let result = router.client.update_interface(&name, &req).await;
+    let mut entry = Entry::by(&user, &meta, "router.interface.update").target(&target).router(id);
+    if let Err(e) = &result {
+        changes.insert("error".into(), json!(e.to_string()));
+        entry = entry.failed();
     }
+    audit::record(&st.db, entry.details(changes.into())).await;
+    Ok(Json(result?))
 }

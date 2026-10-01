@@ -10,16 +10,21 @@ export const ACTION_LABEL: Record<string, string> = {
   "user.update": "alterou usuário",
   "user.delete": "excluiu usuário",
   "router.interface.update": "alterou interface",
+  "router.create": "cadastrou Prisma",
+  "router.update": "alterou Prisma",
+  "router.delete": "removeu Prisma",
 }
 
 export function AuditActionBadge({ action, success }: { action: string; success: boolean }) {
   const label = ACTION_LABEL[action] ?? action
   if (!success) return <Badge variant="destructive">{label} · falhou</Badge>
-  const tone = action.startsWith("router.")
+  const tone = action.startsWith("router.interface")
     ? "bg-chart-1/15 text-chart-1"
-    : action.startsWith("user.")
-      ? "bg-chart-4/20 text-amber-700 dark:text-chart-4"
-      : ""
+    : action.startsWith("router.")
+      ? "bg-chart-2/15 text-chart-2"
+      : action.startsWith("user.")
+        ? "bg-chart-4/20 text-amber-700 dark:text-chart-4"
+        : ""
   return (
     <Badge variant="secondary" className={tone}>
       {label}

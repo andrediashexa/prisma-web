@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useState } from "react"
 import useSWR from "swr"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { fetcher } from "@/lib/api"
 import { formatBps, formatBpsShort } from "@/lib/format"
-import type { RouterInterface, TrafficSeries } from "@/lib/types"
+import { routerApi, type RouterInterface, type TrafficSeries } from "@/lib/types"
 
 const RANGES = [
   { value: "15", label: "15 min" },
@@ -32,14 +32,30 @@ const config = {
   tx: { label: "Upload", color: "var(--chart-2)" },
 } satisfies ChartConfig
 
-export function TrafficChart({ interfaces }: { interfaces: RouterInterface[] }) {
-  const candidates = interfaces.filter((i) => i.kind !== "loopback")
-  const [iface, setIface] = useState<string>()
-  const [minutes, setMinutes] = useState("60")
-  const selected = iface ?? candidates[0]?.name
+export function TrafficChart({
+  routerId,
+  title = "Tráfego",
+  defaultInterface,
+  defaultMinutes = 60,
+}: {
+  routerId: string
+  title?: string
+  defaultInterface?: string
+  defaultMinutes?: number
+}) {
+  const { data: interfaces } = useSWR<RouterInterface[]>(routerApi(routerId, "/interfaces"), fetcher, {
+    refreshInterval: 30_000,
+  })
+  const candidates = interfaces?.filter((i) => i.kind !== "loopback") ?? []
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "")
+  const [iface, setIface] = useState<string | undefined>(defaultInterface)
+  const [minutes, setMinutes] = useState(String(defaultMinutes))
+  const selected = candidates.some((i) => i.name === iface) ? iface : candidates[0]?.name
 
   const { data } = useSWR<TrafficSeries>(
-    selected ? `/router/metrics/traffic?interface=${encodeURIComponent(selected)}&minutes=${minutes}` : null,
+    selected
+      ? routerApi(routerId, `/metrics/traffic?interface=${encodeURIComponent(selected)}&minutes=${minutes}`)
+      : null,
     fetcher,
     { refreshInterval: 5_000, keepPreviousData: true },
   )
@@ -50,10 +66,10 @@ export function TrafficChart({ interfaces }: { interfaces: RouterInterface[] }) 
     new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
 
   return (
-    <Card>
+    <Card className="h-full">
       <CardHeader className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-        <CardTitle>Tráfego</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription>
           {last ? (
             <span className="tabular-nums">
@@ -94,11 +110,11 @@ export function TrafficChart({ interfaces }: { interfaces: RouterInterface[] }) 
         {points.length === 0 ? (
           <Skeleton className="aspect-[3/1] w-full" />
         ) : (
-          <ChartContainer config={config} className="aspect-auto h-72 w-full">
+          <ChartContainer id={`traffic-${uid}`} config={config} className="aspect-auto h-72 w-full">
             <AreaChart data={points} margin={{ left: 4, right: 8 }}>
               <defs>
                 {(["rx", "tx"] as const).map((k) => (
-                  <linearGradient key={k} id={`fill-${k}`} x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient key={k} id={`fill-${k}-${uid}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={`var(--color-${k})`} stopOpacity={0.45} />
                     <stop offset="95%" stopColor={`var(--color-${k})`} stopOpacity={0.02} />
                   </linearGradient>
@@ -134,8 +150,8 @@ export function TrafficChart({ interfaces }: { interfaces: RouterInterface[] }) 
                   />
                 }
               />
-              <Area dataKey="rx" type="monotone" fill="url(#fill-rx)" stroke="var(--color-rx)" strokeWidth={2} isAnimationActive={false} />
-              <Area dataKey="tx" type="monotone" fill="url(#fill-tx)" stroke="var(--color-tx)" strokeWidth={2} isAnimationActive={false} />
+              <Area dataKey="rx" type="monotone" fill={`url(#fill-rx-${uid})`} stroke="var(--color-rx)" strokeWidth={2} isAnimationActive={false} />
+              <Area dataKey="tx" type="monotone" fill={`url(#fill-tx-${uid})`} stroke="var(--color-tx)" strokeWidth={2} isAnimationActive={false} />
               <ChartLegend content={<ChartLegendContent />} />
             </AreaChart>
           </ChartContainer>

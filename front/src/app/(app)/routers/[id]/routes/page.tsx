@@ -1,28 +1,29 @@
 "use client"
 
+import { useParams } from "next/navigation"
 import { useState } from "react"
 import useSWR from "swr"
 
-import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { fetcher } from "@/lib/api"
-import type { RouterRoute } from "@/lib/types"
+import { routerApi, type RouterRoute } from "@/lib/types"
 
 type Filter = "all" | "ipv4" | "ipv6"
 
 export default function RoutesPage() {
-  const { data } = useSWR<RouterRoute[]>("/router/routes", fetcher, { refreshInterval: 15_000 })
+  const { id } = useParams<{ id: string }>()
+  const { data } = useSWR<RouterRoute[]>(routerApi(id, "/routes"), fetcher, { refreshInterval: 15_000 })
   const [filter, setFilter] = useState<Filter>("all")
   const rows = data?.filter((r) => filter === "all" || r.family === filter) ?? []
   const count = (f: Filter) => data?.filter((r) => f === "all" || r.family === f).length ?? 0
 
   return (
     <>
-      <PageHeader title="Rotas" description="Tabela de roteamento IPv4 e IPv6">
+      <div className="flex justify-end">
         <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
           <TabsList>
             <TabsTrigger value="all">Todas ({count("all")})</TabsTrigger>
@@ -30,7 +31,7 @@ export default function RoutesPage() {
             <TabsTrigger value="ipv6">IPv6 ({count("ipv6")})</TabsTrigger>
           </TabsList>
         </Tabs>
-      </PageHeader>
+      </div>
       <Card className="py-0">
         <div className="overflow-x-auto">
           <Table>
