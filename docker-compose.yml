@@ -1,0 +1,98 @@
+name: prisma-web
+
+services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      # Publica em 0.0.0.0 e [::] — acessível por IPv4 e IPv6.
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      front:
+        condition: service_healthy
+      back:
+        condition: service_healthy
+    networks: [edge]
+
+  front:
+    build: ./front
+    restart: unless-stopped
+    depends_on:
+      back:
+        condition: service_healthy
+    networks: [edge]
+
+  back:
+    build:
+      context: ./back
+      args:
+        BIN: prisma-web-server
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-prisma}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@db:5432/${POSTGRES_DB:-prisma_web}
+      BIND_ADDR: "[::]:8000"
+      PRISMA_API_URL: ${PRISMA_API_URL:-http://prisma-mock:8080}
+      PRISMA_API_TOKEN: ${PRISMA_API_TOKEN:-}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      RUST_LOG: ${RUST_LOG:-info,tower_http=info,sqlx=warn}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [edge, internal]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-prisma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-prisma_web}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Sem portas publicadas: só o back alcança o banco.
+    networks: [internal]
+
+  # Prisma simulado. Ativo pelo perfil "mock" (COMPOSE_PROFILES=mock no .env);
+  # quando o Prisma real existir, remova o perfil e aponte PRISMA_API_URL para ele.
+  prisma-mock:
+    profiles: [mock]
+    build:
+      context: ./back
+      args:
+        BIN: prisma-mock
+    restart: unless-stopped
+    environment:
+      BIND_ADDR: "[::]:8080"
+      PRISMA_API_TOKEN: ${PRISMA_API_TOKEN:-}
+    networks: [internal]
+
+networks:
+  # Ambas as redes são dual-stack. Prefixos ULA (fd00::/8) só valem dentro do host.
+  edge:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.30.57.0/24
+        - subnet: fd70:5057:1::/64
+  internal:
+    internal: true
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.30.58.0/24
+        - subnet: fd70:5057:2::/64
+
+volumes:
+  db-data:
+  caddy-data:

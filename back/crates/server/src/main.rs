@@ -1,0 +1,102 @@
+mod audit;
+mod auth;
+mod config;
+mod error;
+mod limiter;
+mod routes;
+
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Context;
+use prisma_api::PrismaClient;
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
+
+use crate::config::Config;
+use crate::limiter::LoginLimiter;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub db: PgPool,
+    pub prisma: PrismaClient,
+    pub cfg: Arc<Config>,
+    pub limiter: Arc<LoginLimiter>,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        return healthcheck();
+    }
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,tower_http=info,sqlx=warn".into()),
+        )
+        .init();
+
+    let cfg = Arc::new(Config::from_env()?);
+
+    let db = PgPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(&cfg.database_url)
+        .await
+        .context("conectando ao PostgreSQL")?;
+    sqlx::migrate!("./migrations").run(&db).await.context("aplicando migrações")?;
+
+    auth::bootstrap_admin(&db, &cfg).await?;
+    tokio::spawn(auth::purge_expired_sessions(db.clone()));
+
+    let state = AppState {
+        db,
+        prisma: PrismaClient::new(&cfg.prisma_api_url, cfg.prisma_api_token.clone())?,
+        limiter: Arc::new(LoginLimiter::new(cfg.login_max_failures, cfg.login_window)),
+        cfg: cfg.clone(),
+    };
+
+    let app = routes::router(state);
+    let listener = tokio::net::TcpListener::bind(cfg.bind_addr)
+        .await
+        .with_context(|| format!("abrindo {}", cfg.bind_addr))?;
+    tracing::info!(addr = %cfg.bind_addr, prisma = %cfg.prisma_api_url, "prisma-web-server ouvindo");
+
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    let term = async {
+        if let Ok(mut s) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            s.recv().await;
+        }
+    };
+    tokio::select! { _ = ctrl_c => {}, _ = term => {} }
+}
+
+/// Usado pelo HEALTHCHECK do container (a imagem não tem shell nem curl).
+fn healthcheck() -> anyhow::Result<()> {
+    use std::io::{Read, Write};
+    let port = std::env::var("BIND_ADDR")
+        .ok()
+        .and_then(|a| a.parse::<SocketAddr>().ok())
+        .map_or(8000, |a| a.port());
+    let mut s = std::net::TcpStream::connect_timeout(
+        &SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], port)),
+        Duration::from_secs(2),
+    )?;
+    s.set_read_timeout(Some(Duration::from_secs(2)))?;
+    write!(s, "GET /api/health HTTP/1.0\r\nHost: localhost\r\n\r\n")?;
+    let mut buf = [0u8; 12];
+    s.read_exact(&mut buf)?;
+    anyhow::ensure!(&buf[9..12] == b"200", "status inesperado");
+    Ok(())
+}

@@ -1,0 +1,26 @@
+{
+	# HTTP puro por enquanto. Para HTTPS, troque ":80" pelo domínio (ou ":443")
+	# e remova esta linha; também ajuste COOKIE_SECURE=true no back.
+	auto_https off
+	admin off
+}
+
+:80 {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy back:8000
+	}
+
+	handle {
+		reverse_proxy front:3000
+	}
+}

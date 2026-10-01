@@ -1,0 +1,8 @@
+.env
+back/target/
+front/node_modules/
+front/.next/
+front/out/
+front/next-env.d.ts
+*.log
+.DS_Store
