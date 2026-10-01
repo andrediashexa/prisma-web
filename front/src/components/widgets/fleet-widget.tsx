@@ -55,7 +55,7 @@ export function FleetWidget() {
                     variant="outline"
                     className={cn("ml-auto", r.online ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-300" : "border-destructive/40 text-destructive")}
                   >
-                    {r.online ? `${r.latency_ms} ms` : "offline"}
+                    {r.busy ? "ocupado (console)" : r.online ? `${r.latency_ms} ms` : "offline"}
                   </Badge>
                 </div>
                 {s ? (

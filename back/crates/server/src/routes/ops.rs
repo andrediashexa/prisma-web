@@ -90,6 +90,7 @@ pub async fn show(
         return Err(AppError::BadRequest("informe um único comando de até 256 caracteres".into()));
     }
     let r = st.routers.get(id).await?;
+    let _console = st.routers.console_started(id);
     let res = r
         .ops()
         .show(grpc::req_with(ShowRequest { command: command.to_string() }, grpc::SHOW_TIMEOUT))

@@ -15,6 +15,15 @@ versões minor são publicadas como release, e versões patch como pré-release.
 | **How** | Escrito à mão a partir das issues, nunca gerado dos commits. |
 | **How much** | Uma seção por versão. |
 
+## 0.4.2 - Console sem falso offline — 2026-10-01
+
+### Correções
+- Um comando demorado no console, como `ping` ou `traceroute`, fazia o roteador aparecer **offline** nos Prismas 0.148.4 e 0.148.5, que atendem uma chamada por vez por conta. Agora ele aparece como **ocupado (console)**, com os últimos dados (#14).
+
+### Interno
+- O Prisma simulado reproduz a trava de uma chamada por vez e um `ping` com `count` que demora de verdade (#14).
+- Proto e guia da API atualizados para o Prisma 0.148.5, que só muda comentários. O laboratório na 0.148.5 passou no `--lab` (`fix/proto-0.148.5`).
+
 ## 0.4.1 - Hostname do Prisma — 2026-10-01
 
 ### Correções

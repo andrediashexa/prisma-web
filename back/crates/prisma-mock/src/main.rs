@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
 
 fn new_shared(hostname: &str, scale: f64) -> SharedRef {
     let (events, _) = broadcast::channel(64);
-    Arc::new(Shared { state: Mutex::new(State::new(hostname, scale)), events })
+    Arc::new(Shared { state: Mutex::new(State::new(hostname, scale)), events, ops: tokio::sync::Mutex::new(()) })
 }
 
 /// Como o Prisma real: com `MOCK_TLS_DIR`, serve só mTLS e exige um

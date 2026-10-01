@@ -126,6 +126,10 @@ export default function RoutersPage() {
                     <TableCell>
                       {!s ? (
                         <Skeleton className="h-5 w-16" />
+                      ) : s.busy ? (
+                        <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300" title="Um comando do console ocupa a conta no Prisma (0.148.4/0.148.5); os dados são da última consulta.">
+                          ocupado (console)
+                        </Badge>
                       ) : s.online ? (
                         <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 dark:text-emerald-300">
                           online · {s.latency_ms} ms

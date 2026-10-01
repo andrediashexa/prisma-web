@@ -201,6 +201,7 @@ impl OperationalSvc {
 #[tonic::async_trait]
 impl OperationalService for OperationalSvc {
     async fn get_version(&self, _: Request<GetVersionRequest>) -> R<VersionInfo> {
+        let _turno = self.shared.ops.lock().await;
         Ok(Response::new(VersionInfo {
             release: RELEASE.into(),
             plugin_build: "0.149.0-mock+g1a2b3c".into(),
@@ -213,6 +214,7 @@ impl OperationalService for OperationalSvc {
     }
 
     async fn get_system(&self, _: Request<GetSystemRequest>) -> R<SystemInfo> {
+        let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
         let mib = st.mem_used >> 20;
         let cpu_text = "\
@@ -253,17 +255,20 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn list_interfaces(&self, req: Request<ListInterfacesRequest>) -> R<ListInterfacesResponse> {
+        let _turno = self.shared.ops.lock().await;
         let names = req.into_inner().names;
         let st = self.shared.state.lock().unwrap();
         Ok(Response::new(ListInterfacesResponse { interfaces: interfaces(&st, &names) }))
     }
 
     async fn list_pools(&self, _: Request<ListPoolsRequest>) -> R<ListPoolsResponse> {
+        let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
         Ok(Response::new(ListPoolsResponse { pools: vec![pool(&st)] }))
     }
 
     async fn get_subscriber(&self, req: Request<GetSubscriberRequest>) -> R<Subscriber> {
+        let _turno = self.shared.ops.lock().await;
         let address = req.into_inner().address;
         let inside = address
             .parse::<Ipv4Addr>()
@@ -291,6 +296,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn get_sessions_summary(&self, _: Request<GetSessionsSummaryRequest>) -> R<SessionsSummary> {
+        let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
         let p = pool(&st);
         Ok(Response::new(SessionsSummary {
@@ -302,11 +308,13 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn list_bgp_neighbors(&self, _: Request<ListBgpNeighborsRequest>) -> R<ListBgpNeighborsResponse> {
+        let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
         Ok(Response::new(ListBgpNeighborsResponse { neighbors: self.bgp(&st) }))
     }
 
     async fn list_ospf_neighbors(&self, _: Request<ListOspfNeighborsRequest>) -> R<ListOspfNeighborsResponse> {
+        let _turno = self.shared.ops.lock().await;
         Ok(Response::new(ListOspfNeighborsResponse {
             neighbors: vec![
                 OspfNeighbor {
@@ -328,6 +336,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn list_isis_adjacencies(&self, _: Request<ListIsisAdjacenciesRequest>) -> R<ListIsisAdjacenciesResponse> {
+        let _turno = self.shared.ops.lock().await;
         Ok(Response::new(ListIsisAdjacenciesResponse {
             adjacencies: vec![IsisAdjacency {
                 system_id: "0000.0000.0002".into(),
@@ -339,6 +348,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn list_vrrp(&self, _: Request<ListVrrpRequest>) -> R<ListVrrpResponse> {
+        let _turno = self.shared.ops.lock().await;
         let vr = |family, addr: &str| VrrpRouter {
             interface: "lan0".into(),
             vr_id: 10,
@@ -351,6 +361,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn list_bundles(&self, _: Request<ListBundlesRequest>) -> R<ListBundlesResponse> {
+        let _turno = self.shared.ops.lock().await;
         let members = vec!["TenGig0".to_string(), "TenGig1".to_string()];
         Ok(Response::new(ListBundlesResponse {
             bundles: vec![Bundle { name: "BondEthernet0".into(), mode: "lacp".into(), active_members: members.clone(), members }],
@@ -358,9 +369,19 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn show(&self, req: Request<ShowRequest>) -> R<ShowResponse> {
+        let _turno = self.shared.ops.lock().await;
         let command = req.into_inner().command;
-        let st = self.shared.state.lock().unwrap();
-        let text = self.show(&st, command.trim())?;
+        let text = {
+            let st = self.shared.state.lock().unwrap();
+            self.show(&st, command.trim())?
+        };
+        // `ping <alvo> count N` demora como um de verdade (250 ms por pacote,
+        // até 120), segurando o processo da conta como no Prisma 0.148.5.
+        let words: Vec<&str> = command.split_whitespace().collect();
+        if let ["ping", _, "count", n, ..] = words.as_slice() {
+            let n: u64 = n.parse().unwrap_or(4).min(120);
+            tokio::time::sleep(std::time::Duration::from_millis(250 * n)).await;
+        }
         Ok(Response::new(ShowResponse { text }))
     }
 }

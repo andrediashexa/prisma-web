@@ -276,6 +276,8 @@ export interface RouterStatus {
   version: VersionInfo | null
   system: SystemInfo | null
   sessions: SessionsSummary | null
+  /** Sem resposta porque um comando do console ocupa a conta; dados da última consulta. */
+  busy: boolean
   error: string | null
   latency_ms: number | null
 }
