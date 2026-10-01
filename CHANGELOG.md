@@ -15,6 +15,19 @@ versões minor são publicadas como release, e versões patch como pré-release.
 | **How** | Escrito à mão a partir das issues, nunca gerado dos commits. |
 | **How much** | Uma seção por versão. |
 
+## 0.3.1 - Guia da API do Prisma — 2026-10-01
+
+### Mudanças de comportamento
+- O Prisma simulado imprime e aceita a configuração de interface do jeito do equipamento real: `ipv4 address` (e não mais `ip address`), `shutdown` antes do `mtu` e o bloco fechado com `exit` (#9).
+
+### Correções
+- O README dizia que um Prisma real podia ser cadastrado com `http://`. O guia da API mostra que o servidor do Prisma só aceita mTLS, então isso só funciona depois da #4 (#9).
+
+### Interno
+- Guia oficial da API (`docs/prisma-api.md`) e proto mais novo copiados sem alterações. O código gerado é idêntico ao anterior (#9).
+- Perguntas ao Prisma respondidas com a fonte de cada resposta em `docs/prisma-integracao.md` (#9).
+- Formato de versões: tag `X.Y.Z`, release `X.Y.Z - nome`, patch como pré-release e major proibida. Tags e releases anteriores migradas (#8).
+
 ## 0.3.0 - Integração gRPC — 2026-10-01
 
 ### Mudanças incompatíveis
