@@ -1,19 +1,21 @@
 #!/bin/sh
-# Gera certificados de DESENVOLVIMENTO para o mock com mTLS (issue #4).
+# Generates DEVELOPMENT certificates for the mock with mTLS (issue #4).
 #
 #   dev-certs/mock-server/        server.crt, server.key, clients-ca.crt  -> prisma-mock-2
-#   dev-certs/profiles/mock/      ca.crt + prisma-web-dev.{crt,key}       -> perfil "dev/mock"
-#   dev-certs/profiles/outra-ca/  ca.crt de outra CA                      -> o cliente MUST recusar o servidor
-#   dev-certs/profiles/intruso/   CA certa + cliente de outra CA          -> o servidor MUST recusar o cliente
+#   dev-certs/profiles/mock/      ca.crt + prisma-web-dev.{crt,key}       -> profile "dev/mock"
+#   dev-certs/profiles/outra-ca/  ca.crt of another CA                    -> the client MUST reject the server
+#   dev-certs/profiles/intruso/   right CA + client of another CA         -> the server MUST reject the client
 #
-# Nada disto serve para um Prisma real: o equipamento usa a CA do operador
-# (docs/prisma-api.md). dev-certs/ é ignorado pelo git. Só refaz com --force.
+# None of this is for a real Prisma: the box uses the operator's CA
+# (docs/prisma-api.md). dev-certs/ is ignored by git. Regenerates only with --force.
+# The profile names "outra-ca" ("other CA") and "intruso" ("intruder") are kept:
+# existing dev-certs/ trees and the e2e checks refer to them.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/dev-certs"
 if [ -d "$OUT/profiles/mock" ] && [ "${1:-}" != "--force" ]; then
-  echo "dev-certs já existe (use --force para refazer)"
+  echo "dev-certs already exists (use --force to regenerate)"
   exit 0
 fi
 rm -rf "$OUT"
@@ -21,10 +23,10 @@ umask 027
 mkdir -p "$OUT/ca" "$OUT/mock-server" "$OUT/profiles/mock" "$OUT/profiles/outra-ca" "$OUT/profiles/intruso"
 cd "$OUT/ca"
 
-ca() { # nome, CN
+ca() { # name, CN
   openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=$2" -keyout "$1.key" -out "$1.crt" 2>/dev/null
 }
-sign() { # ca, saída, CN, extensões
+sign() { # ca, output, CN, extensions
   openssl req -newkey rsa:2048 -nodes -subj "/CN=$3" -keyout "$2.key" -out "$2.csr" 2>/dev/null
   printf '%s\n' "$4" > "$2.ext"
   openssl x509 -req -in "$2.csr" -CA "$1.crt" -CAkey "$1.key" -CAcreateserial -days 825 \
@@ -33,8 +35,8 @@ sign() { # ca, saída, CN, extensões
 }
 
 ca dev-ca "prisma-web dev clients"
-ca outra-ca "outra CA"
-# Nome do servidor igual ao do Prisma real (prisma-api) e o nome do container no SAN.
+ca outra-ca "other CA"
+# Server name matches the real Prisma's (prisma-api), plus the container name in the SAN.
 sign dev-ca server prisma-api "subjectAltName=DNS:prisma-api,DNS:prisma-mock-2"
 sign dev-ca prisma-web-dev prisma-web-dev "extendedKeyUsage=clientAuth"
 sign outra-ca intruso intruso "extendedKeyUsage=clientAuth"
@@ -48,8 +50,8 @@ cp intruso.crt intruso.key "$OUT/profiles/outra-ca/"
 cp dev-ca.crt "$OUT/profiles/intruso/ca.crt"
 cp intruso.crt intruso.key "$OUT/profiles/intruso/"
 
-# openssl grava chaves com 0600, ignorando o umask; o back lê pelo grupo (como no Prisma real, 0640).
+# openssl writes keys as 0600, ignoring the umask; the back end reads them through the group (0640, as on the real Prisma).
 chmod 0640 "$OUT"/mock-server/server.key "$OUT"/profiles/*/*.key
 
-echo "certificados de desenvolvimento em $OUT"
-echo "se o back e o prisma-mock-2 já estavam no ar: docker compose restart back prisma-mock-2"
+echo "development certificates in $OUT"
+echo "if back and prisma-mock-2 were already running: docker compose restart back prisma-mock-2"

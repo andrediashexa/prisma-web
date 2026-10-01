@@ -2,8 +2,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_root = "../../proto";
     let fds = protox::compile(["prisma/v1/prisma.proto"], [proto_root])?;
 
-    // Serialize em todas as mensagens, para o back entregar os dados como JSON
-    // ao front sem conversão manual. Timestamps e enums têm serializadores próprios.
+    // Serialize on every message, so the back end hands the data to the front end
+    // as JSON with no manual conversion. Timestamps and enums have their own serializers.
     let mut cfg = tonic_prost_build::configure()
         .type_attribute(".prisma.v1", "#[derive(serde::Serialize)]")
         .field_attribute(

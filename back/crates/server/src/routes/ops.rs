@@ -1,4 +1,4 @@
-//! Dados operacionais de cada Prisma (`OperationalService`) e séries de telemetria.
+//! Operational data of each Prisma (`OperationalService`) and telemetry series.
 
 use axum::extract::{Path, Query, State};
 use axum::Json;
@@ -14,7 +14,7 @@ use crate::grpc::{self, req};
 use crate::telemetry::{CgnatSample, RateSample, Series};
 use crate::AppState;
 
-/// Gera um handler GET que só repassa uma chamada sem parâmetros do Prisma.
+/// Generates a GET handler that just forwards a parameterless Prisma call.
 macro_rules! passthrough {
     ($name:ident, $rpc:ident, $req:expr, $resp:ty) => {
         pub async fn $name(
@@ -37,8 +37,8 @@ passthrough!(ospf, list_ospf_neighbors, ListOspfNeighborsRequest {}, ListOspfNei
 passthrough!(isis, list_isis_adjacencies, ListIsisAdjacenciesRequest {}, ListIsisAdjacenciesResponse);
 passthrough!(vrrp, list_vrrp, ListVrrpRequest {}, ListVrrpResponse);
 passthrough!(bundles, list_bundles, ListBundlesRequest {}, ListBundlesResponse);
-/// Interfaces do Prisma. O 0.148.4 também lista as `tap*` internas do linux_cp
-/// (corrigido no 0.148.5, segundo o time do Prisma); elas são escondidas aqui.
+/// Prisma interfaces. 0.148.4 also lists linux_cp's internal `tap*` ones
+/// (fixed in 0.148.5, according to the Prisma team); they are hidden here.
 pub async fn interfaces(
     State(st): State<AppState>,
     _: CurrentUser,
@@ -63,7 +63,7 @@ pub async fn subscriber(
 ) -> AppResult<Json<Subscriber>> {
     let address = q.address.trim();
     if address.parse::<std::net::IpAddr>().is_err() {
-        return Err(AppError::BadRequest(format!("'{address}' não é um endereço IP")));
+        return Err(AppError::BadRequest(format!("'{address}' is not an IP address")));
     }
     let r = st.routers.get(id).await?;
     let msg = GetSubscriberRequest { address: address.to_string() };
@@ -75,8 +75,8 @@ pub struct ShowBody {
     command: String,
 }
 
-/// Console: qualquer comando operacional do VTY (`show ...`, `ping ...`).
-/// O próprio Prisma recusa comandos de configuração e de shell.
+/// Console: any operational VTY command (`show ...`, `ping ...`).
+/// Prisma itself refuses configuration and shell commands.
 pub async fn show(
     State(st): State<AppState>,
     user: CurrentUser,
@@ -87,7 +87,7 @@ pub async fn show(
     user.require(Role::Operator)?;
     let command = body.command.trim();
     if command.is_empty() || command.len() > 256 || command.contains(['\n', '\r']) {
-        return Err(AppError::BadRequest("informe um único comando de até 256 caracteres".into()));
+        return Err(AppError::BadRequest("enter a single command of up to 256 characters".into()));
     }
     let r = st.routers.get(id).await?;
     let _console = st.routers.console_started(id);
@@ -95,7 +95,7 @@ pub async fn show(
         .ops()
         .show(grpc::req_with(ShowRequest { command: command.to_string() }, grpc::SHOW_TIMEOUT))
         .await;
-    // `ping` e afins atingem a rede; ficam registrados como os demais comandos.
+    // `ping` and the like reach the network; they are recorded like every other command.
     let mut entry = Entry::by(&user, &meta, "router.command").target(&r.name).router(id).details(json!({ "command": command }));
     if res.is_err() {
         entry = entry.failed();

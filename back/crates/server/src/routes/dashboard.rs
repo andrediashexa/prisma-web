@@ -1,7 +1,7 @@
-//! Layout personalizado da homepage, um por usuário.
+//! Custom home page layout, one per user.
 //!
-//! O formato é definido pelo front; aqui só garantimos que é um objeto JSON
-//! de tamanho razoável com uma lista de widgets.
+//! The front end defines the format; here we only ensure it is a JSON object
+//! of reasonable size with a list of widgets.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -18,7 +18,7 @@ const MAX_WIDGETS: usize = 40;
 
 #[derive(Serialize)]
 pub struct Dashboard {
-    /// `null` quando o usuário ainda não personalizou: o front usa o padrão.
+    /// `null` when the user has not customized it yet: the front end uses the default.
     layout: Option<Value>,
 }
 
@@ -34,15 +34,15 @@ pub async fn put(State(st): State<AppState>, user: CurrentUser, Json(layout): Js
     let widgets = layout
         .get("widgets")
         .and_then(Value::as_array)
-        .ok_or_else(|| AppError::BadRequest("layout precisa de uma lista 'widgets'".into()))?;
+        .ok_or_else(|| AppError::BadRequest("layout needs a 'widgets' list".into()))?;
     if widgets.len() > MAX_WIDGETS {
-        return Err(AppError::BadRequest(format!("no máximo {MAX_WIDGETS} widgets")));
+        return Err(AppError::BadRequest(format!("at most {MAX_WIDGETS} widgets")));
     }
     if widgets.iter().any(|w| !w.get("type").is_some_and(Value::is_string)) {
-        return Err(AppError::BadRequest("todo widget precisa de um 'type'".into()));
+        return Err(AppError::BadRequest("every widget needs a 'type'".into()));
     }
     if serde_json::to_vec(&layout).map_err(anyhow::Error::from)?.len() > MAX_LAYOUT_BYTES {
-        return Err(AppError::BadRequest("layout grande demais".into()));
+        return Err(AppError::BadRequest("layout too large".into()));
     }
 
     sqlx::query(

@@ -1,5 +1,5 @@
-//! `TelemetryService.Subscribe`: amostras periódicas de contadores e do CGNAT,
-//! mais os eventos de configuração à medida que acontecem.
+//! `TelemetryService.Subscribe`: periodic samples of the counters and of CGNAT,
+//! plus configuration events as they happen.
 
 use std::time::Duration;
 
@@ -62,7 +62,7 @@ impl TelemetryService for TelemetrySvc {
                         Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => break,
                     },
-                    // Cliente cancelou: encerra a tarefa.
+                    // The client cancelled: end the task.
                     _ = tx.closed() => break,
                 }
                 for u in out {

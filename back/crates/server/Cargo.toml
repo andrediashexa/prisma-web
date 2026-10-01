@@ -1,6 +1,6 @@
 [package]
 name = "prisma-web-server"
-description = "Backend do prisma-web: autenticação, auditoria e ponte com o Prisma"
+description = "prisma-web back end: authentication, audit and the bridge to Prisma"
 edition.workspace = true
 version.workspace = true
 license.workspace = true

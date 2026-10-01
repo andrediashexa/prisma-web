@@ -1,5 +1,5 @@
-//! `ConfigService`: candidatos, compare, check, commit (e commit confirmed),
-//! rollback e save, no mesmo modelo do VTY.
+//! `ConfigService`: candidates, compare, check, commit (and commit confirmed),
+//! rollback and save, in the same model as the VTY.
 
 use chrono::Utc;
 use prisma_proto::v1::config_service_server::ConfigService;
@@ -17,7 +17,7 @@ pub struct ConfigSvc(pub SharedRef);
 
 type R<T> = Result<Response<T>, Status>;
 
-/// Recusa com o relato do VTY anexado em `prisma-diagnostics-bin`.
+/// Refusal with the VTY's report attached in `prisma-diagnostics-bin`.
 fn refused(code: tonic::Code, message: impl Into<String>, items: Vec<Diagnostic>) -> Status {
     let message = message.into();
     let output = items
@@ -33,7 +33,7 @@ fn not_found(id: &str) -> Status {
     refused(tonic::Code::NotFound, format!("candidate {id} does not exist"), vec![])
 }
 
-/// Portões do `commit check`: o que precisa ser reconhecido explicitamente.
+/// `commit check` gates: what must be acknowledged explicitly.
 struct Gates {
     remap: Vec<String>,
     cutoff: Vec<String>,
@@ -197,7 +197,7 @@ impl ConfigService for ConfigSvc {
             return Err(refused(tonic::Code::FailedPrecondition, first, missing));
         }
 
-        let cand = st.candidates.remove(&req.candidate_id).expect("candidato verificado acima");
+        let cand = st.candidates.remove(&req.candidate_id).expect("candidate checked above");
         let previous = std::mem::replace(&mut st.running, cand.config);
         let comment = if req.comment.is_empty() { "commit".to_string() } else { req.comment.clone() };
         let number = st.push_revision(comment.clone());
@@ -222,7 +222,7 @@ impl ConfigService for ConfigSvc {
                 tokio::time::sleep(wait).await;
                 let mut st = timer.state.lock().unwrap();
                 if st.pending.as_ref().is_some_and(|p| p.token == token) {
-                    let p = st.pending.take().expect("verificado acima");
+                    let p = st.pending.take().expect("checked above");
                     st.running = p.previous;
                     st.push_revision("rolled back: commit confirmed expired".into());
                     timer.emit("rolled-back", "commit confirmed expired");

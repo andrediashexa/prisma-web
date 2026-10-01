@@ -1,5 +1,5 @@
-//! `OperationalService`: dados operacionais tipados e o `Show` com saídas
-//! no formato do VTY/FRR.
+//! `OperationalService`: typed operational data and `Show` with output
+//! in the VTY/FRR format.
 
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -22,7 +22,7 @@ type R<T> = Result<Response<T>, Status>;
 const RELEASE: &str = "0.149.0-mock";
 
 fn workers_floor(capacity: u64) -> u64 {
-    // Garantido por worker (5 workers), como o piso do #210.
+    // Guaranteed per worker (5 workers), like the floor in #210.
     capacity / 5 * 5 * 9 / 10
 }
 
@@ -89,7 +89,7 @@ impl OperationalSvc {
                     state: if down { "Active".into() } else { "Established".into() },
                     uptime_seconds: if down { 0 } else { st.uptime_seconds() - 600 },
                     prefixes_received: if down { 0 } else if v6 { 201_388 } else { 1_002_117 },
-                    description: if v6 { "Transito IPv6".into() } else { "Transito IPv4".into() },
+                    description: if v6 { "IPv6 transit".into() } else { "IPv4 transit".into() },
                     peer,
                 }
             })
@@ -375,8 +375,8 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             let st = self.shared.state.lock().unwrap();
             self.show(&st, command.trim())?
         };
-        // `ping <alvo> count N` demora como um de verdade (250 ms por pacote,
-        // até 120), segurando o processo da conta como no Prisma 0.148.5.
+        // `ping <target> count N` takes as long as a real one (250 ms per packet,
+        // up to 120), holding the account's process as on Prisma 0.148.5.
         let words: Vec<&str> = command.split_whitespace().collect();
         if let ["ping", _, "count", n, ..] = words.as_slice() {
             let n: u64 = n.parse().unwrap_or(4).min(120);

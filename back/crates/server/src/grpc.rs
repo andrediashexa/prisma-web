@@ -1,10 +1,10 @@
-//! Utilidades para chamar o Prisma por gRPC.
+//! Helpers for calling Prisma over gRPC.
 
 use std::time::Duration;
 
 use tonic::{Code, Status};
 
-/// Timeout padrão de uma chamada; o console (`Show`) usa um maior.
+/// Default timeout of a call; the console (`Show`) uses a longer one.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 pub const SHOW_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -18,14 +18,14 @@ pub fn req_with<T>(msg: T, timeout: Duration) -> tonic::Request<T> {
     r
 }
 
-/// Descrição curta, em português, de uma falha de chamada.
+/// Short description of a failed call.
 pub fn describe(status: &Status) -> String {
     let what = match status.code() {
-        Code::Unavailable => "Prisma inacessível",
-        Code::DeadlineExceeded => "o Prisma não respondeu a tempo",
-        Code::PermissionDenied => "a conta não tem permissão",
-        Code::Unimplemented => "o Prisma não implementa esta chamada",
-        _ => "o Prisma recusou",
+        Code::Unavailable => "Prisma unreachable",
+        Code::DeadlineExceeded => "Prisma did not answer in time",
+        Code::PermissionDenied => "the account has no permission",
+        Code::Unimplemented => "Prisma does not implement this call",
+        _ => "Prisma refused",
     };
     if status.message().is_empty() {
         what.to_string()

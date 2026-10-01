@@ -1,4 +1,4 @@
-//! Limite de tentativas de login por IP, em memória.
+//! In-memory limit of login attempts per IP.
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -16,7 +16,7 @@ impl LoginLimiter {
         Self { max_failures, window, failures: Mutex::new(HashMap::new()) }
     }
 
-    /// `Some(minutos restantes)` se o IP estiver bloqueado.
+    /// `Some(minutes left)` if the IP is blocked.
     pub fn blocked(&self, ip: IpAddr) -> Option<u64> {
         let map = self.failures.lock().unwrap();
         let (count, since) = map.get(&key(ip))?;
@@ -38,8 +38,8 @@ impl LoginLimiter {
     }
 }
 
-/// Clientes IPv6 normalmente controlam um /64 inteiro; limitar por endereço
-/// exato permitiria contornar o bloqueio trocando o sufixo.
+/// IPv6 clients usually control a whole /64; limiting by exact address
+/// would let them bypass the block by changing the suffix.
 fn key(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V4(_) => ip,
