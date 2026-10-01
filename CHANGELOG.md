@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.8.1 - Prisma 0.149.6 notes — 2026-10-01
+
+### Fixed
+- A configuration commit made on the device right after an action through the web is logged again. The web's own commit is now recognised by its revision, not only by an 8 s window that swallowed both (#30).
+
+### Internal
+- Follows Prisma 0.149.6: the API guide is re-vendored, and `docs/prisma-integration.md` records the vendored release and what the Prisma's new `docs/clients.md` says up to 0.149.6. The contract is unchanged (#30).
+
 ## 0.8.0 - Prisma 0.149 screens — 2026-10-01
 
 ### New
