@@ -6,6 +6,8 @@ mod config;
 mod config_service;
 mod operational;
 mod policy;
+mod session;
+mod route_service;
 mod state;
 mod telemetry;
 
@@ -15,8 +17,12 @@ use std::time::Duration;
 
 use prisma_proto::v1::config_service_server::ConfigServiceServer;
 use prisma_proto::v1::operational_service_server::OperationalServiceServer;
+use prisma_proto::v1::session_service_server::SessionServiceServer;
+use prisma_proto::v1::route_service_server::RouteServiceServer;
 use prisma_proto::v1::telemetry_service_server::TelemetryServiceServer;
 use tokio::sync::broadcast;
+use tonic_health::pb::health_server::HealthServer;
+use tonic_health::server::HealthService;
 use tonic::transport::server::Router;
 use tonic::transport::{Certificate, Identity, ServerTlsConfig};
 use tonic::transport::Server;
@@ -42,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
     let hostname = std::env::var("MOCK_HOSTNAME").unwrap_or_else(|_| "prisma-mock".into());
     let scale: f64 = std::env::var("MOCK_TRAFFIC_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
     let shared = new_shared(&hostname, scale);
+    shared.set_health(std::env::var("MOCK_NOT_SERVING").map_or(true, |v| v.is_empty() || v == "0")).await;
     tokio::spawn(ticker(shared.clone()));
 
     let addr = bind_addr()?;
@@ -62,7 +69,12 @@ async fn main() -> anyhow::Result<()> {
 
 fn new_shared(hostname: &str, scale: f64) -> SharedRef {
     let (events, _) = broadcast::channel(64);
-    Arc::new(Shared { state: Mutex::new(State::new(hostname, scale)), events, ops: tokio::sync::Mutex::new(()) })
+    Arc::new(Shared {
+        state: Mutex::new(State::new(hostname, scale)),
+        events,
+        ops: tokio::sync::Mutex::new(()),
+        health: tonic_health::server::HealthReporter::new(),
+    })
 }
 
 /// Like the real Prisma: with `MOCK_TLS_DIR`, serves mTLS only and requires a
@@ -88,15 +100,22 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
     builder
         .add_service(ConfigServiceServer::new(config_service::ConfigSvc(shared.clone())))
         .add_service(OperationalServiceServer::new(operational::OperationalSvc { shared: shared.clone(), hostname }))
-        .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared)))
+        .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared.clone())))
+        .add_service(SessionServiceServer::new(session::SessionSvc))
+        .add_service(HealthServer::new(HealthService::from_health_reporter(shared.health.clone())))
+        .add_service(RouteServiceServer::new(route_service::RouteSvc::default()))
 }
 
 /// Advances the simulation every second.
 async fn ticker(shared: SharedRef) {
     let mut tick = tokio::time::interval(Duration::from_secs(1));
-    loop {
+    for n in 1u64.. {
         tick.tick().await;
-        shared.state.lock().unwrap().step(chrono::Utc::now(), 1);
+        let mut st = shared.state.lock().unwrap();
+        st.step(chrono::Utc::now(), 1);
+        if n % 60 == 0 {
+            st.record_history(chrono::Utc::now());
+        }
     }
 }
 
@@ -112,6 +131,7 @@ fn healthcheck() -> anyhow::Result<()> {
 mod tests {
     use prisma_proto::v1::config_service_client::ConfigServiceClient;
     use prisma_proto::v1::operational_service_client::OperationalServiceClient;
+    use prisma_proto::v1::route_service_client::RouteServiceClient;
     use prisma_proto::v1::telemetry_service_client::TelemetryServiceClient;
     use prisma_proto::v1::telemetry_update::Update;
     use prisma_proto::v1::*;
@@ -125,6 +145,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let shared = new_shared(hostname, 1.0);
+        shared.set_health(true).await;
         tokio::spawn(ticker(shared.clone()));
         let r = router(shared, hostname.to_string());
         tokio::spawn(r.serve_with_incoming(TcpListenerStream::new(listener)));
@@ -253,5 +274,31 @@ mod tests {
         let bgp = OperationalServiceClient::new(ch).list_bgp_neighbors(ListBgpNeighborsRequest {}).await.unwrap();
         let states: Vec<_> = bgp.into_inner().neighbors.into_iter().map(|n| n.state).collect();
         assert_eq!(states, ["Established", "Active"]);
+    }
+
+    #[tokio::test]
+    async fn history_is_a_day_by_minute_and_honours_since() {
+        let ch = start("prisma-test").await;
+        let mut tel = TelemetryServiceClient::new(ch);
+        let req = |since| GetHistoryRequest { interface_counters: true, cgnat_totals: true, since, ..Default::default() };
+        let all: Vec<HistorySample> = tel.get_history(req(None)).await.unwrap().into_inner().collect::<Result<_, _>>().await.unwrap();
+        assert_eq!(all.len(), state::HISTORY_LEN);
+        let secs: Vec<i64> = all.iter().map(|s| s.at.unwrap().seconds).collect();
+        assert!(secs.windows(2).all(|w| w[1] - w[0] == 60), "oldest first, one a minute");
+        assert!(all[0].cgnat.is_some() && all[0].interfaces.iter().any(|i| i.name == "wan0"));
+        assert_eq!(all[0].memory_used_bytes, 0, "memory was not asked for");
+        let since = all[all.len() - 10].at;
+        let tail: Vec<HistorySample> = tel.get_history(req(since)).await.unwrap().into_inner().collect::<Result<_, _>>().await.unwrap();
+        assert_eq!(tail.len(), 9, "only samples after `since`");
+    }
+
+    #[tokio::test]
+    async fn route_service_is_served() {
+        let mut routes = RouteServiceClient::new(start("prisma-routes").await);
+        let p = routes.list_routes(ListRoutesRequest { page_size: 10, ..Default::default() }).await.unwrap().into_inner();
+        assert_eq!(p.routes.len(), 10);
+        assert!(!p.next_page_token.is_empty());
+        let s = routes.get_route_summary(GetRouteSummaryRequest::default()).await.unwrap().into_inner();
+        assert!(s.counts.iter().any(|c| c.protocol == "bgp" && c.family == 6));
     }
 }

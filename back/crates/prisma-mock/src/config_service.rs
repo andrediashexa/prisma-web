@@ -87,14 +87,19 @@ fn gates(running: &Config, candidate: &Config, subscribers: u64) -> Gates {
 
 impl ConfigSvc {
     fn candidate_config(&self, id: &str) -> Result<Config, Status> {
-        let st = self.0.state.lock().unwrap();
-        st.candidates.get(id).map(|c| c.config.clone()).ok_or_else(|| not_found(id))
+        let mut st = self.0.state.lock().unwrap();
+        st.candidate(id).map(|c| c.config.clone()).ok_or_else(|| not_found(id))
     }
 }
 
 #[tonic::async_trait]
 impl ConfigService for ConfigSvc {
     async fn open_candidate(&self, req: Request<OpenCandidateRequest>) -> R<OpenCandidateResponse> {
+        // Like the box: a read-only login cannot open a candidate.
+        let who = crate::session::identity(&crate::session::account_of(&req));
+        if !who.can_configure && !who.can_configure_cgnat {
+            return Err(Status::permission_denied(format!("account {} is read-only", who.account)));
+        }
         let req = req.into_inner();
         let mut st = self.0.state.lock().unwrap();
         let config = match req.from_revision {
@@ -107,14 +112,14 @@ impl ConfigService for ConfigSvc {
         let id: String = rand::thread_rng().sample_iter(&Alphanumeric).take(12).map(char::from).collect();
         let base = st.revision();
         let text = config.render();
-        st.candidates.insert(id.clone(), Candidate { base_revision: base, config });
+        st.candidates.insert(id.clone(), Candidate { base_revision: base, config, touched: std::time::Instant::now() });
         Ok(Response::new(OpenCandidateResponse { candidate_id: id, base_revision: format!("r{base}"), text, ..Default::default() }))
     }
 
     async fn edit(&self, req: Request<EditRequest>) -> R<EditResponse> {
         let req = req.into_inner();
         let mut st = self.0.state.lock().unwrap();
-        let cand = st.candidates.get_mut(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
+        let cand = st.candidate(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
         match cand.config.edit(&req.path, &req.lines) {
             Ok(diagnostics) => {
                 let output = diagnostics.iter().map(|d| format!("note: {}", d.message)).collect::<Vec<_>>().join("\n");
@@ -162,7 +167,8 @@ impl ConfigService for ConfigSvc {
         let req = req.into_inner();
         let shared = self.0.clone();
         let mut st = shared.state.lock().unwrap();
-        let cand = st.candidates.get(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
+        st.candidate(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
+        let cand = &st.candidates[&req.candidate_id];
         if let Some(p) = &st.pending {
             return Err(refused(
                 tonic::Code::FailedPrecondition,
@@ -250,7 +256,7 @@ impl ConfigService for ConfigSvc {
             .by_rollback_number(req.revision)
             .map(|r| r.config.clone())
             .ok_or_else(|| refused(tonic::Code::InvalidArgument, format!("no revision {}", req.revision), vec![]))?;
-        let cand = st.candidates.get_mut(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
+        let cand = st.candidate(&req.candidate_id).ok_or_else(|| not_found(&req.candidate_id))?;
         cand.config = snapshot;
         Ok(Response::new(EditResponse { diagnostics: vec![], output: "load complete".into(), ..Default::default() }))
     }

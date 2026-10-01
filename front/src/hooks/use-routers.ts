@@ -3,7 +3,7 @@
 import useSWR from "swr"
 
 import { fetcher } from "@/lib/api"
-import type { RouterStatus, RouterView } from "@/lib/types"
+import { isReadOnly, type RouterStatus, type RouterView } from "@/lib/types"
 
 export function useRouters() {
   return useSWR<RouterView[]>("/routers", fetcher)
@@ -12,4 +12,13 @@ export function useRouters() {
 /** Status of every router; shared by the sidebar, header and widgets. */
 export function useFleetStatus() {
   return useSWR<RouterStatus[]>("/routers/status", fetcher, { refreshInterval: 10_000 })
+}
+
+/** The box's account for this router and whether it can change anything (#28). */
+export function useRouterAccess(id: string) {
+  const { data } = useFleetStatus()
+  const access = data?.find((r) => r.id === id)?.access ?? null
+  const readOnly = isReadOnly(access)
+  const reason = readOnly && access ? `The account ${access.account} on this router is ${access.role}: changes are disabled.` : null
+  return { access, readOnly, reason }
 }

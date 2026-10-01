@@ -7,21 +7,24 @@ import { ArrowRightIcon } from "lucide-react"
 import { AddressList } from "@/components/address-list"
 import { InterfaceIcon } from "@/components/interface-icon"
 import { LinkBadge } from "@/components/link-badge"
+import { LinkUsage } from "@/components/link-usage"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useInterfaceRates } from "@/hooks/use-interface-rates"
 import { fetcher } from "@/lib/api"
 import { routerApi, type RouterInterface } from "@/lib/types"
 
 export function InterfacesWidget({ routerId, title = "Interfaces" }: { routerId: string; title?: string }) {
   const { data } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(routerId, "/interfaces"), fetcher, { refreshInterval: 10_000 })
   const physical = data?.interfaces.filter((i) => i.name !== "lo") ?? []
+  const { data: rates } = useInterfaceRates(routerId, physical)
 
   return (
     <Card className="h-full">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>State and dual-stack addressing</CardDescription>
+        <CardDescription>State, link usage and dual-stack addressing</CardDescription>
         <CardAction>
           <Button variant="ghost" size="sm" asChild>
             <Link href={`/routers/${routerId}/interfaces`}>
@@ -46,7 +49,10 @@ export function InterfacesWidget({ routerId, title = "Interfaces" }: { routerId:
                 <AddressList addresses={i.addresses} hideLinkLocal />
               </div>
             </div>
-            <LinkBadge iface={i} />
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <LinkBadge iface={i} />
+              <LinkUsage iface={i} rate={rates?.[i.name]} className="w-28" />
+            </div>
           </div>
         ))}
       </CardContent>

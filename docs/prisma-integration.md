@@ -47,7 +47,11 @@ and the mapping lives in `front/src/lib/vty.ts`.
   prisma-web takes it from the running configuration (#13). 0.148.6 fills it in directly (verified
   in the lab on 2026-10-01).
 - **The account is the CN of the client certificate**, and the role comes from the VTY. The
-  prisma-web certificate has CN `prisma-web`, with an administrator role (Prisma).
+  prisma-web certificate has CN `prisma-web`, with an administrator role (Prisma). Since 0.149.2
+  `SessionService.WhoAmI` says so directly: the connection test, the router list and the router
+  page show the account and role, and with a read-only login the change actions are disabled and
+  the back refuses `OpenCandidate`, `Confirm` and `Save` itself (#28, closing #12). Verified on the
+  lab box on 2026-10-01: `prisma-web` is `administrator`.
 - **Server name in the certificate: `prisma-api`**, and the IP is also in the SAN (Prisma).
 - 0.148.4 lists the internal linux_cp `tap*` interfaces in `ListInterfaces`. 0.148.5 already omits
   them (Prisma; verified in the lab on 2026-10-01), and the back's filter only has an effect on
@@ -63,9 +67,10 @@ a client meets*). The effect of this on prisma-web is in issue #14. (Prisma, gui
 
 ### ✅ 1.4 Abandoned candidates — answered
 The server closes a candidate **idle for 30 min** and an account's operational process idle for
-5 min. The cleanup happens on the next API call, not on a timer (Prisma). prisma-web closes its own
-after 1 h, longer than the server's 30 min, and this needs adjusting: after 30 min idle, the
-candidate may no longer exist.
+5 min. The cleanup happens on the next API call, not on a timer (Prisma). prisma-web treats a
+candidate idle for 25 min, counted from its last call, as expired, and turns the box's `NOT_FOUND`
+for a candidate into `candidate_expired` (410) with the reason. The configuration screen then
+offers to reopen and apply the same lines again, in order (#11).
 
 ### ✅ 1.5 One account for all web users — answered
 One certificate per user is the recommendation for the future, so each one appears under their own
@@ -82,9 +87,15 @@ They were accepted by the Prisma as **prismarouting issue #533**, all as compati
 
 ## 2. Gaps in the proto that limit the interface
 
-### 🟡 2.1 CPU and memory only as text
-`SystemInfo` carries `cpu_text` and `memory_text` verbatim, with no numbers. The dashboard cannot
-show a gauge or a usage chart. Today it shows the workers, hugepages and the text.
+### ✅ 2.1 CPU and memory only as text — delivered in 0.149.2, used since #25
+`SystemInfo` carried only `cpu_text` and `memory_text` verbatim, with no numbers. Prisma 0.149.2
+added `memory_total_bytes`, `memory_used_bytes`, `memory_hugepages_bytes` and a `WorkerLoad` per
+worker (fields 17-20). The dashboard's **Dataplane load** widget and the memory card of the key
+metrics use them (#25). `busy_ratio` saturates at about **0.5**, not 1 (see `docs/prisma-api.md`,
+"A worker's load"), so the worker bar MUST read 0.5 as full and the raw ratio is shown beside it.
+A box that reports 0 / no workers (before 0.149.2) MUST get the verbatim text, never a 0% bar.
+
+The original suggestion, kept for the record:
 
 Suggestion (new fields, compatible with v1):
 ```proto
@@ -99,10 +110,11 @@ message SystemInfo {
 message WorkerLoad { uint32 cpu = 1; double vectors_per_call = 2; double busy_ratio = 3; }
 ```
 
-### 🟡 2.2 Untyped route table
-There is no `ListRoutes`; the routing screen shows the text of `show ip route` and
-`show ipv6 route` through `Show`. With a typed rpc it would be possible to filter, search and count
-by protocol:
+### ✅ 2.2 Untyped route table — answered
+Prisma 0.149.2 added `RouteService` (`ListRoutes`, paged from a snapshot and filtered by VRF,
+family, prefix, protocol and selected; `GetRouteSummary`, RIB and FIB counts), and the Routing tab
+uses it from #27 (`docs/architecture.md`, *Routing table*). The text of `show ip route` stays as
+the fallback for boxes that answer `UNIMPLEMENTED`. The original suggestion was:
 ```proto
 rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
 message Route {
@@ -112,23 +124,30 @@ message Route {
 }
 ```
 
-### 🟢 2.3 Link speed
-`Interface` has no speed. With `uint64 speed_bps` it would be possible to show link utilization
-in %.
+### ✅ 2.3 Link speed — delivered in 0.149.2, used since #25
+`Interface.speed_bps` (field 10) gives the link speed; the interfaces page and widget show it and
+the utilization, the busier direction of the latest telemetry rate over the speed (#25). 0 means
+the dataplane reports none. **4294967295000** is VPP's "unknown" (u32 max in kbps) passed on by
+0.149.2; it MUST be treated as 0. With an unknown speed no percentage is shown.
 
-### 🟢 2.4 Counter history
-`TelemetryService` only delivers live samples, so prisma-web keeps the history in memory (24 h). If
-the back restarts, the chart starts again from zero. If the Prisma kept a short history (e.g. the
-last 24 h at 1 min), an rpc to read it would make the charts complete from the start.
+### ✅ 2.4 Counter history — answered
+Prisma 0.149.2 keeps 24 h at one sample a minute and serves it through
+`TelemetryService.GetHistory`. On every connection prisma-web first reads what it missed (all of
+it after a restart, the outage after a reconnection) and then follows the live stream, so a
+restart of the back no longer empties the charts (#26, closing #7). A box without the rpc answers
+`UNIMPLEMENTED` and the charts start from the live stream, as before.
 
 ### 🟢 2.5 Identifying its own commit in the events
 The `commit` events from `Subscribe` go into the prisma-web log as *changes made on the device*. If
 `Event` carried the `revision` (or the commit comment), prisma-web could match the event to the
 commit it made itself, without duplicating the entry.
 
-### 🟢 2.6 Health check
-Today prisma-web uses `GetVersion` to find out whether the Prisma is alive. If the server exposed
-`grpc.health.v1.Health`, it would be lighter and standard.
+### ✅ 2.6 Health check — answered
+Prisma 0.149.2 serves `grpc.health.v1.Health`. The fleet monitor checks
+`prisma.v1.OperationalService` alongside the status reads; `NOT_SERVING` (the dataplane's
+statistics segment does not answer) shows as *not serving*, with the reason, instead of
+*offline* (#29). A box without the service keeps the old behaviour. Verified on the lab box on
+2026-10-01: `SERVING`.
 
 ---
 
@@ -141,10 +160,14 @@ Today prisma-web uses `GetVersion` to find out whether the Prisma is alive. If t
 | `Subscribe` (counters, CGNAT, events) | Traffic and session charts; events go to the change log |
 | `ListPools`, `GetSubscriber` | CGNAT screen, subscriber lookup |
 | `ListBgpNeighbors`, `ListOspfNeighbors`, `ListIsisAdjacencies`, `ListVrrp`, `ListBundles` | Routing screen |
-| `Show` | Command console (operator or admin) and route text |
+| `ListRoutes`, `GetRouteSummary` | Routing screen: route table, paged and filtered, and the RIB/FIB summary (#27) |
+| `Show` | Command console (operator or admin), and route text on boxes without `RouteService` |
 | `OpenCandidate` → `Edit` → `Compare` → `Check` → `Commit` → `CloseCandidate` | Configuration editor and interface editing |
 | `Confirm` | Pending *commit confirmed* warning, with countdown |
 | `GetRunning`, `ListRevisions`, `Rollback`, `Save` | Configuration screen |
+| `GetHistory` | Fills the charts on every connection of the telemetry stream (#26) |
+| `grpc.health.v1.Health/Check` | Fleet status: *not serving* when `OperationalService` is `NOT_SERVING` (#29) |
+| `WhoAmI` | Account and role in the connection test, router list and router page; read-only enforcement (#28) |
 
 ## 4. Keeping the proto up to date
 

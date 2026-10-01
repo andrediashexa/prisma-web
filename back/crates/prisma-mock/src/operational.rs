@@ -7,6 +7,7 @@ use prisma_proto::v1::diagnostic::Severity;
 use prisma_proto::v1::operational_service_server::OperationalService;
 use prisma_proto::v1::*;
 use prisma_proto::with_diagnostics;
+use rand::Rng;
 use tonic::{Request, Response, Status};
 
 use crate::config::{self, diag};
@@ -65,8 +66,40 @@ fn interfaces(st: &State, names: &[String]) -> Vec<Interface> {
                 linux_name: if i.name == "lo" { String::new() } else { format!("vpp-{}", i.name) },
                 description: i.description.clone().unwrap_or_default(),
                 counters: sim.map(|s| s.counters),
-                // Physical ports at 10G; virtual ones have no speed (0, as 0.149.3 reports it).
-                speed_bps: if i.name.starts_with("wan") || i.name == "lan0" { 10_000_000_000 } else { 0 },
+                speed_bps: speed_bps(&i.name),
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// Physical ports at 10G; the VLAN sub-interface reports VPP's unknown
+/// (u32::MAX kbps, 4294967295000 bps, as Prisma 0.149.2 passes it on); the
+/// other virtual ones have no speed (0, as 0.149.3 reports it).
+fn speed_bps(name: &str) -> u64 {
+    match name {
+        n if n.starts_with("wan") || n == "lan0" => 10_000_000_000,
+        "lan0.20" => u64::from(u32::MAX) * 1000,
+        _ => 0,
+    }
+}
+
+/// Each worker's load, varying with the subscribers and a little noise;
+/// the last worker runs near saturation (busy_ratio about 0.5, #25).
+fn worker_load(st: &State) -> Vec<WorkerLoad> {
+    let mut rng = rand::thread_rng();
+    let level = (st.subscribers / 5_500.0).clamp(0.2, 1.5);
+    (0..5u32)
+        .map(|w| {
+            let base = if w == 4 { 0.42 } else { 0.08 + f64::from(w) * 0.04 };
+            let busy = (base * level.sqrt() + rng.gen_range(-0.02..0.02)).clamp(0.0, 0.52);
+            WorkerLoad {
+                worker: w,
+                cpu: 3 + w,
+                vectors_per_call: (1.0 + busy / 0.5 * 200.0 * rng.gen_range(0.95..1.05)).min(256.0),
+                busy_ratio: (busy * 1000.0).round() / 1000.0,
+                loops_per_second: (42_000.0 - busy * 60_000.0) * rng.gen_range(0.98..1.02),
+                busy_window_ms: 5000,
                 ..Default::default()
             }
         })
@@ -252,6 +285,9 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         let now = chrono::Utc::now();
         let boot = now - chrono::Duration::seconds(st.uptime_seconds() as i64);
         let restarted = std::env::var("MOCK_DATAPLANE_RESTARTED").is_ok_and(|v| v == "1");
+        // MOCK_NO_LOAD_NUMBERS=1 answers like a box before 0.149.2: memory and
+        // worker load only as text.
+        let legacy = std::env::var("MOCK_NO_LOAD_NUMBERS").is_ok_and(|v| v == "1");
         let dataplane = if restarted { now - chrono::Duration::minutes(15) } else { boot + chrono::Duration::seconds(40) };
         let ts = |t: chrono::DateTime<chrono::Utc>| Some(prost_types::Timestamp { seconds: t.timestamp(), nanos: 0 });
         Ok(Response::new(SystemInfo {
@@ -264,20 +300,11 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             dataplane_restarted: restarted,
             // Memory and worker load in numbers (Prisma 0.149.2). busy_ratio is
             // VPP's share of node clocks: a saturated worker reads about 0.5.
-            memory_total_bytes: 32 << 30,
-            memory_used_bytes: st.mem_used,
-            memory_hugepages_bytes: 16 << 30,
-            worker_load: (0..5u32)
-                .map(|w| WorkerLoad {
-                    worker: w,
-                    cpu: 3 + w,
-                    vectors_per_call: 16.0 + f64::from(w) * 0.7,
-                    busy_ratio: 0.12 + f64::from(w) * 0.03,
-                    loops_per_second: 38_000.0 + f64::from(w) * 300.0,
-                    busy_window_ms: 1000,
-                    ..Default::default()
-                })
-                .collect(),
+            memory_total_bytes: if legacy { 0 } else { 32 << 30 },
+            // MemTotal less MemAvailable: the reserved hugepages count as used.
+            memory_used_bytes: if legacy { 0 } else { (16 << 30) + st.mem_used },
+            memory_hugepages_bytes: if legacy { 0 } else { 16 << 30 },
+            worker_load: if legacy { Vec::new() } else { worker_load(&st) },
             hostname: self.hostname.clone(),
             uptime_seconds: st.uptime_seconds(),
             control_plane_cpus: "0-1".into(),
@@ -433,6 +460,17 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     async fn show(&self, req: Request<ShowRequest>) -> R<ShowResponse> {
         let _turno = self.shared.ops.lock().await;
         let command = req.into_inner().command;
+        // Test hook of the mock only: what the box reports while the
+        // dataplane's statistics segment does not answer (#29).
+        if let Some(state) = command.trim().strip_prefix("mock stats-segment ") {
+            let up = match state {
+                "up" => true,
+                "down" => false,
+                _ => return Err(Status::invalid_argument("mock stats-segment up|down")),
+            };
+            self.shared.set_health(up).await;
+            return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
         let text = {
             let st = self.shared.state.lock().unwrap();
             self.show(&st, command.trim())?
@@ -445,5 +483,32 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             tokio::time::sleep(std::time::Duration::from_millis(250 * n)).await;
         }
         Ok(Response::new(ShowResponse { text, ..Default::default() }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn speed_reports_known_zero_and_vpp_unknown() {
+        assert_eq!(speed_bps("wan0"), 10_000_000_000);
+        assert_eq!(speed_bps("lan0.20"), 4_294_967_295_000);
+        assert_eq!(speed_bps("wg0"), 0);
+    }
+
+    #[test]
+    fn worker_load_stays_in_the_dataplane_range() {
+        let mut st = State::new("prisma-hq", 1.0);
+        // The seeded day of history leaves subscribers wherever the curve was; pin the nominal load.
+        st.subscribers = 5_500.0;
+        let load = worker_load(&st);
+        assert_eq!(load.len(), 5);
+        for w in &load {
+            // VPP's share of node clocks: a saturated worker reads about 0.5, never 1.
+            assert!((0.0..=0.52).contains(&w.busy_ratio), "{w:?}");
+            assert!(w.vectors_per_call <= 256.0 && w.loops_per_second > 1_000.0, "{w:?}");
+        }
+        assert!(load[4].busy_ratio > 0.35, "the last worker runs near saturation: {:?}", load[4]);
     }
 }

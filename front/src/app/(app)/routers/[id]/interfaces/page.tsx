@@ -10,6 +10,7 @@ import { AddressList } from "@/components/address-list"
 import { ChangeReview, prepareCandidate } from "@/components/config/change-review"
 import { InterfaceIcon } from "@/components/interface-icon"
 import { LinkBadge } from "@/components/link-badge"
+import { LinkUsage } from "@/components/link-usage"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -17,7 +18,9 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useInterfaceRates } from "@/hooks/use-interface-rates"
 import { useMe } from "@/hooks/use-me"
+import { useRouterAccess } from "@/hooks/use-routers"
 import { errorMessage, fetcher } from "@/lib/api"
 import { formatBytes, formatNumber } from "@/lib/format"
 import { hasRole, MTU_MAX, MTU_MIN, routerApi, type RouterInterface } from "@/lib/types"
@@ -29,10 +32,12 @@ export default function InterfacesPage() {
   const { id } = useParams<{ id: string }>()
   const { data: me } = useMe()
   const { data } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(id, "/interfaces"), fetcher, { refreshInterval: 10_000 })
+  const { data: rates } = useInterfaceRates(id, data?.interfaces)
   const [editing, setEditing] = useState<RouterInterface | null>(null)
   const [preparing, setPreparing] = useState<string | null>(null)
   const [review, setReview] = useState<Review | null>(null)
-  const canEdit = hasRole(me, "operator")
+  const { readOnly } = useRouterAccess(id)
+  const canEdit = hasRole(me, "operator") && !readOnly
 
   /** Opens a candidate with the lines and shows the review before commit. */
   async function propose(name: string, edit: EditBlock, title: string, comment: string) {
@@ -65,6 +70,7 @@ export default function InterfacesPage() {
                 <TableHead className="text-right">Received</TableHead>
                 <TableHead className="text-right">Sent</TableHead>
                 <TableHead className="text-right">Errors / drops</TableHead>
+                <TableHead title="Link speed, and the busier direction over it">Speed / usage</TableHead>
                 <TableHead>State</TableHead>
                 {canEdit && <TableHead className="w-24" />}
               </TableRow>
@@ -73,7 +79,7 @@ export default function InterfacesPage() {
               {!data &&
                 Array.from({ length: 4 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={8} className="pl-4">
+                    <TableCell colSpan={9} className="pl-4">
                       <Skeleton className="h-10 w-full" />
                     </TableCell>
                   </TableRow>
@@ -123,6 +129,9 @@ export default function InterfacesPage() {
                           {formatNumber(c.rx_errors + c.tx_errors)} / {formatNumber(c.drops)}
                         </span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      {!loopback && <LinkUsage iface={i} rate={rates?.[i.name]} />}
                     </TableCell>
                     <TableCell>
                       <LinkBadge iface={i} />

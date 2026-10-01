@@ -49,14 +49,7 @@ impl TelemetryService for TelemetrySvc {
                             out.push(update(Update::Interfaces(InterfaceBatch { samples, ..Default::default() })));
                         }
                         if req.cgnat_totals {
-                            let subscribers = st.subscribers as u64;
-                            out.push(update(Update::Cgnat(CgnatTotals {
-                                subscribers,
-                                ports_in_use: subscribers * 180,
-                                sessions: subscribers * 35,
-                                refusals: st.refusals,
-                                ..Default::default()
-                            })));
+                            out.push(update(Update::Cgnat(st.cgnat_totals())));
                         }
                     }
                     ev = events.recv(), if req.events => match ev {
@@ -75,5 +68,36 @@ impl TelemetryService for TelemetrySvc {
             }
         });
         Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
+    }
+
+    async fn get_history(&self, req: Request<GetHistoryRequest>) -> Result<Response<BoxStream<HistorySample>>, Status> {
+        let req = req.into_inner();
+        let since = req.since.map(|t| (t.seconds, t.nanos));
+        let samples: Vec<Result<HistorySample, Status>> = self
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .history
+            .iter()
+            .filter(|s| since.is_none_or(|since| s.at.is_some_and(|at| (at.seconds, at.nanos) > since)))
+            .map(|s| Ok(filter_sample(s, &req)))
+            .collect();
+        Ok(Response::new(Box::pin(tokio_stream::iter(samples))))
+    }
+}
+
+/// Keeps only what the request asked for. The mock records no worker load.
+fn filter_sample(s: &HistorySample, req: &GetHistoryRequest) -> HistorySample {
+    HistorySample {
+        at: s.at,
+        interfaces: if req.interface_counters {
+            s.interfaces.iter().filter(|i| req.interfaces.is_empty() || req.interfaces.contains(&i.name)).cloned().collect()
+        } else {
+            vec![]
+        },
+        cgnat: if req.cgnat_totals { s.cgnat } else { None },
+        memory_used_bytes: if req.memory { s.memory_used_bytes } else { 0 },
+        ..Default::default()
     }
 }

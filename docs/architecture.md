@@ -4,7 +4,7 @@
 keeps a gRPC channel, a telemetry stream and the cached status. To the front it serves a REST API.
 Changes follow the VTY model (candidate, diff, check, commit confirmed), and each candidate belongs
 to the web user who opened it. The chart history is built in the back, in memory, from the
-telemetry counters.
+telemetry counters, and filled from the box's own history on every connection.
 
 The key words MUST, MUST NOT, SHOULD and MAY follow [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
@@ -61,13 +61,19 @@ profile listing shows the account (CN), the CA and the validity, but never the c
 files.
 
 `prisma-mock-2` serves mTLS like the real Prisma. The `dev-certs` service generates a development
-CA and three profiles: `dev/mock` (valid), `dev/other-ca` (the client MUST refuse the server) and
-`dev/intruder` (the server MUST refuse the client). `scripts/e2e.py` checks all three.
+CA and four profiles: `dev/mock` (valid), `dev/other-ca` (the client MUST refuse the server),
+`dev/intruder` (the server MUST refuse the client) and `dev/readonly` (CN `noc`, which the mock maps
+to a read-only login). `scripts/e2e.py` checks all four. The mock takes the account from the client
+certificate's CN like the box, and its roles from `MOCK_ACCOUNTS`.
 
 ## Fleet status
 
 The monitor queries `GetVersion`, `GetSystem` and `GetSessionsSummary` of every router in parallel,
-every 5 s, with a 4 s limit, and the interface reads that cache. The first query of a newly
+every 5 s, with a 4 s limit, and the interface reads that cache. Alongside them it asks the
+standard health check (`grpc.health.v1`) for `prisma.v1.OperationalService`: a box that answers
+`NOT_SERVING` is shown as *not serving* with the reason (its dataplane's statistics do not
+answer), not as *offline*. A box without the health service reports no health and is judged by
+the reads alone (#29). The mock's `Show "mock stats-segment down|up"` simulates it for e2e. The first query of a newly
 registered router happens in the request itself.
 
 Measurement from version 0.2.0, still valid: with one router down, the status dropped from about
@@ -79,6 +85,9 @@ Measurement from version 0.2.0, still valid: with one router down, the status dr
 sequenceDiagram
     participant B as back
     participant P as Prisma
+    B->>P: GetHistory(since = newest sample held, counters, CGNAT)
+    P-->>B: HistorySample × n (one a minute, oldest first)
+    Note over B: rates between consecutive minutes,<br/>appended after what each series holds
     B->>P: Subscribe(interval 5000 ms, counters, CGNAT, events)
     loop every 5 s
         P-->>B: InterfaceBatch (absolute counters)
@@ -88,13 +97,16 @@ sequenceDiagram
     P-->>B: Event (commit, confirm-pending, confirmed, rolled-back, saved)
     Note over B: becomes box.* in the change log<br/>(the echo of the web's own action is suppressed)
     B--xP: stream drops
-    Note over B: reconnects after 2 s, doubling up to 30 s<br/>and forgets the last sample
+    Note over B: reconnects after 2 s, doubling up to 30 s,<br/>forgets the last sample and backfills the outage
 ```
 
-- **History in memory (24 h):** storing it in PostgreSQL was rejected, because it would be 17,280
-  samples per interface per day just to feed charts. The consequence is that restarting the back
-  resets the charts. If the Prisma offers history, this decision changes (item 2.4 of
-  `prisma-integration.md`).
+- **History in memory (24 h), backfilled from the box:** storing it in PostgreSQL was rejected,
+  because it would be 17,280 samples per interface per day just to feed charts. Since Prisma
+  0.149.2 the box keeps its own 24 h at one sample a minute (`GetHistory`), so before each
+  `Subscribe` the back reads the samples newer than the newest it holds and turns them into rates
+  with the same reset rule. A restart of the back costs the 5 s resolution of the past, not the
+  past itself (#26). Charts are downsampled by time, so minute and 5 s samples share one series.
+  Covered by `telemetry::tests::history_backfills_rates_skips_resets_and_never_duplicates`.
 - **Counter reset:** a reboot or a `clear counters` must not turn into a traffic spike. The sample
   is dropped and becomes the new baseline. This is covered by the test
   `telemetry::tests::counter_reset_produces_no_sample`.
@@ -128,6 +140,37 @@ the routes X accepts, and the routes X rejects continue to the next term, as in 
 still refused when X itself holds a `from policy` term that is not `accept` (the VTY says why), and
 a policy literally named `X-SUB` or `X-NOT` may collide (Prisma #543, open).
 
+## Routing table
+
+From Prisma 0.149.2 the back end passes `RouteService` through (#27): `ListRoutes`
+(`GET /api/routers/{id}/routes?vrf=&family=&prefix=&protocol=&selected=&page_size=&page_token=`)
+and `GetRouteSummary` (`GET …/routes/summary?vrf=`), both open to every role, like the other
+reads. A full table holds about a million routes, so the back end MUST NOT read it whole: each
+request is one `ListRoutes` call, one page of the box's snapshot. `page_size` is capped at 5000,
+Prisma's own ceiling, and it is per call, so a token request sends it again; the filters belong
+to the snapshot and a token ignores them. The call gets 65 s instead of the usual 10, because a
+page waits up to 60 s for the box's snapshot to reach it. Empty query fields mean "any", so the
+query is parsed by hand into a JSON 422 rather than refused by Axum as plain text.
+
+The Routing tab shows the summary (RIB and FIB per VRF, family and protocol; a row filters the
+table to it) and the table, with a prefix search, VRF, family, protocol and selected-only
+filters, and server-side paging. The front keeps a stack of the tokens it reached, so Back
+returns to a page already read without asking the box again; the first page (no token) is a new
+snapshot and is fetched only when the filters change or on New snapshot, never on focus. The
+total is shown only when `total_known`, and the snapshot time always. A token the box no longer
+holds (idle for 10 minutes, or one of more than four snapshots) answers 409 and the tab offers a
+new snapshot. A box without `RouteService` answers `UNIMPLEMENTED`, which the back end turns into
+501 `router_unimplemented`, and the tab falls back to the text of `show ip route` and
+`show ipv6 route` through `Show`, as before (that view needs an operator, like the console).
+
+The mock serves a fixed table of 11,710 routes (two VRFs, both families; bgp, connected, local,
+static, ospf and ospf6, with floating statics that BGP beats, so selected-only and RIB versus FIB
+differ), three pages at 5000. Its refusals follow what Prisma 0.149.4 answered on the lab box: an
+unknown VRF is `NOT_FOUND`, an unknown protocol word `INVALID_ARGUMENT`, and a malformed or
+unknown token `FAILED_PRECONDITION`. One difference is deliberate: the mock's first page reports
+`total_known = false` whenever more pages follow, so the "total not known yet" path is always
+exercised, while the lab box, with 9 routes, knew its total on the first page.
+
 ## Configuration
 
 ```mermaid
@@ -156,8 +199,12 @@ sequenceDiagram
   Prisma. That is why the back MUST control candidate ownership (`routes/config.rs`). The commit
   MUST carry the user in the comment, and `Confirm`, which applies to the whole account, is only
   accepted from the author or an admin.
-- **Orphaned candidates:** those open for more than 1 h are closed on the next `OpenCandidate`, and
-  the configuration screen closes its own on exit. A crash of the back still leaves candidates open
+- **Orphaned and idle candidates:** a candidate idle for 25 min (from its last call, under the
+  box's 30) is expired: the next call on it answers `candidate_expired` (410), and it is closed on
+  the next `OpenCandidate`. A `NOT_FOUND` from the box on a candidate gets the same answer. The
+  configuration screen closes its own on exit, and after an expiry reopens one and applies the
+  same lines again (#11). `prisma-mock-2` closes candidates after 15 s
+  (`MOCK_CANDIDATE_IDLE_SECS`) so e2e sees it happen. A crash of the back still leaves candidates open
   on the Prisma until the Prisma discards them (question 1.4 of `prisma-integration.md`).
 - **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,
   `mtu` and `shutdown` lines. They are an assumption until the Prisma confirms them.
@@ -175,6 +222,7 @@ cited:
 | `NOT_FOUND` | 404 | `router_not_found` |
 | `PERMISSION_DENIED` | 403 | `router_forbidden` |
 | `DEADLINE_EXCEEDED` | 504 | `router_timeout` |
+| `UNIMPLEMENTED` | 501 | `router_unimplemented` (a box older than the rpc; the front falls back) |
 | others | 502 | `router_unavailable` |
 
 ## Limits
@@ -193,6 +241,10 @@ cited:
   `Show`. The mock reproduces the 0.148.5 lock. Using a separate account for the console (a second
   certificate and a second account on each device) was rejected, and so was serializing everything
   in the back (it would slow the screens down needlessly on 0.148.6).
-- The role applies to all routers.
+- The web role applies to all routers. Each router also has the box's own role for prisma-web's
+  account (`WhoAmI`, refreshed every minute by the fleet monitor). A read-only login disables the
+  change actions on that router and the back refuses its changes with `router_read_only` before
+  calling the box. A box older than 0.149.2 answers `UNIMPLEMENTED`: the role is unknown and
+  nothing is disabled (#28).
 - The front has no automated tests beyond lint and build. The `scripts/e2e.py` script covers the
   behaviour through the API.

@@ -11,7 +11,7 @@ The key words MUST, MUST NOT, SHOULD and MAY follow [RFC 2119](https://www.rfc-e
 
 | 5W2H | |
 |---|---|
-| **What** | Dashboard, configuration, CGNAT, routing, routing policies (with per-term counters and a policy test) and console for each Prisma; a per-user widget homepage; local accounts and a change log. |
+| **What** | Dashboard (with memory, per-worker dataplane load and link utilization), configuration, CGNAT, routing (with a paged, filterable route table and a RIB/FIB summary), routing policies (with per-term counters and a policy test) and console for each Prisma; a per-user widget homepage; local accounts and a change log. |
 | **Why** | Touching a production router through the web is only acceptable if every change is reviewed first, can undo itself, and is recorded with its author and diff. |
 | **Who** | Administrators (users and router registration), operators (changes and console) and read-only users. |
 | **Where** | A host with Docker that can reach the gRPC port of each Prisma. |
@@ -101,6 +101,9 @@ until the next reboot.
 | `admin` | Everything, including users, router registration and confirming other people's commits. |
 | `operator` | Change the configuration, use the console and see the log. |
 | `viewer` | Only view. |
+
+These are the web roles. Each Prisma also gives prisma-web's account its own role (shown next to
+the router); when that role is read-only, nobody can change that router through prisma-web.
 
 - **Sessions:** an `HttpOnly` cookie with `SameSite=Strict`, and the database stores only the
   SHA-256 of the token.

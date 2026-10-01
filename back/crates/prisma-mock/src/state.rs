@@ -1,13 +1,13 @@
 //! Shared mock state: configuration, revisions, candidates and the
 //! traffic counter simulation.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::f64::consts::TAU;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use prisma_proto::v1::{Event, InterfaceCounters};
+use prisma_proto::v1::{CgnatTotals, Event, HistorySample, InterfaceCounters, InterfaceSample};
 use rand::Rng;
 use tokio::sync::broadcast;
 
@@ -23,6 +23,8 @@ pub struct Revision {
 pub struct Candidate {
     pub base_revision: u64,
     pub config: Config,
+    /// Last call that named it: the box closes a candidate idle for 30 minutes.
+    pub touched: Instant,
 }
 
 /// `commit confirmed` awaiting `Confirm`.
@@ -54,7 +56,12 @@ pub struct State {
     pub mem_used: u64,
     pub subscribers: f64,
     pub refusals: u64,
+    /// One sample a minute for the last 24 hours, oldest first (GetHistory).
+    pub history: VecDeque<HistorySample>,
 }
+
+/// Samples GetHistory keeps: 24 hours at one a minute.
+pub const HISTORY_LEN: usize = 24 * 60;
 
 pub struct Shared {
     pub state: Mutex<State>,
@@ -62,12 +69,20 @@ pub struct Shared {
     /// The account's operational process on Prisma 0.148.4/0.148.5: serves one
     /// call at a time, `Show` included (prisma-web issue #14).
     pub ops: tokio::sync::Mutex<()>,
+    /// grpc.health.v1 statuses, as the box reports them.
+    pub health: tonic_health::server::HealthReporter,
 }
 
 pub type SharedRef = Arc<Shared>;
 
 impl State {
     pub fn new(hostname: &str, scale: f64) -> Self {
+        let mut st = Self::empty(hostname, scale);
+        st.seed_history(Utc::now());
+        st
+    }
+
+    fn empty(hostname: &str, scale: f64) -> Self {
         let running = Config::seed(hostname);
         let sim = |name: &str, mac: Option<&str>, peak: f64| {
             let peak = peak * scale;
@@ -109,7 +124,41 @@ impl State {
             mem_used: 9_400 << 20,
             subscribers: 5_500.0 * scale,
             refusals: 0,
+            history: VecDeque::new(),
         }
+    }
+
+    /// Fills the last 24 hours of history as if the box had been sampling
+    /// them, so a client restarted against a fresh mock still has a past.
+    fn seed_history(&mut self, now: DateTime<Utc>) {
+        for m in (1..=HISTORY_LEN as i64).rev() {
+            let at = now - chrono::Duration::minutes(m);
+            self.step(at, 60);
+            self.record_history(at);
+        }
+    }
+
+    /// Appends the current counters as a history sample.
+    pub fn record_history(&mut self, at: DateTime<Utc>) {
+        self.history.push_back(HistorySample {
+            at: Some(timestamp(at)),
+            interfaces: self
+                .sims
+                .iter()
+                .map(|s| InterfaceSample { name: s.name.clone(), counters: Some(s.counters), ..Default::default() })
+                .collect(),
+            cgnat: Some(self.cgnat_totals()),
+            memory_used_bytes: self.mem_used,
+            ..Default::default()
+        });
+        while self.history.len() > HISTORY_LEN {
+            self.history.pop_front();
+        }
+    }
+
+    pub fn cgnat_totals(&self) -> CgnatTotals {
+        let subscribers = self.subscribers as u64;
+        CgnatTotals { subscribers, ports_in_use: subscribers * 180, sessions: subscribers * 35, refusals: self.refusals, ..Default::default() }
     }
 
     pub fn revision(&self) -> u64 {
@@ -136,6 +185,18 @@ impl State {
             config: self.running.clone(),
         });
         number
+    }
+
+    /// The candidate, touched; `None` if it does not exist or sat idle longer
+    /// than the box allows (then it is closed, as the box does).
+    pub fn candidate(&mut self, id: &str) -> Option<&mut Candidate> {
+        let idle = candidate_idle();
+        if self.candidates.get(id).is_some_and(|c| c.touched.elapsed() > idle) {
+            self.candidates.remove(id);
+        }
+        let c = self.candidates.get_mut(id)?;
+        c.touched = Instant::now();
+        Some(c)
     }
 
     pub fn sim(&self, name: &str) -> Option<&IfaceSim> {
@@ -186,7 +247,23 @@ impl State {
     }
 }
 
+/// Services the box reports NOT_SERVING while the dataplane's statistics
+/// segment does not answer (docs/prisma-api.md).
+const STATS_SERVICES: [&str; 2] = ["prisma.v1.OperationalService", "prisma.v1.TelemetryService"];
+
 impl Shared {
+    /// Health of every prisma.v1 service; `stats_segment` false is the
+    /// box's state while the dataplane's statistics do not answer.
+    pub async fn set_health(&self, stats_segment: bool) {
+        use tonic_health::ServingStatus::{NotServing, Serving};
+        for s in ["prisma.v1.ConfigService", "prisma.v1.RouteService", "prisma.v1.SessionService"] {
+            self.health.set_service_status(s, Serving).await;
+        }
+        for s in STATS_SERVICES {
+            self.health.set_service_status(s, if stats_segment { Serving } else { NotServing }).await;
+        }
+    }
+
     pub fn emit(&self, kind: &str, text: impl Into<String>) {
         self.emit_full(kind, text.into(), String::new(), String::new());
     }
@@ -200,6 +277,13 @@ impl Shared {
         // With no subscribers the send fails; that is expected.
         let _ = self.events.send(Event { kind: kind.into(), account: "mock".into(), text, revision, comment, ..Default::default() });
     }
+}
+
+/// Idle limit of a candidate: 30 minutes on the box; `MOCK_CANDIDATE_IDLE_SECS`
+/// shortens it so e2e can see one expire (#11).
+pub fn candidate_idle() -> std::time::Duration {
+    let secs = std::env::var("MOCK_CANDIDATE_IDLE_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(30 * 60);
+    std::time::Duration::from_secs(secs)
 }
 
 pub fn timestamp(at: DateTime<Utc>) -> prost_types::Timestamp {

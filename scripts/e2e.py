@@ -15,6 +15,7 @@ Uses only the standard library. Exits with code 1 on the first failed check.
 
 import argparse
 import http.cookiejar
+import ipaddress
 import json
 import os
 import sys
@@ -22,6 +23,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import datetime
 
 PASSED = 0
 
@@ -82,6 +84,16 @@ def wait_for(fn, what, timeout=30):
     check(False, what, last)
 
 
+def check_backfill(admin, R, iface, registered_at):
+    """Samples older than the router's registration can only come from the box's history (#26)."""
+    def older(path):
+        b = admin.get(path)[1]
+        return [x for x in b["samples"] if datetime.fromisoformat(x["timestamp"]).timestamp() < registered_at - 90]
+    traffic = older(f"{R}/metrics/traffic?interface={iface}&minutes=1440")
+    cgnat = older(f"{R}/metrics/cgnat?minutes=1440")
+    check(traffic and cgnat, f"charts backfilled from GetHistory ({len(traffic)} traffic and {len(cgnat)} CGNAT points before registration)")
+
+
 def tls_test(client, url, profile=None, server_name=None):
     body = {"api_url": url}
     if profile:
@@ -98,6 +110,7 @@ def tls_checks(admin, args):
     m = args.tls_mock
     st, b = tls_test(admin, m, "dev/mock", args.server_name)
     check(st == 200 and b["account"] == "prisma-web-dev", "mTLS with the right profile connects and shows the account", b)
+    check((b.get("access") or {}).get("role") == "administrator", "connection test shows the role the box gives the account (WhoAmI)", b)
     st, b = tls_test(admin, m, "dev/other-ca", args.server_name)
     check(st == 422 and "UnknownIssuer" in b["error"]["message"], "server from an unknown CA is refused", b)
     st, b = tls_test(admin, m, "dev/intruder", args.server_name)
@@ -118,17 +131,129 @@ def tls_checks(admin, args):
         st, sysinfo = admin.get(f"/routers/{r['id']}/system")
         check(st == 200 and sysinfo.get("boot_time") and sysinfo.get("dataplane_restarted") is True,
               "mock with a restarted dataplane reports dataplane_restarted", sysinfo)
+        candidate_expiry_checks(admin, f"/routers/{r['id']}")
     finally:
         admin.delete(f"/routers/{r['id']}")
+    read_only_checks(admin, args)
     st, b = tls_test(admin, m, "../etc", args.server_name)
     check(st == 422 and "invalid TLS profile" in b["error"]["message"], "profile with ../ is refused", b)
+
+
+def candidate_expiry_checks(admin, R):
+    """prisma-mock-2 closes a candidate idle for 15 s, as the box does after 30 min (#11)."""
+    st, c = admin.post(f"{R}/config/candidates")
+    check(st == 200, "candidate opened on the short-idle mock", c)
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    st, b = admin.post(f"{C}/edit", {"path": ["interface lan0"], "lines": ["description e2e idle"]})
+    check(st == 200, "edit within the idle limit", b)
+    time.sleep(17)
+    st, b = admin.post(f"{C}/edit", {"path": ["interface lan0"], "lines": ["mtu 1400"]})
+    check(st == 410 and b["error"]["code"] == "candidate_expired" and "idle" in b["error"]["message"],
+          "a candidate Prisma closed for idleness answers candidate_expired with the reason, not 'not found'", b)
+    st, b = admin.get(f"{C}/compare")
+    check(st == 404, "the expired candidate is forgotten by the back", b)
+
+
+def health_checks(admin, router_id):
+    """grpc.health.v1 in the monitor (#29); the mock's stats-segment hook stands in for a stuck dataplane."""
+    status = lambda: next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+    wait_for(lambda: (lambda s: (s.get("health") == "serving", s))(status()), "fleet status carries the health check (SERVING)")
+    st, b = admin.post(f"/routers/{router_id}/show", {"command": "mock stats-segment down"})
+    check(st == 200, "mock: dataplane statistics taken down", b)
+    try:
+        s = wait_for(lambda: (lambda s: (s.get("health") == "not-serving", s))(status()), "NOT_SERVING is reported as not serving", timeout=20)
+        check("NOT_SERVING" in (s.get("error") or ""), "a NOT_SERVING router says why, not just offline", s)
+    finally:
+        admin.post(f"/routers/{router_id}/show", {"command": "mock stats-segment up"})
+    wait_for(lambda: (lambda s: (s.get("health") == "serving" and s["online"], s))(status()), "SERVING again once the statistics answer", timeout=20)
+
+
+def read_only_checks(admin, args):
+    """A certificate the box maps to a read-only login (#28): shown, and refused by the back itself."""
+    st, r = admin.post("/routers", {"name": f"e2e-ro-{uuid.uuid4().hex[:6]}", "api_url": args.tls_mock, "tls_profile": "dev/readonly", "tls_server_name": args.server_name})
+    check(st == 201, "router registered with a read-only certificate", r)
+    try:
+        f = wait_for(
+            lambda: (lambda s: (bool(s) and s[0]["online"] and s[0].get("access") is not None, s))(
+                [x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]
+            ),
+            "fleet status carries the account's role",
+        )[0]
+        a = f["access"]
+        check(a["account"] == "noc" and a["role"] == "read-only" and not a["can_configure"], f"role of the read-only certificate ({a['account']}: {a['role']})", a)
+        st, b = admin.post(f"/routers/{r['id']}/config/candidates")
+        check(st == 403 and b["error"]["code"] == "router_read_only" and "read-only" in b["error"]["message"],
+              "the back refuses a candidate for a read-only account before asking the box", b)
+    finally:
+        admin.delete(f"/routers/{r['id']}")
+
+
+def route_key(r):
+    return (r["vrf"], r["prefix"], r["protocol"], r["distance"])
+
+
+def route_checks(admin, R):
+    """Typed route table (RouteService, #27) on the mock: paging, filters, summary."""
+    st, summary = admin.get(R + "/routes/summary")
+    counts = (summary or {}).get("counts", [])
+    rib = {(c["vrf"], c["family"], c["protocol"]): c["rib"] for c in counts}
+    check(st == 200 and {v for v, _, _ in rib} == {"default", "red"} and {f for _, f, _ in rib} == {4, 6}
+          and {"bgp", "connected", "static", "ospf"} <= {p for _, _, p in rib},
+          "GetRouteSummary counts per VRF, family and protocol", summary)
+    check(all(0 <= c["fib"] <= c["rib"] for c in counts) and any(c["fib"] < c["rib"] for c in counts),
+          "summary keeps RIB and FIB apart", counts)
+    expected = sum(rib.values())
+
+    st, first = admin.get(R + "/routes?page_size=5000")
+    check(st == 200 and len(first["routes"]) == 5000 and first["next_page_token"] and first["snapshot_at"],
+          "ListRoutes answers one page of 5000 with a next-page token", {k: first[k] for k in first if k != "routes"} if first else first)
+    check(not first["total_known"], "the first page does not claim a total it has not read yet")
+    seen, token, pages, last = [route_key(r) for r in first["routes"]], first["next_page_token"], 1, first
+    while token:
+        # page_size is per call, not part of the snapshot.
+        st, last = admin.get(f"{R}/routes?page_size=5000&page_token={token}")
+        check(st == 200 and last["snapshot_at"] == first["snapshot_at"], f"page {pages + 1} continues the same snapshot", last and {k: last[k] for k in last if k != "routes"})
+        seen += [route_key(r) for r in last["routes"]]
+        token, pages = last["next_page_token"], pages + 1
+    check(pages >= 3 and last["total_known"] and last["total"] == len(seen) == expected,
+          f"paging through {pages} pages reads the whole table once ({len(seen)} routes, as the summary counts)",
+          {"pages": pages, "seen": len(seen), "total": last["total"], "summary": expected})
+    check(len(set(seen)) == len(seen), "no route is paged twice")
+
+    st, b = admin.get(R + "/routes?page_size=9000")
+    check(st == 200 and len(b["routes"]) == 5000, "page_size is capped at 5000", len((b or {}).get("routes", [])))
+
+    st, b = admin.get(R + "/routes?vrf=red&family=6&protocol=bgp&page_size=5000")
+    check(st == 200 and b["routes"] and all((r["vrf"], r["family"], r["protocol"]) == ("red", 6, "bgp") for r in b["routes"])
+          and len(b["routes"]) == rib[("red", 6, "bgp")], "filter by VRF, family and protocol matches the summary", b and len(b["routes"]))
+    net = ipaddress.ip_network("23.0.0.0/16")
+    st, b = admin.get(R + "/routes?prefix=23.0.0.0/16&page_size=5000")
+    inside = (b or {}).get("routes", [])
+    check(st == 200 and inside and all(ipaddress.ip_network(r["prefix"]).subnet_of(net) for r in inside),
+          f"prefix filter lists the prefix and what is inside it ({len(inside)} routes)", b)
+    st, b = admin.get(R + "/routes?prefix=23.0.0.0/16&selected=true&page_size=5000")
+    sel = (b or {}).get("routes", [])
+    check(st == 200 and sel and all(r["selected"] for r in sel) and len(sel) < len(inside),
+          "selected-only drops the routes FRR did not select", [len(sel), len(inside)])
+
+    st, b = admin.get(R + "/routes?family=5")
+    check(st == 422, "an unknown family is refused", b)
+    st, b = admin.get(R + "/routes?vrf=nope")
+    check(st == 404, "an unknown VRF answers NOT_FOUND, as Prisma 0.149.4 does", b)
+    st, b = admin.get(R + "/routes?page_token=999999.0")
+    check(st == 409 and b["error"]["code"] == "router_refused", "a token of a dropped snapshot answers 409", b)
+    st, _ = Client(admin.base).get(R + "/routes")
+    check(st == 401, "the route table requires a session")
 
 
 def lab(admin, args):
     """Real Prisma: read calls only. No candidate, commit or console."""
     st, b = tls_test(admin, args.lab, args.lab_profile, args.server_name)
     check(st == 200 and b.get("release"), f"mTLS with the real Prisma ({b.get('release') if st == 200 else '?'}), account {b.get('account') if st == 200 else '?'}", b)
+    a = b.get("access") or {}
+    check(a.get("role"), f"WhoAmI on the real Prisma: {a.get('account')} is {a.get('role')} (configure: {a.get('can_configure')}, CGNAT: {a.get('can_configure_cgnat')})", b)
     name = f"e2e-lab-{uuid.uuid4().hex[:6]}"
+    registered_at = time.time()
     st, r = admin.post("/routers", {"name": name, "api_url": args.lab, "tls_profile": args.lab_profile, "tls_server_name": args.server_name})
     check(st == 201, "temporary registration of the real Prisma", r)
     R = f"/routers/{r['id']}"
@@ -137,6 +262,7 @@ def lab(admin, args):
             lambda: (lambda s: (bool(s) and s[0]["online"], s))([x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]),
             "real Prisma online in the fleet status",
         )[0]
+        check(st_lab.get("health") == "serving", f"health check of the real Prisma: {st_lab.get('health')}", st_lab)
         check(st_lab["version"]["hostname"] and st_lab["system"]["hostname"], f"real Prisma hostname filled in ({st_lab['version']['hostname']})", st_lab)
         for path, key in [("/interfaces", "interfaces"), ("/pools", "pools"), ("/bgp", "neighbors")]:
             st, b = admin.get(R + path)
@@ -150,9 +276,27 @@ def lab(admin, args):
         check(st == 200 and st2 == 200, f"policies and counters of the real Prisma ({len(pol['policies'])} policies, {len(cnt['uses'])} uses)", [pol, cnt])
         st, b = admin.post(R + "/policies/test", {"policy": "E2E-NO-SUCH-POLICY", "prefix": "192.0.2.0/24"})
         check(st == 404, "TestPolicy of an unknown policy on the real Prisma answers NOT_FOUND", b)
+        st, b = admin.get(R + "/routes?page_size=100")
+        if st == 501:
+            check(b["error"]["code"] == "router_unimplemented", "real Prisma without RouteService answers 501, the UI falls back to text", b)
+        else:
+            check(st == 200 and "routes" in b and b["snapshot_at"],
+                  f"ListRoutes on the real Prisma ({len(b['routes'])} routes on the first page, total {b['total'] if b['total_known'] else 'not known yet'})", b)
+            if b["next_page_token"]:
+                st, b2 = admin.get(f"{R}/routes?page_size=100&page_token={b['next_page_token']}")
+                check(st == 200 and b2["snapshot_at"] == b["snapshot_at"], f"second page of the real Prisma's snapshot ({len(b2['routes'])} routes)", b2)
+            st, s_ = admin.get(R + "/routes/summary")
+            check(st == 200 and "counts" in s_,
+                  f"GetRouteSummary on the real Prisma ({sum(c['rib'] for c in s_['counts'])} routes in the RIB, {sum(c['fib'] for c in s_['counts'])} in the FIB)", s_)
         st, b = admin.get(R + "/system")
         check(st == 200 and b.get("boot_time") and b.get("last_boot_reason"),
               f"uptime breakdown of the real Prisma (last boot: {b.get('last_boot_reason')}, dataplane restarted: {b.get('dataplane_restarted')})", b)
+        check(b.get("memory_total_bytes", 0) > 0 and len(b.get("worker_load") or []) == b.get("workers"),
+              f"memory and worker load of the real Prisma ({b.get('memory_used_bytes', 0) >> 20} / {b.get('memory_total_bytes', 0) >> 20} MiB, "
+              f"busy {', '.join(str(w['busy_ratio']) for w in b.get('worker_load') or [])})", b)
+        st, b = admin.get(R + "/interfaces")
+        check(all("speed_bps" in i for i in b["interfaces"]),
+              "interfaces of the real Prisma carry speed_bps (" + ", ".join(f"{i['name']}={i.get('speed_bps')}" for i in b["interfaces"]) + ")", b)
         wait_for(
             lambda: (lambda b: (b["live"] and len(b["samples"]) >= 2, b))(
                 admin.get(f"{R}/metrics/traffic?interface={b_if}&minutes=5")[1]
@@ -160,6 +304,7 @@ def lab(admin, args):
             "live telemetry from the real Prisma",
             timeout=40,
         ) if (b_if := next((i["name"] for i in admin.get(R + "/interfaces")[1]["interfaces"] if i["link_up"]), None)) else check(False, "no interface with link to measure")
+        check_backfill(admin, R, b_if, registered_at)
     finally:
         admin.delete(R)
 
@@ -197,6 +342,7 @@ def main():
         st, b = admin.post("/routers/test", {"api_url": args.mock})
         check(st == 200 and b.get("release"), "connection test returns GetVersion", b)
 
+        registered_at = time.time()
         st, b = admin.post("/routers", {"name": f"e2e-{suffix}", "api_url": args.mock})
         check(st == 201, "test router registered", b)
         router_id = b["id"]
@@ -210,6 +356,7 @@ def main():
         )
         f = fleet[0]
         check(f["version"] and f["system"] and f["sessions"] is not None, "status carries GetVersion, GetSystem and GetSessionsSummary", f)
+        health_checks(admin, router_id)
 
         # --- telemetry ---------------------------------------------------------
         series = wait_for(
@@ -220,6 +367,7 @@ def main():
             timeout=40,
         )
         check(all(s["rx_bps"] >= 0 and s["tx_bps"] >= 0 for s in series["samples"]), "rates never negative")
+        check_backfill(admin, R, "wan0", registered_at)
 
         # --- configuration flow ---------------------------------------------------
         st, running = admin.get(f"{R}/config/running")
@@ -339,6 +487,17 @@ def main():
         st, b = admin.get(R + "/system")
         check(st == 200 and b.get("boot_time") and b.get("dataplane_restarted") is False,
               "uptime breakdown present, no dataplane restart on the plain mock", b)
+        # Memory, worker load and link speed in numbers (Prisma 0.149.2, #25).
+        loads = b.get("worker_load") or []
+        check(b.get("memory_total_bytes", 0) > 0 and 0 < b.get("memory_used_bytes", 0) <= b["memory_total_bytes"]
+              and 0 < b.get("memory_hugepages_bytes", 0) <= b["memory_used_bytes"],
+              "GetSystem carries memory in numbers, hugepages within the used", b)
+        check(len(loads) == b["workers"] and all(0 <= w["busy_ratio"] <= 1 and "vectors_per_call" in w and "loops_per_second" in w for w in loads),
+              f"GetSystem carries a WorkerLoad per worker ({', '.join(str(w['busy_ratio']) for w in loads)} busy)", b)
+        st, b = admin.get(R + "/interfaces")
+        speeds = {i["name"]: i.get("speed_bps") for i in b["interfaces"]}
+        check(st == 200 and speeds.get("wan0") == 10_000_000_000 and speeds.get("lan0.20") == 4_294_967_295_000 and speeds.get("wg0") == 0,
+              "interfaces carry speed_bps: 10G, VPP's unknown (4294967295000) and none", speeds)
 
         # --- routing policies (Prisma 0.148.12, #21) -------------------------------
         st, b = admin.get(R + "/policies")
@@ -361,6 +520,8 @@ def main():
         check(st == 404 and "NOPE" in b["error"]["message"], "TestPolicy of an unknown policy answers NOT_FOUND", b)
         st, b = admin.post(R + "/policies/test", {"policy": "TRANSIT-IN", "prefix": "198.51.100.0/24", "attach_point": "nowhere"})
         check(st == 422, "TestPolicy at an unknown attach point answers INVALID_ARGUMENT", b)
+
+        route_checks(admin, R)
     finally:
         if op_id:
             admin.delete(f"/users/{op_id}")

@@ -53,9 +53,17 @@ export function FleetWidget() {
                   <span className="truncate font-medium">{r.name}</span>
                   <Badge
                     variant="outline"
-                    className={cn("ml-auto", r.online ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-300" : "border-destructive/40 text-destructive")}
+                    className={cn(
+                      "ml-auto",
+                      r.health === "not-serving"
+                        ? "border-amber-500/40 text-amber-700 dark:text-amber-300"
+                        : r.online
+                          ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-300"
+                          : "border-destructive/40 text-destructive",
+                    )}
+                    title={r.health === "not-serving" ? "The API answers but reports NOT_SERVING: the dataplane's statistics do not answer." : undefined}
                   >
-                    {r.busy ? "busy (console)" : r.online ? `${r.latency_ms} ms` : "offline"}
+                    {r.busy ? "busy (console)" : r.health === "not-serving" ? "not serving" : r.online ? `${r.latency_ms} ms` : "offline"}
                   </Badge>
                 </div>
                 {s ? (

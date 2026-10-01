@@ -16,6 +16,23 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.8.0 - Prisma 0.149 screens — 2026-10-01
+
+### New
+- Router dashboard: memory (used, total, hugepages) and a **Dataplane load** widget with one bar per worker, full at 0.5 busy (VPP's saturation), plus vectors per call and loops per second. Also available on the homepage (#25).
+- Interfaces: link speed and utilization. An unknown speed (0, or VPP's 4294967295000) shows no percentage (#25).
+- Charts keep their past across restarts: on every connection the back end fills the series from the box's own 24 h history, then follows the live stream (#26, closes #7).
+- **Routing** tab: a typed route table with prefix search, VRF, family and protocol filters, selected-only, server-side paging and the snapshot time, plus a RIB/FIB summary per protocol. Older boxes keep the text view (#27).
+- The account and role each Prisma gives prisma-web are shown in the connection test, the router list and the router page. With a read-only login the change actions are disabled and the back end refuses the changes itself (#28, closes #12).
+- The fleet monitor uses the standard gRPC health check: a box whose dataplane statistics do not answer shows as **not serving** with the reason, not as offline (#29).
+
+### Changed
+- A candidate idle for 25 minutes (from its last action, under the box's 30) is expired, and a candidate the box already closed answers with that reason instead of "not found". The configuration screen offers to reopen and apply the same lines again (#11).
+- An rpc an older box does not implement answers 501 `router_unimplemented` instead of 502 (#27).
+
+### Internal
+- The simulated Prisma implements GetHistory, RouteService, WhoAmI (role from the client certificate's CN), the health service and idle candidate expiry. New dev profile `dev/readonly`. `scripts/e2e.py` has 97 checks and `--lab` 21, passed against the lab box on Prisma 0.149.4 (#24).
+
 ## 0.7.2 - Prisma 0.149.2 contract — 2026-10-01
 
 ### Internal

@@ -70,6 +70,28 @@ export interface SystemInfo {
   release_installed_at?: string | null
   /** The dataplane started more than five minutes after the box: it restarted by itself. */
   dataplane_restarted?: boolean
+  // Memory and worker load in numbers, Prisma 0.149.2 (#25). 0 / empty on older boxes.
+  /** The host's RAM, from the kernel's meminfo. */
+  memory_total_bytes?: number
+  /** MemTotal less MemAvailable: the dataplane's hugepages count as used. */
+  memory_used_bytes?: number
+  /** Of the used, the 1G hugepages reserved for the dataplane. */
+  memory_hugepages_bytes?: number
+  worker_load?: WorkerLoad[]
+}
+
+/** One dataplane worker's load, as the dataplane counts it (Prisma 0.149.2). */
+export interface WorkerLoad {
+  /** 0 is the dataplane's vpp_wk_0. */
+  worker: number
+  cpu: number
+  /** Packets per graph call: near 0 idle, up to 256 with full frames. */
+  vectors_per_call: number
+  /** VPP's share of node clocks, 0 to 1: a saturated worker reads about 0.5. */
+  busy_ratio: number
+  /** Main loop rate; under 1,000 the worker waits for interrupts. */
+  loops_per_second: number
+  busy_window_ms: number
 }
 
 export interface SessionsSummary {
@@ -100,6 +122,8 @@ export interface RouterInterface {
   linux_name: string
   description: string
   counters: InterfaceCounters | null
+  /** Link speed (Prisma 0.149.2); 0 or 4294967295000 mean unknown, see knownSpeed(). */
+  speed_bps?: number
 }
 
 export interface Pool {
@@ -290,6 +314,24 @@ export interface RouterStatus {
   busy: boolean
   error: string | null
   latency_ms: number | null
+  /** Account and role the box gives prisma-web (WhoAmI); null when unknown (box older than 0.149.2). */
+  access: WhoAmI | null
+  /** grpc.health.v1: "not-serving" while the dataplane's statistics do not answer; null when the box cannot tell. */
+  health: "serving" | "not-serving" | null
+}
+
+/** SessionService.WhoAmI (Prisma 0.149.2). */
+export interface WhoAmI {
+  account: string
+  /** "administrator", "cgnat-operator" or "read-only", the VTY's words. */
+  role: string
+  can_configure: boolean
+  can_configure_cgnat: boolean
+}
+
+/** A login that can change nothing: the back refuses its changes too. */
+export function isReadOnly(a: WhoAmI | null | undefined) {
+  return !!a && !a.can_configure && !a.can_configure_cgnat
 }
 
 /** API path for a specific router: `/routers/{id}/...`. */
@@ -364,4 +406,55 @@ export interface TestPolicyResponse {
   notes: string[]
   said: string[]
   refused: string[]
+}
+
+// Typed routing table, RouteService of Prisma 0.149.2 (#27).
+export interface RouteNextHop {
+  /** Empty for a route straight onto an interface. */
+  address: string
+  interface: string
+  active: boolean
+  fib: boolean
+  weight: number
+  directly_connected: boolean
+  /** The next hop's VRF when it is not the route's (a leaked route). */
+  vrf: string
+  /** "blackhole", "reject" or "" for a forwarding next hop. */
+  blackhole: string
+}
+
+export interface Route {
+  vrf: string
+  prefix: string
+  family: 4 | 6
+  protocol: string
+  distance: number
+  metric: number
+  selected: boolean
+  installed: boolean
+  next_hops: RouteNextHop[]
+  table: number
+  age_seconds: number
+}
+
+export interface ListRoutesResponse {
+  routes: Route[]
+  /** Empty on the snapshot's last page. */
+  next_page_token: string
+  /** Meaningful only when total_known. */
+  total: number
+  total_known: boolean
+  snapshot_at: string | null
+}
+
+export interface RouteCount {
+  vrf: string
+  family: 4 | 6
+  protocol: string
+  rib: number
+  fib: number
+}
+
+export interface RouteSummary {
+  counts: RouteCount[]
 }

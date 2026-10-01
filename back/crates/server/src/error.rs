@@ -19,6 +19,12 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    /// The candidate sat idle until Prisma closed it (#11).
+    #[error("{0}")]
+    Expired(String),
+    /// The box's account for this router cannot change anything (#28).
+    #[error("{0}")]
+    ReadOnly(String),
     #[error("too many attempts; try again in {0} minute(s)")]
     TooManyAttempts(u64),
     #[error("{0}")]
@@ -43,6 +49,8 @@ impl AppError {
             Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             Self::BadRequest(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
+            Self::ReadOnly(_) => (StatusCode::FORBIDDEN, "router_read_only"),
+            Self::Expired(_) => (StatusCode::GONE, "candidate_expired"),
             Self::TooManyAttempts(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             // VTY refusals go back to the user with the VTY's own report.
             Self::Prisma(s) => match s.code() {
@@ -51,6 +59,8 @@ impl AppError {
                 Code::NotFound => (StatusCode::NOT_FOUND, "router_not_found"),
                 Code::PermissionDenied => (StatusCode::FORBIDDEN, "router_forbidden"),
                 Code::DeadlineExceeded => (StatusCode::GATEWAY_TIMEOUT, "router_timeout"),
+                // A box older than the rpc: the front falls back to what it had before (#27).
+                Code::Unimplemented => (StatusCode::NOT_IMPLEMENTED, "router_unimplemented"),
                 _ => (StatusCode::BAD_GATEWAY, "router_unavailable"),
             },
             Self::Db(_) | Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
@@ -125,5 +135,6 @@ mod tests {
         assert_eq!(code(tonic::Status::unavailable("x")).0, StatusCode::BAD_GATEWAY);
         assert_eq!(code(tonic::Status::deadline_exceeded("x")).0, StatusCode::GATEWAY_TIMEOUT);
         assert_eq!(code(tonic::Status::permission_denied("x")).0, StatusCode::FORBIDDEN);
+        assert_eq!(code(tonic::Status::unimplemented("x")), (StatusCode::NOT_IMPLEMENTED, "router_unimplemented"));
     }
 }

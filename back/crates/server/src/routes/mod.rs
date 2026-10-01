@@ -3,6 +3,7 @@ mod auth;
 pub mod config;
 mod dashboard;
 mod ops;
+mod route_table;
 pub mod routers;
 mod users;
 
@@ -46,6 +47,8 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/policies", get(ops::policies))
         .route("/routers/{id}/policies/counters", get(ops::policy_counters))
         .route("/routers/{id}/policies/test", post(ops::test_policy))
+        .route("/routers/{id}/routes", get(route_table::list))
+        .route("/routers/{id}/routes/summary", get(route_table::summary))
         .route("/routers/{id}/metrics/traffic", get(ops::traffic))
         .route("/routers/{id}/metrics/cgnat", get(ops::cgnat))
         // Configuration
