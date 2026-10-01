@@ -126,6 +126,8 @@ pub struct TestResult {
     version: VersionInfo,
     /// Account (CN) Prisma saw us as; `None` without TLS.
     account: Option<String>,
+    /// Account and role from `WhoAmI`; `None` on a box older than 0.149.2 (#28).
+    access: Option<prisma_proto::v1::WhoAmIResponse>,
 }
 
 /// Tests the connection to a Prisma before saving the registration.
@@ -156,7 +158,14 @@ pub async fn test(
         .as_ref()
         .and_then(|(p, _)| tls::check(&st.routers.tls_root, p).ok())
         .and_then(|i| i.account);
-    Ok(Json(TestResult { version, account }))
+    let mut session = prisma_proto::v1::session_service_client::SessionServiceClient::new(
+        st.routers.channel(&conn.url, conn.target())?,
+    );
+    let access = match tokio::time::timeout(STATUS_TIMEOUT, session.who_am_i(grpc::req(prisma_proto::v1::WhoAmIRequest {}))).await {
+        Ok(Ok(r)) => Some(r.into_inner()),
+        _ => None,
+    };
+    Ok(Json(TestResult { version, account, access }))
 }
 
 #[derive(Deserialize)]

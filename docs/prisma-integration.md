@@ -47,7 +47,11 @@ and the mapping lives in `front/src/lib/vty.ts`.
   prisma-web takes it from the running configuration (#13). 0.148.6 fills it in directly (verified
   in the lab on 2026-10-01).
 - **The account is the CN of the client certificate**, and the role comes from the VTY. The
-  prisma-web certificate has CN `prisma-web`, with an administrator role (Prisma).
+  prisma-web certificate has CN `prisma-web`, with an administrator role (Prisma). Since 0.149.2
+  `SessionService.WhoAmI` says so directly: the connection test, the router list and the router
+  page show the account and role, and with a read-only login the change actions are disabled and
+  the back refuses `OpenCandidate`, `Confirm` and `Save` itself (#28, closing #12). Verified on the
+  lab box on 2026-10-01: `prisma-web` is `administrator`.
 - **Server name in the certificate: `prisma-api`**, and the IP is also in the SAN (Prisma).
 - 0.148.4 lists the internal linux_cp `tap*` interfaces in `ListInterfaces`. 0.148.5 already omits
   them (Prisma; verified in the lab on 2026-10-01), and the back's filter only has an effect on
@@ -147,6 +151,8 @@ Today prisma-web uses `GetVersion` to find out whether the Prisma is alive. If t
 | `OpenCandidate` → `Edit` → `Compare` → `Check` → `Commit` → `CloseCandidate` | Configuration editor and interface editing |
 | `Confirm` | Pending *commit confirmed* warning, with countdown |
 | `GetRunning`, `ListRevisions`, `Rollback`, `Save` | Configuration screen |
+| `GetHistory` | Fills the charts on every connection of the telemetry stream (#26) |
+| `WhoAmI` | Account and role in the connection test, router list and router page; read-only enforcement (#28) |
 
 ## 4. Keeping the proto up to date
 

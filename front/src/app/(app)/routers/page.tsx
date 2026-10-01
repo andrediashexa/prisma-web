@@ -44,7 +44,7 @@ import { useMe } from "@/hooks/use-me"
 import { useFleetStatus, useRouters } from "@/hooks/use-routers"
 import { api, errorMessage, fetcher } from "@/lib/api"
 import { formatUptime } from "@/lib/format"
-import { hasRole, type RouterView, type TlsProfile, type VersionInfo } from "@/lib/types"
+import { hasRole, isReadOnly, type RouterView, type TlsProfile, type VersionInfo, type WhoAmI } from "@/lib/types"
 
 type Dialogs = { kind: "edit"; router: RouterView | null } | { kind: "delete"; router: RouterView } | null
 
@@ -118,7 +118,8 @@ export default function RoutersPage() {
                       </div>
                       {r.tls_profile && (
                         <div className="text-muted-foreground text-xs">
-                          account <span className="font-mono">{r.tls_account ?? "?"}</span> · profile{" "}
+                          account <span className="font-mono">{r.tls_account ?? "?"}</span>
+                          {s?.access && <> ({s.access.role})</>} · profile{" "}
                           <span className="font-mono">{r.tls_profile}</span>
                         </div>
                       )}
@@ -248,7 +249,7 @@ function RouterForm({
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [testing, setTesting] = useState(false)
-  const [tested, setTested] = useState<(VersionInfo & { account: string | null }) | null>(null)
+  const [tested, setTested] = useState<(VersionInfo & { account: string | null; access: WhoAmI | null }) | null>(null)
   const [profile, setProfile] = useState(router?.tls_profile ?? "")
   const [serverName, setServerName] = useState(router?.tls_server_name ?? "prisma-api")
   const { data: profiles } = useSWR<TlsProfile[]>("/routers/tls-profiles", fetcher)
@@ -265,7 +266,7 @@ function RouterForm({
     setError(null)
     setTested(null)
     try {
-      const v = await api.post<VersionInfo & { account: string | null }>("/routers/test", connection)
+      const v = await api.post<VersionInfo & { account: string | null; access: WhoAmI | null }>("/routers/test", connection)
       setTested(v)
       if (!name) setName(v.hostname)
     } catch (err) {
@@ -328,6 +329,12 @@ function RouterForm({
             <FieldDescription className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
               <CheckCircle2Icon className="size-4" /> Connected: {[tested.hostname, `Prisma ${tested.release}`].filter(Boolean).join(" · ")}
               {tested.account && <> · account {tested.account}</>}
+              {tested.access && <> ({tested.access.role})</>}
+            </FieldDescription>
+          )}
+          {tested && isReadOnly(tested.access) && (
+            <FieldDescription className="text-amber-700 dark:text-amber-300">
+              This account is read-only on the box: prisma-web will show the router but cannot change it.
             </FieldDescription>
           )}
         </Field>

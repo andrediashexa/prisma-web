@@ -290,6 +290,22 @@ export interface RouterStatus {
   busy: boolean
   error: string | null
   latency_ms: number | null
+  /** Account and role the box gives prisma-web (WhoAmI); null when unknown (box older than 0.149.2). */
+  access: WhoAmI | null
+}
+
+/** SessionService.WhoAmI (Prisma 0.149.2). */
+export interface WhoAmI {
+  account: string
+  /** "administrator", "cgnat-operator" or "read-only", the VTY's words. */
+  role: string
+  can_configure: boolean
+  can_configure_cgnat: boolean
+}
+
+/** A login that can change nothing: the back refuses its changes too. */
+export function isReadOnly(a: WhoAmI | null | undefined) {
+  return !!a && !a.can_configure && !a.can_configure_cgnat
 }
 
 /** API path for a specific router: `/routers/{id}/...`. */

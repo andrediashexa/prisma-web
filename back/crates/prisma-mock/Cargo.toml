@@ -17,3 +17,4 @@ tokio-stream = { workspace = true, features = ["net"] }
 tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+x509-parser = "0.18"

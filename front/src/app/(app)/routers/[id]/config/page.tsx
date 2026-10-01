@@ -29,6 +29,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useMe } from "@/hooks/use-me"
+import { useRouterAccess } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import { formatDateTime } from "@/lib/format"
 import {
@@ -51,7 +52,8 @@ interface AppliedEdit {
 export default function ConfigPage() {
   const { id } = useParams<{ id: string }>()
   const { data: me } = useMe()
-  const canEdit = hasRole(me, "operator")
+  const { readOnly } = useRouterAccess(id)
+  const canEdit = hasRole(me, "operator") && !readOnly
   const { data: running, mutate: mutateRunning } = useSWR<ConfigText>(routerApi(id, "/config/running"), fetcher)
   const { data: revs } = useSWR<{ revisions: Revision[] }>(routerApi(id, "/config/revisions"), fetcher)
   const [candidate, setCandidate] = useState<OpenCandidateResponse | null>(null)

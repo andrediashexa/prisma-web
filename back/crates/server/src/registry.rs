@@ -7,10 +7,11 @@ use std::time::{Duration, Instant};
 
 use prisma_proto::v1::config_service_client::ConfigServiceClient;
 use prisma_proto::v1::operational_service_client::OperationalServiceClient;
+use prisma_proto::v1::session_service_client::SessionServiceClient;
 use prisma_proto::v1::telemetry_service_client::TelemetryServiceClient;
 use prisma_proto::v1::{
     GetRunningRequest, GetSessionsSummaryRequest, GetSystemRequest, GetVersionRequest, SessionsSummary, SystemInfo,
-    VersionInfo,
+    VersionInfo, WhoAmIRequest, WhoAmIResponse,
 };
 use serde::Serialize;
 use sqlx::PgPool;
@@ -28,8 +29,13 @@ const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 const STATUS_TIMEOUT: Duration = Duration::from_secs(4);
 /// How long the hostname taken from `GetRunning` stays valid (see `hostname_fallback`).
 const HOSTNAME_TTL: Duration = Duration::from_secs(600);
+/// How long the account's role from `WhoAmI` stays valid: a role changes only
+/// when someone edits the box's logins.
+const ACCESS_TTL: Duration = Duration::from_secs(60);
 
 type HostnameCache = Arc<RwLock<HashMap<Uuid, (String, Instant)>>>;
+/// `None` inside: the box has no `WhoAmI` (older than 0.149.2), role unknown.
+type AccessCache = Arc<RwLock<HashMap<Uuid, (Option<WhoAmIResponse>, Instant)>>>;
 
 pub struct RouterHandle {
     pub id: Uuid,
@@ -50,6 +56,10 @@ impl RouterHandle {
     pub fn telemetry(&self) -> TelemetryServiceClient<Channel> {
         TelemetryServiceClient::new(self.channel.clone())
     }
+
+    pub fn session(&self) -> SessionServiceClient<Channel> {
+        SessionServiceClient::new(self.channel.clone())
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -66,6 +76,9 @@ pub struct RouterStatus {
     /// Prisma did not answer because a console command is holding the
     /// account's process; the data is from the last query (issue #14).
     pub busy: bool,
+    /// Account and role the box gives prisma-web (`WhoAmI`); `None` when the
+    /// box cannot tell (older than 0.149.2) or has not answered yet (#28).
+    pub access: Option<WhoAmIResponse>,
 }
 
 pub struct Registry {
@@ -76,6 +89,7 @@ pub struct Registry {
     cache: RwLock<HashMap<Uuid, Arc<RouterHandle>>>,
     status: RwLock<HashMap<Uuid, RouterStatus>>,
     hostnames: HostnameCache,
+    access: AccessCache,
     /// Console `Show` in progress, per router.
     consoles: Arc<std::sync::Mutex<HashMap<Uuid, usize>>>,
 }
@@ -122,6 +136,7 @@ impl Registry {
             cache: RwLock::new(HashMap::new()),
             status: RwLock::new(HashMap::new()),
             hostnames: Arc::new(RwLock::new(HashMap::new())),
+            access: Arc::new(RwLock::new(HashMap::new())),
             consoles: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
@@ -172,6 +187,11 @@ impl Registry {
         ConsoleGuard { id, consoles: self.consoles.clone() }
     }
 
+    /// The router's account and role, from the monitor's cache or asked now.
+    pub async fn access(&self, h: &RouterHandle) -> Option<WhoAmIResponse> {
+        who_am_i(h, &self.access).await
+    }
+
     fn console_active(&self, id: Uuid) -> bool {
         self.consoles.lock().unwrap().contains_key(&id)
     }
@@ -181,6 +201,7 @@ impl Registry {
         self.cache.write().unwrap().remove(&id);
         self.status.write().unwrap().remove(&id);
         self.hostnames.write().unwrap().remove(&id);
+        self.access.write().unwrap().remove(&id);
         self.telemetry.stop(id);
     }
 
@@ -202,6 +223,7 @@ impl Registry {
         let mut set = JoinSet::new();
         for h in handles {
             let hostnames = self.hostnames.clone();
+            let access = self.access.clone();
             set.spawn(async move {
                 let started = Instant::now();
                 let res = tokio::time::timeout(STATUS_TIMEOUT, async {
@@ -225,6 +247,7 @@ impl Registry {
                     latency_ms: None,
                     checked_at: chrono::Utc::now(),
                     busy: false,
+                    access: None,
                 };
                 match res {
                     Ok(Ok((v, s, ss))) => {
@@ -244,6 +267,7 @@ impl Registry {
                         st.version = Some(v);
                         st.system = Some(s);
                         st.sessions = Some(ss.into_inner());
+                        st.access = who_am_i(&h, &access).await;
                     }
                     Ok(Err(status)) => st.error = Some(grpc::describe(&status)),
                     Err(_) => st.error = Some("timed out".into()),
@@ -320,6 +344,24 @@ async fn hostname_fallback(h: &RouterHandle, cache: &HostnameCache) -> Option<St
     let name = hostname_from_running(&running.text)?;
     cache.write().unwrap().insert(h.id, (name.clone(), Instant::now()));
     Some(name)
+}
+
+/// `WhoAmI`, at most every minute per router. A box without the rpc is
+/// remembered as unknown; a failed call keeps the last answer (#28).
+async fn who_am_i(h: &RouterHandle, cache: &AccessCache) -> Option<WhoAmIResponse> {
+    let cached = cache.read().unwrap().get(&h.id).cloned();
+    if let Some((who, at)) = &cached {
+        if at.elapsed() < ACCESS_TTL {
+            return who.clone();
+        }
+    }
+    let who = match tokio::time::timeout(STATUS_TIMEOUT, h.session().who_am_i(grpc::req(WhoAmIRequest {}))).await {
+        Ok(Ok(r)) => Some(r.into_inner()),
+        Ok(Err(s)) if s.code() == tonic::Code::Unimplemented => None,
+        _ => return cached.and_then(|(who, _)| who),
+    };
+    cache.write().unwrap().insert(h.id, (who.clone(), Instant::now()));
+    who
 }
 
 /// Name in the top-level `hostname <name>` line of a running-config text.

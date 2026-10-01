@@ -21,6 +21,7 @@ use crate::audit::{self, Entry};
 use crate::auth::{ClientMeta, CurrentUser, Role};
 use crate::error::{AppError, AppResult};
 use crate::grpc::req;
+use crate::registry::RouterHandle;
 use crate::telemetry::PendingConfirm;
 use crate::AppState;
 
@@ -127,6 +128,7 @@ pub async fn open(
     user.require(Role::Operator)?;
     close_expired(&st).await;
     let r = st.routers.get(id).await?;
+    require_can_change(&st, &r).await?;
     let from_revision = body.and_then(|Json(b)| b.from_revision);
     let resp = r.config().open_candidate(req(OpenCandidateRequest { from_revision, ..Default::default() })).await?.into_inner();
     st.candidates.0.lock().unwrap().insert(
@@ -338,6 +340,7 @@ pub async fn confirm(
         }
     }
     let r = st.routers.get(id).await?;
+    require_can_change(&st, &r).await?;
     st.routers.telemetry.web_action(id);
     let resp = r.config().confirm(req(ConfirmRequest {})).await?.into_inner();
     st.routers.telemetry.set_pending(id, None);
@@ -360,6 +363,7 @@ pub async fn save(
 ) -> AppResult<Json<SaveResponse>> {
     user.require(Role::Operator)?;
     let r = st.routers.get(id).await?;
+    require_can_change(&st, &r).await?;
     st.routers.telemetry.web_action(id);
     let resp = r.config().save(req(SaveRequest {})).await?.into_inner();
     audit::record(
@@ -368,6 +372,21 @@ pub async fn save(
     )
     .await;
     Ok(Json(resp))
+}
+
+/// Refuses, before calling the box, a change its account could not make: a
+/// read-only login. A CGNAT-only login may still change the CGNAT half, and the
+/// box itself refuses the rest. Unknown (an older box) is not refused (#28).
+async fn require_can_change(st: &AppState, r: &RouterHandle) -> AppResult<()> {
+    match read_only(st.routers.access(r).await.as_ref(), &r.name) {
+        Some(why) => Err(AppError::ReadOnly(why)),
+        None => Ok(()),
+    }
+}
+
+fn read_only(access: Option<&WhoAmIResponse>, router: &str) -> Option<String> {
+    let a = access.filter(|a| !a.can_configure && !a.can_configure_cgnat)?;
+    Some(format!("the account {} on {router} is {}: it cannot change the configuration", a.account, a.role))
 }
 
 async fn close_expired(st: &AppState) {
@@ -436,5 +455,20 @@ mod tests {
         assert!(t.starts_with("a€a\n"));
         assert!(t.ends_with("(diff truncated)"));
         assert_eq!(truncate("short", 50), "short");
+    }
+
+    #[test]
+    fn only_a_read_only_account_is_refused() {
+        let who = |role: &str, all: bool, cgnat: bool| WhoAmIResponse {
+            account: "noc".into(),
+            role: role.into(),
+            can_configure: all,
+            can_configure_cgnat: cgnat,
+            ..Default::default()
+        };
+        assert!(read_only(Some(&who("read-only", false, false)), "HQ").is_some_and(|m| m.contains("noc") && m.contains("read-only")));
+        assert_eq!(read_only(Some(&who("cgnat-operator", false, true)), "HQ"), None);
+        assert_eq!(read_only(Some(&who("administrator", true, true)), "HQ"), None);
+        assert_eq!(read_only(None, "HQ"), None, "an older box without WhoAmI is not refused");
     }
 }

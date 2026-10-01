@@ -2,12 +2,13 @@
 
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
-import { ServerOffIcon } from "lucide-react"
+import { EyeIcon, ServerOffIcon } from "lucide-react"
 
 import { PendingConfirmBanner } from "@/components/config/pending-confirm"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useFleetStatus, useRouters } from "@/hooks/use-routers"
+import { useFleetStatus, useRouterAccess, useRouters } from "@/hooks/use-routers"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 const TABS = [
@@ -27,6 +28,7 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
   const { data: fleet } = useFleetStatus()
   const router = routers?.find((r) => r.id === id)
   const status = fleet?.find((r) => r.id === id)
+  const { access, reason } = useRouterAccess(id)
 
   if (!routers) return <Skeleton className="h-96 w-full rounded-xl" />
   if (!router) {
@@ -60,6 +62,11 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
             <span className="mx-2">·</span>
             <span className="font-mono text-xs">{router.api_url}</span>
             {status?.version && <span className="ml-2 text-xs">· Prisma {status.version.release}</span>}
+            {access && (
+              <Badge variant="outline" className="ml-2 align-middle font-normal" title="The account the box sees prisma-web as (client certificate CN) and its VTY role.">
+                {access.account} · {access.role}
+              </Badge>
+            )}
           </p>
         </div>
         <nav className="bg-muted text-muted-foreground inline-flex h-9 max-w-full items-center overflow-x-auto rounded-lg p-1">
@@ -82,6 +89,11 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
         </nav>
       </div>
       <PendingConfirmBanner routerId={id} />
+      {reason && (
+        <div className="bg-muted text-muted-foreground flex items-center gap-2 rounded-lg border px-4 py-3 text-sm">
+          <EyeIcon className="size-4 shrink-0" /> {reason}
+        </div>
+      )}
       {status && !status.online && (
         <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
           Could not reach this router: {status.error}
