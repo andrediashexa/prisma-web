@@ -306,7 +306,7 @@ async fn on_event(shared: &Shared, h: &RouterHandle, e: Event) {
         return;
     }
     let action = format!("box.{}", e.kind);
-    let username = format!("{} (on the box)", if e.account.is_empty() { "?" } else { &e.account });
+    let username = format!("{} (on the device)", if e.account.is_empty() { "?" } else { &e.account });
     let mut entry = Entry::system(&action, Some(&h.name)).router(h.id).details(json!({ "text": e.text, "account": e.account }));
     entry.username = Some(&username);
     audit::record(&shared.db, entry).await;
