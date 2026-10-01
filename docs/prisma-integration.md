@@ -116,10 +116,12 @@ message Route {
 `Interface` has no speed. With `uint64 speed_bps` it would be possible to show link utilization
 in %.
 
-### 🟢 2.4 Counter history
-`TelemetryService` only delivers live samples, so prisma-web keeps the history in memory (24 h). If
-the back restarts, the chart starts again from zero. If the Prisma kept a short history (e.g. the
-last 24 h at 1 min), an rpc to read it would make the charts complete from the start.
+### ✅ 2.4 Counter history — answered
+Prisma 0.149.2 keeps 24 h at one sample a minute and serves it through
+`TelemetryService.GetHistory`. On every connection prisma-web first reads what it missed (all of
+it after a restart, the outage after a reconnection) and then follows the live stream, so a
+restart of the back no longer empties the charts (#26, closing #7). A box without the rpc answers
+`UNIMPLEMENTED` and the charts start from the live stream, as before.
 
 ### 🟢 2.5 Identifying its own commit in the events
 The `commit` events from `Subscribe` go into the prisma-web log as *changes made on the device*. If
