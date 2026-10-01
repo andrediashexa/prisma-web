@@ -1,6 +1,6 @@
 "use client"
 
-import { ActivityIcon, BarChart3Icon, GaugeIcon, NetworkIcon, ServerIcon, ShareIcon, TrendingUpIcon, TimerIcon, UnplugIcon, UsersIcon } from "lucide-react"
+import { ActivityIcon, BarChart3Icon, CpuIcon, GaugeIcon, NetworkIcon, ServerIcon, ShareIcon, TrendingUpIcon, TimerIcon, UnplugIcon, UsersIcon } from "lucide-react"
 
 import { TrafficChart } from "@/components/traffic-chart"
 import { Card, CardContent } from "@/components/ui/card"
@@ -11,6 +11,7 @@ import { BgpWidget } from "./bgp-widget"
 import { CgnatWidget } from "./cgnat-widget"
 import { FleetWidget } from "./fleet-widget"
 import { InterfacesWidget } from "./interfaces-widget"
+import { LoadWidget } from "./load-widget"
 import { ResourcesWidget } from "./resources-widget"
 import { RouterStatsWidget } from "./router-stats-widget"
 import { UptimeWidget } from "./uptime-widget"
@@ -61,7 +62,7 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
   },
   interfaces: {
     title: "Interfaces",
-    description: "Interface list with IPv4 and IPv6 addresses",
+    description: "Interface list with link usage and IPv4 and IPv6 addresses",
     icon: NetworkIcon,
     defaultSize: 2,
     perRouter: true,
@@ -84,6 +85,13 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
     title: "Uptime",
     description: "Since when each part of a Prisma runs, with a dataplane-restart warning",
     icon: TimerIcon,
+    defaultSize: 2,
+    perRouter: true,
+  },
+  load: {
+    title: "Dataplane load",
+    description: "Memory used and each dataplane worker's load",
+    icon: CpuIcon,
     defaultSize: 2,
     perRouter: true,
   },
@@ -128,6 +136,7 @@ export function defaultLayout(routers: RouterView[]): DashboardLayout {
       newWidget("router-stats", { routerId: first }),
       newWidget("traffic", { routerId: first, minutes: 60 }),
       newWidget("cgnat", { routerId: first }),
+      newWidget("load", { routerId: first }),
       newWidget("bgp", { routerId: first }),
     )
   }
@@ -177,6 +186,8 @@ export function WidgetView({ widget, routers }: { widget: Widget; routers: Route
       return routerId ? <BgpWidget routerId={routerId} title={router ? `BGP · ${router.name}` : undefined} /> : null
     case "uptime":
       return routerId ? <UptimeWidget routerId={routerId} title={router ? `Uptime · ${router.name}` : undefined} /> : null
+    case "load":
+      return routerId ? <LoadWidget routerId={routerId} title={router ? `Dataplane load · ${router.name}` : undefined} /> : null
     case "activity":
       return <ActivityWidget routerId={router?.id} />
   }
