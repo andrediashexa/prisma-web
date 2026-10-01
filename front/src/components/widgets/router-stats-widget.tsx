@@ -40,8 +40,12 @@ export function RouterStatsWidget({ routerId }: { routerId: string }) {
             <span className="flex flex-wrap items-center gap-1.5">
               Prisma {ver.release}
               {!ver.dataplane_current && (
-                <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300">
-                  reinício pendente
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/40 text-amber-700 dark:text-amber-300"
+                  title="O upgrade trocou o VTY e os arquivos, mas o dataplane (VPP e o plugin de CGNAT) só passa para a versão nova no próximo reboot."
+                >
+                  reboot pendente para concluir o upgrade
                 </Badge>
               )}
             </span>
