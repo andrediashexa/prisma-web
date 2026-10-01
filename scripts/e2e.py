@@ -417,6 +417,7 @@ def main():
             {"comment": "e2e jumbo", "confirmed_minutes": 2, "acknowledge_remap": True},
         )
         check(st == 200 and b["revision"] and b["confirm_deadline"], "commit confirmed accepted with a deadline", b)
+        web_revision = b["revision"]
 
         st, revs = admin.get(f"{R}/config/revisions")
         check(
@@ -441,6 +442,11 @@ def main():
         check(commit and "mtu 9000" in commit["details"]["diff"], "log keeps the commit diff", commit)
         check(any(e["action"] == "config.commit" and not e["success"] for e in audit["items"]), "log keeps the refused commit")
         check("config.confirm" in actions, "log keeps the confirmation", actions)
+        # The box's commit event carries the revision (Prisma 0.149.2): matched, not logged twice (#30).
+        time.sleep(2)
+        st, audit = admin.get(f"/audit?router_id={router_id}&action=box.commit&limit=20")
+        dup = [e for e in audit["items"] if (e.get("details") or {}).get("revision") == web_revision]
+        check(not dup, f"the web commit's own event ({web_revision}) is not logged again as a change on the device", dup)
 
         # --- undo: back to the previous revision ---------------------------------------
         st, c2 = admin.post(f"{R}/config/candidates", {"from_revision": 1})
