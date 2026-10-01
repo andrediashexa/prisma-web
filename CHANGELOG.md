@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.7.1 - Default gRPC stubs — 2026-10-01
+
+### Internal
+- An rpc that the simulated Prisma does not implement now answers `UNIMPLEMENTED`; before, any new rpc in an existing Prisma service broke the build. This lets prisma.v1 keep its services grouped by domain (#22).
+
 ## 0.7.0 - Routing policies — 2026-10-01
 
 ### New

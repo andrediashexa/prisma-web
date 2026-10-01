@@ -9,6 +9,7 @@ use prisma_proto::v1::telemetry_update::Update;
 use prisma_proto::v1::*;
 use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::codegen::BoxStream;
 use tonic::{Request, Response, Status};
 
 use crate::state::{timestamp, SharedRef};
@@ -21,9 +22,9 @@ fn update(u: Update) -> Result<TelemetryUpdate, Status> {
 
 #[tonic::async_trait]
 impl TelemetryService for TelemetrySvc {
-    type SubscribeStream = ReceiverStream<Result<TelemetryUpdate, Status>>;
-
-    async fn subscribe(&self, req: Request<SubscribeRequest>) -> Result<Response<Self::SubscribeStream>, Status> {
+    // With default stubs (#22) the streaming rpc returns a boxed stream instead
+    // of an associated type.
+    async fn subscribe(&self, req: Request<SubscribeRequest>) -> Result<Response<BoxStream<TelemetryUpdate>>, Status> {
         let req = req.into_inner();
         if req.interval_ms < 500 {
             return Err(Status::invalid_argument("interval_ms must be at least 500"));
@@ -72,6 +73,6 @@ impl TelemetryService for TelemetrySvc {
                 }
             }
         });
-        Ok(Response::new(ReceiverStream::new(rx)))
+        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 }

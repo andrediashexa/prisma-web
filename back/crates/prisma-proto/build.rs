@@ -4,7 +4,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Serialize on every message, so the back end hands the data to the front end
     // as JSON with no manual conversion. Timestamps and enums have their own serializers.
+    // Server traits get a default for every rpc (answering UNIMPLEMENTED), so a
+    // new rpc in an existing Prisma service does not break the mock's build (#22).
     let mut cfg = tonic_prost_build::configure()
+        .generate_default_stubs(true)
         .type_attribute(".prisma.v1", "#[derive(serde::Serialize)]")
         .field_attribute(
             "prisma.v1.Diagnostic.severity",
