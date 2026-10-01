@@ -285,7 +285,8 @@ interface Filters {
   pageSize: string
 }
 
-const NO_FILTERS: Filters = { vrf: ALL, family: ALL, protocol: ALL, prefix: "", selected: false, pageSize: "1000" }
+// 100 rows fit a screen; bigger pages are a choice, scrolled inside the card.
+const NO_FILTERS: Filters = { vrf: ALL, family: ALL, protocol: ALL, prefix: "", selected: false, pageSize: "100" }
 
 /** One page already reached: its token ("" is the first) and the routes before it. */
 interface PageRef {
@@ -450,7 +451,7 @@ function Routes({ routerId }: { routerId: string }) {
         ) : data.routes.length === 0 ? (
           <CardContent className="text-muted-foreground pb-6 text-sm">No route matches these filters.</CardContent>
         ) : (
-          <div className={cn("overflow-x-auto", list.isValidating && "opacity-60")}>
+          <div className={cn("max-h-[70vh] overflow-auto", list.isValidating && "opacity-60")}>
             <Table>
               <TableHeader>
                 <TableRow>
