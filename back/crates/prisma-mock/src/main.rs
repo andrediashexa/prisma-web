@@ -19,6 +19,8 @@ use prisma_proto::v1::operational_service_server::OperationalServiceServer;
 use prisma_proto::v1::session_service_server::SessionServiceServer;
 use prisma_proto::v1::telemetry_service_server::TelemetryServiceServer;
 use tokio::sync::broadcast;
+use tonic_health::pb::health_server::HealthServer;
+use tonic_health::server::HealthService;
 use tonic::transport::server::Router;
 use tonic::transport::{Certificate, Identity, ServerTlsConfig};
 use tonic::transport::Server;
@@ -44,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let hostname = std::env::var("MOCK_HOSTNAME").unwrap_or_else(|_| "prisma-mock".into());
     let scale: f64 = std::env::var("MOCK_TRAFFIC_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
     let shared = new_shared(&hostname, scale);
+    shared.set_health(std::env::var("MOCK_NOT_SERVING").map_or(true, |v| v.is_empty() || v == "0")).await;
     tokio::spawn(ticker(shared.clone()));
 
     let addr = bind_addr()?;
@@ -64,7 +67,12 @@ async fn main() -> anyhow::Result<()> {
 
 fn new_shared(hostname: &str, scale: f64) -> SharedRef {
     let (events, _) = broadcast::channel(64);
-    Arc::new(Shared { state: Mutex::new(State::new(hostname, scale)), events, ops: tokio::sync::Mutex::new(()) })
+    Arc::new(Shared {
+        state: Mutex::new(State::new(hostname, scale)),
+        events,
+        ops: tokio::sync::Mutex::new(()),
+        health: tonic_health::server::HealthReporter::new(),
+    })
 }
 
 /// Like the real Prisma: with `MOCK_TLS_DIR`, serves mTLS only and requires a
@@ -90,8 +98,9 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
     builder
         .add_service(ConfigServiceServer::new(config_service::ConfigSvc(shared.clone())))
         .add_service(OperationalServiceServer::new(operational::OperationalSvc { shared: shared.clone(), hostname }))
-        .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared)))
+        .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared.clone())))
         .add_service(SessionServiceServer::new(session::SessionSvc))
+        .add_service(HealthServer::new(HealthService::from_health_reporter(shared.health.clone())))
 }
 
 /// Advances the simulation every second.
@@ -132,6 +141,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let shared = new_shared(hostname, 1.0);
+        shared.set_health(true).await;
         tokio::spawn(ticker(shared.clone()));
         let r = router(shared, hostname.to_string());
         tokio::spawn(r.serve_with_incoming(TcpListenerStream::new(listener)));

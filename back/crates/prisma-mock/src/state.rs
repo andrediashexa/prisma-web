@@ -67,6 +67,8 @@ pub struct Shared {
     /// The account's operational process on Prisma 0.148.4/0.148.5: serves one
     /// call at a time, `Show` included (prisma-web issue #14).
     pub ops: tokio::sync::Mutex<()>,
+    /// grpc.health.v1 statuses, as the box reports them.
+    pub health: tonic_health::server::HealthReporter,
 }
 
 pub type SharedRef = Arc<Shared>;
@@ -231,7 +233,23 @@ impl State {
     }
 }
 
+/// Services the box reports NOT_SERVING while the dataplane's statistics
+/// segment does not answer (docs/prisma-api.md).
+const STATS_SERVICES: [&str; 2] = ["prisma.v1.OperationalService", "prisma.v1.TelemetryService"];
+
 impl Shared {
+    /// Health of every prisma.v1 service; `stats_segment` false is the
+    /// box's state while the dataplane's statistics do not answer.
+    pub async fn set_health(&self, stats_segment: bool) {
+        use tonic_health::ServingStatus::{NotServing, Serving};
+        for s in ["prisma.v1.ConfigService", "prisma.v1.RouteService", "prisma.v1.SessionService"] {
+            self.health.set_service_status(s, Serving).await;
+        }
+        for s in STATS_SERVICES {
+            self.health.set_service_status(s, if stats_segment { Serving } else { NotServing }).await;
+        }
+    }
+
     pub fn emit(&self, kind: &str, text: impl Into<String>) {
         self.emit_full(kind, text.into(), String::new(), String::new());
     }

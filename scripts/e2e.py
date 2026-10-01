@@ -137,6 +137,20 @@ def tls_checks(admin, args):
     check(st == 422 and "invalid TLS profile" in b["error"]["message"], "profile with ../ is refused", b)
 
 
+def health_checks(admin, router_id):
+    """grpc.health.v1 in the monitor (#29); the mock's stats-segment hook stands in for a stuck dataplane."""
+    status = lambda: next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+    wait_for(lambda: (lambda s: (s.get("health") == "serving", s))(status()), "fleet status carries the health check (SERVING)")
+    st, b = admin.post(f"/routers/{router_id}/show", {"command": "mock stats-segment down"})
+    check(st == 200, "mock: dataplane statistics taken down", b)
+    try:
+        s = wait_for(lambda: (lambda s: (s.get("health") == "not-serving", s))(status()), "NOT_SERVING is reported as not serving", timeout=20)
+        check("NOT_SERVING" in (s.get("error") or ""), "a NOT_SERVING router says why, not just offline", s)
+    finally:
+        admin.post(f"/routers/{router_id}/show", {"command": "mock stats-segment up"})
+    wait_for(lambda: (lambda s: (s.get("health") == "serving" and s["online"], s))(status()), "SERVING again once the statistics answer", timeout=20)
+
+
 def read_only_checks(admin, args):
     """A certificate the box maps to a read-only login (#28): shown, and refused by the back itself."""
     st, r = admin.post("/routers", {"name": f"e2e-ro-{uuid.uuid4().hex[:6]}", "api_url": args.tls_mock, "tls_profile": "dev/readonly", "tls_server_name": args.server_name})
@@ -173,6 +187,7 @@ def lab(admin, args):
             lambda: (lambda s: (bool(s) and s[0]["online"], s))([x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]),
             "real Prisma online in the fleet status",
         )[0]
+        check(st_lab.get("health") == "serving", f"health check of the real Prisma: {st_lab.get('health')}", st_lab)
         check(st_lab["version"]["hostname"] and st_lab["system"]["hostname"], f"real Prisma hostname filled in ({st_lab['version']['hostname']})", st_lab)
         for path, key in [("/interfaces", "interfaces"), ("/pools", "pools"), ("/bgp", "neighbors")]:
             st, b = admin.get(R + path)
@@ -254,6 +269,7 @@ def main():
         )
         f = fleet[0]
         check(f["version"] and f["system"] and f["sessions"] is not None, "status carries GetVersion, GetSystem and GetSessionsSummary", f)
+        health_checks(admin, router_id)
 
         # --- telemetry ---------------------------------------------------------
         series = wait_for(

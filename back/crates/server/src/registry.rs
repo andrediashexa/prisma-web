@@ -14,6 +14,9 @@ use prisma_proto::v1::{
     VersionInfo, WhoAmIRequest, WhoAmIResponse,
 };
 use serde::Serialize;
+use tonic_health::pb::health_check_response::ServingStatus;
+use tonic_health::pb::health_client::HealthClient;
+use tonic_health::pb::HealthCheckRequest;
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tonic::transport::{Channel, Endpoint};
@@ -79,6 +82,10 @@ pub struct RouterStatus {
     /// Account and role the box gives prisma-web (`WhoAmI`); `None` when the
     /// box cannot tell (older than 0.149.2) or has not answered yet (#28).
     pub access: Option<WhoAmIResponse>,
+    /// grpc.health.v1 of `OperationalService`: `serving`, or `not-serving`
+    /// while the dataplane's statistics do not answer; `None` when the box has
+    /// no health service (older than 0.149.2) or did not answer it (#29).
+    pub health: Option<&'static str>,
 }
 
 pub struct Registry {
@@ -226,15 +233,17 @@ impl Registry {
             let access = self.access.clone();
             set.spawn(async move {
                 let started = Instant::now();
-                let res = tokio::time::timeout(STATUS_TIMEOUT, async {
-                    let (mut a, mut b, mut c) = (h.ops(), h.ops(), h.ops());
-                    tokio::try_join!(
-                        a.get_version(GetVersionRequest {}),
-                        b.get_system(GetSystemRequest {}),
-                        c.get_sessions_summary(GetSessionsSummaryRequest {}),
-                    )
-                })
-                .await;
+                let (health, res) = tokio::join!(
+                    health(&h),
+                    tokio::time::timeout(STATUS_TIMEOUT, async {
+                        let (mut a, mut b, mut c) = (h.ops(), h.ops(), h.ops());
+                        tokio::try_join!(
+                            a.get_version(GetVersionRequest {}),
+                            b.get_system(GetSystemRequest {}),
+                            c.get_sessions_summary(GetSessionsSummaryRequest {}),
+                        )
+                    })
+                );
                 let latency = started.elapsed().as_millis() as u64;
                 let mut st = RouterStatus {
                     id: h.id,
@@ -248,6 +257,7 @@ impl Registry {
                     checked_at: chrono::Utc::now(),
                     busy: false,
                     access: None,
+                    health,
                 };
                 match res {
                     Ok(Ok((v, s, ss))) => {
@@ -271,6 +281,14 @@ impl Registry {
                     }
                     Ok(Err(status)) => st.error = Some(grpc::describe(&status)),
                     Err(_) => st.error = Some("timed out".into()),
+                }
+                if st.health == Some(NOT_SERVING) {
+                    // Reachable, but not able to read the dataplane: say so, not "offline".
+                    let why = "the API answers but reports NOT_SERVING: the dataplane's statistics do not answer";
+                    st.error = Some(match st.error.take() {
+                        Some(e) => format!("{why} ({e})"),
+                        None => why.into(),
+                    });
                 }
                 st
             });
@@ -344,6 +362,25 @@ async fn hostname_fallback(h: &RouterHandle, cache: &HostnameCache) -> Option<St
     let name = hostname_from_running(&running.text)?;
     cache.write().unwrap().insert(h.id, (name.clone(), Instant::now()));
     Some(name)
+}
+
+const NOT_SERVING: &str = "not-serving";
+
+/// Standard health check of the service the status reads come from.
+async fn health(h: &RouterHandle) -> Option<&'static str> {
+    let mut client = HealthClient::new(h.channel.clone());
+    let req = grpc::req(HealthCheckRequest { service: "prisma.v1.OperationalService".into() });
+    let resp = tokio::time::timeout(STATUS_TIMEOUT, client.check(req)).await.ok()?.ok()?.into_inner();
+    health_word(resp.status)
+}
+
+fn health_word(status: i32) -> Option<&'static str> {
+    match ServingStatus::try_from(status).ok()? {
+        ServingStatus::Serving => Some("serving"),
+        ServingStatus::NotServing => Some(NOT_SERVING),
+        // UNKNOWN or SERVICE_UNKNOWN: the box cannot tell.
+        _ => None,
+    }
 }
 
 /// `WhoAmI`, at most every minute per router. A box without the rpc is
@@ -449,6 +486,19 @@ mod tests {
         ] {
             assert!(v(bad).is_err(), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::health_word;
+
+    #[test]
+    fn not_serving_is_its_own_state_and_unknown_is_none() {
+        assert_eq!(health_word(1), Some("serving"));
+        assert_eq!(health_word(2), Some("not-serving"));
+        assert_eq!(health_word(0), None);
+        assert_eq!(health_word(3), None, "SERVICE_UNKNOWN");
     }
 }
 
