@@ -144,13 +144,14 @@ mod tests {
         let v = op.get_version(GetVersionRequest {}).await.unwrap().into_inner();
         assert_eq!(v.hostname, "prisma-test");
 
-        let c = cfg.open_candidate(OpenCandidateRequest { from_revision: None }).await.unwrap().into_inner();
+        let c = cfg.open_candidate(OpenCandidateRequest { from_revision: None, ..Default::default() }).await.unwrap().into_inner();
         assert_eq!(c.base_revision, "r1");
         let cid = c.candidate_id;
         let edit = |path: &[&str], lines: &[&str]| EditRequest {
             candidate_id: cid.clone(),
             path: s(path),
             lines: s(lines),
+            ..Default::default()
         };
         cfg.edit(edit(&["interface lan0"], &["mtu 9000"])).await.unwrap();
 
@@ -161,12 +162,12 @@ mod tests {
         assert_eq!(d.items[0].message, "mtu must be between 1280 and 9216");
         assert_eq!(d.items[0].path, s(&["interface lan0"]));
 
-        let cmp = cfg.compare(CandidateRef { candidate_id: cid.clone() }).await.unwrap().into_inner();
+        let cmp = cfg.compare(CandidateRef { candidate_id: cid.clone(), ..Default::default() }).await.unwrap().into_inner();
         assert!(cmp.changed && cmp.diff.contains("+  mtu 9000"), "{}", cmp.diff);
 
         // Changing the block-size requires acknowledging the remap.
         cfg.edit(edit(&["nat", "cgnat", "pool RFC6598"], &["block-size 512"])).await.unwrap();
-        let chk = cfg.check(CandidateRef { candidate_id: cid.clone() }).await.unwrap().into_inner();
+        let chk = cfg.check(CandidateRef { candidate_id: cid.clone(), ..Default::default() }).await.unwrap().into_inner();
         assert!(chk.passed && chk.remap.len() == 1, "{chk:?}");
         let commit = |ack| CommitRequest {
             candidate_id: cid.clone(),
@@ -192,10 +193,10 @@ mod tests {
         assert_eq!(revs[1].comment, "loaded from file");
 
         // An old candidate on an outdated base is refused.
-        let old = cfg.open_candidate(OpenCandidateRequest { from_revision: Some(1) }).await.unwrap().into_inner();
+        let old = cfg.open_candidate(OpenCandidateRequest { from_revision: Some(1), ..Default::default() }).await.unwrap().into_inner();
         assert!(old.text.contains(" mtu 1500"));
-        let c2 = cfg.open_candidate(OpenCandidateRequest { from_revision: None }).await.unwrap().into_inner();
-        cfg.edit(EditRequest { candidate_id: c2.candidate_id.clone(), path: vec![], lines: s(&["hostname novo"]) })
+        let c2 = cfg.open_candidate(OpenCandidateRequest { from_revision: None, ..Default::default() }).await.unwrap().into_inner();
+        cfg.edit(EditRequest { candidate_id: c2.candidate_id.clone(), path: vec![], lines: s(&["hostname novo"]), ..Default::default() })
             .await
             .unwrap();
         cfg.commit(CommitRequest { candidate_id: c2.candidate_id, confirmed_minutes: 5, ..Default::default() })
@@ -210,9 +211,9 @@ mod tests {
         assert!(cfg.confirm(ConfirmRequest {}).await.is_err());
 
         // Show refuses configuration commands.
-        let err = op.show(ShowRequest { command: "configure terminal".into() }).await.unwrap_err();
+        let err = op.show(ShowRequest { command: "configure terminal".into(), ..Default::default() }).await.unwrap_err();
         assert!(err.message().starts_with("not an operational command"));
-        let r6 = op.show(ShowRequest { command: "show ipv6 route".into() }).await.unwrap().into_inner().text;
+        let r6 = op.show(ShowRequest { command: "show ipv6 route".into(), ..Default::default() }).await.unwrap().into_inner().text;
         assert!(r6.contains("C>* 2001:db8:200:10::/64 is directly connected, lan0"), "{r6}");
     }
 

@@ -18,17 +18,20 @@ pub fn policies() -> Vec<Policy> {
                     name: "bogons".into(),
                     then: "reject".into(),
                     lines: vec!["from prefix-list BOGONS".into()],
+                    ..Default::default()
                 },
                 PolicyTerm {
                     name: "cust".into(),
                     then: "accept".into(),
                     lines: vec!["from community CUSTOMERS".into(), "then local-preference 200".into()],
+                    ..Default::default()
                 },
-                PolicyTerm { name: "rest".into(), then: "accept".into(), lines: vec![] },
+                PolicyTerm { name: "rest".into(), then: "accept".into(), lines: vec![], ..Default::default() },
             ],
             default_action: "reject".into(),
             text: "policy-statement TRANSIT-IN\n term bogons\n  from prefix-list BOGONS\n  then reject\n term cust\n  from community CUSTOMERS\n  then local-preference 200\n  then accept\n term rest\n  then accept\n default-action reject\n".into(),
             applied: vec!["bgp neighbor 203.0.113.9 import".into(), "bgp neighbor 2001:db8:100::1 import".into()],
+            ..Default::default()
         },
         Policy {
             name: "CUSTOMER-OUT".into(),
@@ -37,16 +40,19 @@ pub fn policies() -> Vec<Policy> {
                     name: "own".into(),
                     then: "accept".into(),
                     lines: vec!["from prefix-list OWN-PREFIXES".into()],
+                    ..Default::default()
                 },
                 PolicyTerm {
                     name: "unused".into(),
                     then: "accept".into(),
                     lines: vec!["from protocol isis".into()],
+                    ..Default::default()
                 },
             ],
             default_action: "reject".into(),
             text: "policy-statement CUSTOMER-OUT\n term own\n  from prefix-list OWN-PREFIXES\n  then accept\n term unused\n  from protocol isis\n  then accept\n default-action reject\n".into(),
             applied: vec!["bgp neighbor 203.0.113.9 export".into(), "ospf export".into()],
+            ..Default::default()
         },
     ]
 }
@@ -58,7 +64,7 @@ pub fn counters(policy: &str, uptime: u64) -> Result<Vec<PolicyUseCounters>, Sta
         return Err(Status::not_found(format!("no policy {policy}")));
     }
     let t = uptime / 10;
-    let hits = |policy: &str, term: &str, h: u64| PolicyTermHits { policy: policy.into(), term: term.into(), hits: h, compiled: true };
+    let hits = |policy: &str, term: &str, h: u64| PolicyTermHits { policy: policy.into(), term: term.into(), hits: h, compiled: true, ..Default::default() };
     let mut uses = vec![
         PolicyUseCounters {
             policy: "TRANSIT-IN".into(),
@@ -74,6 +80,7 @@ pub fn counters(policy: &str, uptime: u64) -> Result<Vec<PolicyUseCounters>, Sta
                 hits("TRANSIT-IN", "rest", 1_198_000 + 7 * t),
                 hits("TRANSIT-IN", "", 0),
             ],
+            ..Default::default()
         },
         PolicyUseCounters {
             policy: "CUSTOMER-OUT".into(),
@@ -86,9 +93,10 @@ pub fn counters(policy: &str, uptime: u64) -> Result<Vec<PolicyUseCounters>, Sta
             terms: vec![
                 hits("CUSTOMER-OUT", "own", 64 + t / 100),
                 // A term with no clause at this use: `from protocol isis` means nothing to bgpd.
-                PolicyTermHits { policy: "CUSTOMER-OUT".into(), term: "unused".into(), hits: 0, compiled: false },
+                PolicyTermHits { policy: "CUSTOMER-OUT".into(), term: "unused".into(), hits: 0, compiled: false, ..Default::default() },
                 hits("CUSTOMER-OUT", "", 3 + t / 200),
             ],
+            ..Default::default()
         },
         PolicyUseCounters {
             policy: "CUSTOMER-OUT".into(),
@@ -100,6 +108,7 @@ pub fn counters(policy: &str, uptime: u64) -> Result<Vec<PolicyUseCounters>, Sta
             // The daemon reported no such map: no counter, which is not zero.
             counted: false,
             terms: vec![],
+            ..Default::default()
         },
     ];
     if !policy.is_empty() {
@@ -187,11 +196,12 @@ pub fn test(req: &TestPolicyRequest) -> Result<TestPolicyResponse, Status> {
         notes,
         said,
         refused: vec![],
+        ..Default::default()
     })
 }
 
 fn step(policy: &str, term: &str, outcome: &str, why: &str) -> TestPolicyStep {
-    TestPolicyStep { policy: policy.into(), term: term.into(), outcome: outcome.into(), why: why.into() }
+    TestPolicyStep { policy: policy.into(), term: term.into(), outcome: outcome.into(), why: why.into(), ..Default::default() }
 }
 
 #[cfg(test)]

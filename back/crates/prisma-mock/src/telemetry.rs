@@ -17,7 +17,7 @@ use crate::state::{timestamp, SharedRef};
 pub struct TelemetrySvc(pub SharedRef);
 
 fn update(u: Update) -> Result<TelemetryUpdate, Status> {
-    Ok(TelemetryUpdate { at: Some(timestamp(Utc::now())), update: Some(u) })
+    Ok(TelemetryUpdate { at: Some(timestamp(Utc::now())), update: Some(u), ..Default::default() })
 }
 
 #[tonic::async_trait]
@@ -44,9 +44,9 @@ impl TelemetryService for TelemetrySvc {
                                 .sims
                                 .iter()
                                 .filter(|s| req.interfaces.is_empty() || req.interfaces.contains(&s.name))
-                                .map(|s| InterfaceSample { name: s.name.clone(), counters: Some(s.counters) })
+                                .map(|s| InterfaceSample { name: s.name.clone(), counters: Some(s.counters), ..Default::default() })
                                 .collect();
-                            out.push(update(Update::Interfaces(InterfaceBatch { samples })));
+                            out.push(update(Update::Interfaces(InterfaceBatch { samples, ..Default::default() })));
                         }
                         if req.cgnat_totals {
                             let subscribers = st.subscribers as u64;
@@ -55,6 +55,7 @@ impl TelemetryService for TelemetrySvc {
                                 ports_in_use: subscribers * 180,
                                 sessions: subscribers * 35,
                                 refusals: st.refusals,
+                                ..Default::default()
                             })));
                         }
                     }

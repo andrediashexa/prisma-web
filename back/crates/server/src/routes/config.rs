@@ -70,7 +70,7 @@ impl Candidates {
 }
 
 fn cref(cid: &str) -> CandidateRef {
-    CandidateRef { candidate_id: cid.to_string() }
+    CandidateRef { candidate_id: cid.to_string(), ..Default::default() }
 }
 
 pub async fn running(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<ConfigText>> {
@@ -128,7 +128,7 @@ pub async fn open(
     close_expired(&st).await;
     let r = st.routers.get(id).await?;
     let from_revision = body.and_then(|Json(b)| b.from_revision);
-    let resp = r.config().open_candidate(req(OpenCandidateRequest { from_revision })).await?.into_inner();
+    let resp = r.config().open_candidate(req(OpenCandidateRequest { from_revision, ..Default::default() })).await?.into_inner();
     st.candidates.0.lock().unwrap().insert(
         resp.candidate_id.clone(),
         Owner { router_id: id, user_id: user.id, opened: Instant::now() },
@@ -155,7 +155,7 @@ pub async fn edit(
         return Err(AppError::BadRequest("no lines to apply".into()));
     }
     let r = st.routers.get(id).await?;
-    let msg = EditRequest { candidate_id: cid, path: body.path, lines };
+    let msg = EditRequest { candidate_id: cid, path: body.path, lines, ..Default::default() };
     Ok(Json(r.config().edit(req(msg)).await?.into_inner()))
 }
 
@@ -202,7 +202,7 @@ pub async fn rollback(
 ) -> AppResult<Json<EditResponse>> {
     st.candidates.check(id, &cid, &user)?;
     let r = st.routers.get(id).await?;
-    let msg = RollbackRequest { candidate_id: cid, revision: body.revision };
+    let msg = RollbackRequest { candidate_id: cid, revision: body.revision, ..Default::default() };
     Ok(Json(r.config().rollback(req(msg)).await?.into_inner()))
 }
 
@@ -269,6 +269,7 @@ pub async fn commit(
         acknowledge_remap: body.acknowledge_remap,
         acknowledge_cutoff: body.acknowledge_cutoff,
         acknowledge_diverge: body.acknowledge_diverge,
+        ..Default::default()
     };
     st.routers.telemetry.web_action(id);
     let res = r.config().commit(req(msg)).await;

@@ -205,6 +205,7 @@ async fn run(h: Arc<RouterHandle>, shared: Arc<Shared>) {
             interfaces: vec![],
             cgnat_totals: true,
             events: true,
+            ..Default::default()
         };
         match h.telemetry().subscribe(req).await {
             Ok(resp) => {
@@ -322,6 +323,7 @@ mod tests {
         InterfaceSample {
             name: name.into(),
             counters: Some(InterfaceCounters { rx_bytes: rx, tx_bytes: tx, ..Default::default() }),
+            ..Default::default()
         }
     }
 
