@@ -149,8 +149,8 @@ ao front, que mostra a mensagem, o caminho e a linha que o VTY citou:
   processo operacional da conta, que atende uma chamada por vez. Um `ping` longo fazia o monitor
   estourar os 4 s, e o roteador aparecia offline (reproduzido no e2e: OFFLINE em 4 leituras
   seguidas). O back conta os `Show` em andamento por roteador e, nesse caso, mantém os últimos
-  dados com `busy = true` ("ocupado (console)"). A 0.148.6 dá ao `Show` um processo próprio, e a
-  marcação deixa de ser necessária. O mock reproduz a trava da 0.148.5. Foi rejeitado usar uma conta
+  dados com `busy = true` ("ocupado (console)"). A 0.148.6 dá ao `Show` um processo próprio (dito
+  pela equipe do Prisma; não medido aqui), e a marcação deixa de ser necessária. O mock reproduz a trava da 0.148.5. Foi rejeitado usar uma conta
   separada para o console (um segundo certificado e uma segunda conta em cada equipamento) e
   serializar tudo no back (atrasaria as telas sem necessidade na 0.148.6).
 - O papel vale para todos os roteadores.
