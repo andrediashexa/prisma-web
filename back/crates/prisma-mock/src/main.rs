@@ -7,6 +7,7 @@ mod config_service;
 mod operational;
 mod policy;
 mod session;
+mod route_service;
 mod state;
 mod telemetry;
 
@@ -17,6 +18,7 @@ use std::time::Duration;
 use prisma_proto::v1::config_service_server::ConfigServiceServer;
 use prisma_proto::v1::operational_service_server::OperationalServiceServer;
 use prisma_proto::v1::session_service_server::SessionServiceServer;
+use prisma_proto::v1::route_service_server::RouteServiceServer;
 use prisma_proto::v1::telemetry_service_server::TelemetryServiceServer;
 use tokio::sync::broadcast;
 use tonic_health::pb::health_server::HealthServer;
@@ -101,6 +103,7 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
         .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared.clone())))
         .add_service(SessionServiceServer::new(session::SessionSvc))
         .add_service(HealthServer::new(HealthService::from_health_reporter(shared.health.clone())))
+        .add_service(RouteServiceServer::new(route_service::RouteSvc::default()))
 }
 
 /// Advances the simulation every second.
@@ -128,6 +131,7 @@ fn healthcheck() -> anyhow::Result<()> {
 mod tests {
     use prisma_proto::v1::config_service_client::ConfigServiceClient;
     use prisma_proto::v1::operational_service_client::OperationalServiceClient;
+    use prisma_proto::v1::route_service_client::RouteServiceClient;
     use prisma_proto::v1::telemetry_service_client::TelemetryServiceClient;
     use prisma_proto::v1::telemetry_update::Update;
     use prisma_proto::v1::*;
@@ -286,5 +290,15 @@ mod tests {
         let since = all[all.len() - 10].at;
         let tail: Vec<HistorySample> = tel.get_history(req(since)).await.unwrap().into_inner().collect::<Result<_, _>>().await.unwrap();
         assert_eq!(tail.len(), 9, "only samples after `since`");
+    }
+
+    #[tokio::test]
+    async fn route_service_is_served() {
+        let mut routes = RouteServiceClient::new(start("prisma-routes").await);
+        let p = routes.list_routes(ListRoutesRequest { page_size: 10, ..Default::default() }).await.unwrap().into_inner();
+        assert_eq!(p.routes.len(), 10);
+        assert!(!p.next_page_token.is_empty());
+        let s = routes.get_route_summary(GetRouteSummaryRequest::default()).await.unwrap().into_inner();
+        assert!(s.counts.iter().any(|c| c.protocol == "bgp" && c.family == 6));
     }
 }

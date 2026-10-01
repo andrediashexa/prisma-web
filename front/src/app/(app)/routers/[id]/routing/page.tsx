@@ -1,26 +1,38 @@
 "use client"
 
 import { useParams } from "next/navigation"
+import { useMemo, useState } from "react"
 import useSWR from "swr"
+import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
 
 import { BgpStateBadge } from "@/components/widgets/bgp-widget"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { api, fetcher } from "@/lib/api"
-import { formatNumber, formatUptime } from "@/lib/format"
+import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
+import { formatDateTime, formatNumber, formatUptime } from "@/lib/format"
 import {
   routerApi,
   type BgpNeighbor,
   type Bundle,
   type IsisAdjacency,
+  type ListRoutesResponse,
   type OspfNeighbor,
+  type Route,
+  type RouteNextHop,
+  type RouteSummary,
   type VrrpRouter,
 } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
-/** Output of a VTY `show` command (the proto has no typed routes yet). */
+/** Output of a VTY `show` command: the route view of boxes without RouteService. */
 function useShow(routerId: string, command: string) {
   return useSWR<{ text: string }>(
     [routerApi(routerId, "/show"), command],
@@ -182,7 +194,7 @@ export default function RoutingPage() {
         </Section>
       </div>
 
-      <RouteTables routerId={id} />
+      <Routes routerId={id} />
     </>
   )
 }
@@ -226,7 +238,7 @@ function RouteTables({ routerId }: { routerId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Routing table</CardTitle>
-        <CardDescription>VTY output (the proto does not expose typed routes yet)</CardDescription>
+        <CardDescription>VTY output: this router predates RouteService (Prisma 0.149.2)</CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="v4">
@@ -252,6 +264,388 @@ function RouteTables({ routerId }: { routerId: string }) {
           ))}
         </Tabs>
       </CardContent>
+    </Card>
+  )
+}
+
+/** A box older than the rpc: the back end turns UNIMPLEMENTED into 501. */
+function isUnimplemented(err: unknown) {
+  return err instanceof ApiError && err.code === "router_unimplemented"
+}
+
+const ALL = "all"
+const PAGE_SIZES = ["100", "500", "1000", "5000"]
+
+interface Filters {
+  vrf: string
+  family: string
+  protocol: string
+  prefix: string
+  selected: boolean
+  pageSize: string
+}
+
+const NO_FILTERS: Filters = { vrf: ALL, family: ALL, protocol: ALL, prefix: "", selected: false, pageSize: "1000" }
+
+/** One page already reached: its token ("" is the first) and the routes before it. */
+interface PageRef {
+  token: string
+  offset: number
+}
+
+const FIRST_PAGE: PageRef[] = [{ token: "", offset: 0 }]
+
+function routesPath(routerId: string, f: Filters, token: string) {
+  const q = new URLSearchParams()
+  if (f.vrf !== ALL) q.set("vrf", f.vrf)
+  if (f.family !== ALL) q.set("family", f.family)
+  if (f.protocol !== ALL) q.set("protocol", f.protocol)
+  if (f.prefix) q.set("prefix", f.prefix)
+  if (f.selected) q.set("selected", "true")
+  q.set("page_size", f.pageSize)
+  if (token) q.set("page_token", token)
+  return routerApi(routerId, `/routes?${q}`)
+}
+
+/**
+ * The typed routing table (#27): one page of the box's snapshot at a time.
+ * The first page (no token) takes a new snapshot, so it is fetched only when
+ * the filters change or on Refresh, never again on focus; going back reuses
+ * the pages already read.
+ */
+function Routes({ routerId }: { routerId: string }) {
+  const summary = useSWR<RouteSummary>(routerApi(routerId, "/routes/summary"), fetcher, {
+    refreshInterval: 30_000,
+    shouldRetryOnError: false,
+  })
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS)
+  const [prefixDraft, setPrefixDraft] = useState("")
+  const [pages, setPages] = useState<PageRef[]>(FIRST_PAGE)
+  // Part of the key, so the same filters can still take a new snapshot.
+  const [snapshot, setSnapshot] = useState(0)
+  const page = pages[pages.length - 1]
+  const list = useSWR<ListRoutesResponse>(
+    [routesPath(routerId, filters, page.token), snapshot],
+    ([path]: [string, number]) => api.get<ListRoutesResponse>(path),
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      revalidateOnReconnect: false,
+      shouldRetryOnError: false,
+      keepPreviousData: true,
+    },
+  )
+
+  const vrfs = useMemo(() => [...new Set(summary.data?.counts.map((c) => c.vrf) ?? [])], [summary.data])
+  const protocols = useMemo(() => [...new Set(summary.data?.counts.map((c) => c.protocol) ?? [])].sort(), [summary.data])
+
+  const apply = (patch: Partial<Filters>) => {
+    setFilters((f) => ({ ...f, ...patch }))
+    setPages(FIRST_PAGE)
+    setSnapshot((n) => n + 1)
+  }
+
+  if (isUnimplemented(list.error)) return <RouteTables routerId={routerId} />
+
+  const data = list.data
+  const expired = list.error instanceof ApiError && list.error.code === "router_refused" && page.token !== ""
+
+  return (
+    <>
+      {!isUnimplemented(summary.error) && (
+        <RouteSummaryCard
+          summary={summary.data}
+          error={summary.error}
+          onPick={(vrf, family, protocol) => apply({ vrf, family: String(family), protocol })}
+        />
+      )}
+
+      <Card className="py-0">
+        <CardHeader className="pt-6">
+          <CardTitle>Routing table</CardTitle>
+          <CardDescription>
+            <span className="font-mono">&gt;</span> selected, <span className="font-mono">*</span> in the FIB
+            {data?.snapshot_at && <> · snapshot taken {formatDateTime(data.snapshot_at)}</>}
+          </CardDescription>
+          <CardAction>
+            <Button variant="outline" size="sm" onClick={() => apply({})} disabled={list.isLoading}>
+              <RefreshCwIcon className={cn(list.isValidating && "animate-spin")} />
+              New snapshot
+            </Button>
+          </CardAction>
+        </CardHeader>
+
+        <CardContent className="flex flex-wrap items-end gap-3">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              apply({ prefix: prefixDraft.trim() })
+            }}
+          >
+            <Input
+              value={prefixDraft}
+              onChange={(e) => setPrefixDraft(e.target.value)}
+              placeholder="Prefix, e.g. 10.0.0.0/8"
+              aria-label="Prefix (and the prefixes inside it)"
+              className="w-56 font-mono"
+            />
+            <Button type="submit" variant="secondary" size="icon" aria-label="Search">
+              <SearchIcon />
+            </Button>
+            {filters.prefix && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label="Clear prefix"
+                onClick={() => {
+                  setPrefixDraft("")
+                  apply({ prefix: "" })
+                }}
+              >
+                <XIcon />
+              </Button>
+            )}
+          </form>
+          <FilterSelect label="VRF" value={filters.vrf} onChange={(vrf) => apply({ vrf })} options={vrfs.map((v) => [v, v])} />
+          <FilterSelect
+            label="Family"
+            value={filters.family}
+            onChange={(family) => apply({ family })}
+            options={[
+              ["4", "IPv4"],
+              ["6", "IPv6"],
+            ]}
+          />
+          <FilterSelect
+            label="Protocol"
+            value={filters.protocol}
+            onChange={(protocol) => apply({ protocol })}
+            options={protocols.map((p) => [p, p])}
+          />
+          <div className="flex items-center gap-2 pb-2">
+            <Switch id="routes-selected" checked={filters.selected} onCheckedChange={(selected) => apply({ selected })} />
+            <Label htmlFor="routes-selected">Selected only</Label>
+          </div>
+        </CardContent>
+
+        {list.error ? (
+          <CardContent className="space-y-3 pb-6 text-sm">
+            <p className="text-destructive">
+              {expired
+                ? "This snapshot expired: the router drops one nobody pages for 10 minutes. Take a new snapshot to continue."
+                : errorMessage(list.error)}
+            </p>
+            {expired && (
+              <Button variant="outline" size="sm" onClick={() => apply({})}>
+                New snapshot
+              </Button>
+            )}
+          </CardContent>
+        ) : !data ? (
+          <CardContent className="pb-6">
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        ) : data.routes.length === 0 ? (
+          <CardContent className="text-muted-foreground pb-6 text-sm">No route matches these filters.</CardContent>
+        ) : (
+          <div className={cn("overflow-x-auto", list.isValidating && "opacity-60")}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-6">Prefix</TableHead>
+                  <TableHead>Protocol</TableHead>
+                  <TableHead>VRF</TableHead>
+                  <TableHead className="text-right">Distance/metric</TableHead>
+                  <TableHead>Next hops</TableHead>
+                  <TableHead className="pr-6 text-right">Age</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.routes.map((r, i) => (
+                  <RouteRow key={`${r.vrf}-${r.prefix}-${r.protocol}-${i}`} route={r} />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 pb-6">
+          <p className="text-muted-foreground text-sm tabular-nums">
+            {data && data.routes.length > 0 && (
+              <>
+                Routes {formatNumber(page.offset + 1)}–{formatNumber(page.offset + data.routes.length)}
+                {data.total_known ? <> of {formatNumber(data.total)}</> : <> · total not known yet</>}
+              </>
+            )}
+          </p>
+          <div className="flex items-center gap-2">
+            <Select value={filters.pageSize} onValueChange={(pageSize) => apply({ pageSize })}>
+              <SelectTrigger size="sm" className="w-32" aria-label="Routes per page">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZES.map((n) => (
+                  <SelectItem key={n} value={n}>
+                    {formatNumber(Number(n))} / page
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" disabled={pages.length < 2} onClick={() => setPages((p) => p.slice(0, -1))}>
+              <ChevronLeftIcon />
+              Back
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!data?.next_page_token || list.isValidating}
+              onClick={() =>
+                data && setPages((p) => [...p, { token: data.next_page_token, offset: page.offset + data.routes.length }])
+              }
+            >
+              Next
+              <ChevronRightIcon />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  options: [string, string][]
+}) {
+  return (
+    <div className="grid gap-1">
+      <Label className="text-muted-foreground text-xs">{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Any</SelectItem>
+          {options.map(([v, text]) => (
+            <SelectItem key={v} value={v}>
+              {text}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+function RouteRow({ route: r }: { route: Route }) {
+  return (
+    <TableRow className={cn("align-top", !r.selected && "text-muted-foreground")}>
+      <TableCell className="pl-6 font-mono text-sm whitespace-nowrap">
+        <span className="text-muted-foreground mr-2 inline-block w-4 whitespace-pre">
+          {r.selected ? ">" : " "}
+          {r.installed ? "*" : " "}
+        </span>
+        {r.prefix}
+      </TableCell>
+      <TableCell>
+        <Badge variant={r.selected ? "secondary" : "outline"}>{r.protocol}</Badge>
+      </TableCell>
+      <TableCell>{r.vrf}</TableCell>
+      <TableCell className="text-right font-mono text-xs tabular-nums">
+        {r.distance}/{r.metric}
+      </TableCell>
+      <TableCell className="font-mono text-xs">
+        {r.next_hops.map((nh, i) => (
+          <div key={i} className={cn("whitespace-pre", !nh.active && "text-muted-foreground line-through")}>
+            {nh.fib ? "* " : "  "}
+            {nextHopText(nh)}
+          </div>
+        ))}
+      </TableCell>
+      <TableCell className="pr-6 text-right tabular-nums">{formatUptime(r.age_seconds)}</TableCell>
+    </TableRow>
+  )
+}
+
+function nextHopText(nh: RouteNextHop) {
+  if (nh.blackhole) return nh.blackhole
+  const where = nh.address ? `via ${nh.address}${nh.interface ? `, ${nh.interface}` : ""}` : `directly connected, ${nh.interface}`
+  return nh.vrf ? `${where} (vrf ${nh.vrf})` : where
+}
+
+/** RIB and FIB counts per VRF, family and protocol; a row filters the table to it. */
+function RouteSummaryCard({
+  summary,
+  error,
+  onPick,
+}: {
+  summary?: RouteSummary
+  error?: unknown
+  onPick: (vrf: string, family: number, protocol: string) => void
+}) {
+  const totals = summary?.counts.reduce((t, c) => ({ rib: t.rib + c.rib, fib: t.fib + c.fib }), { rib: 0, fib: 0 })
+  return (
+    <Card className="py-0">
+      <CardHeader className="pt-6">
+        <CardTitle>Route summary</CardTitle>
+        <CardDescription>Routes in the RIB and in the FIB, as zebra counts them. Pick a row to list its routes.</CardDescription>
+      </CardHeader>
+      {error ? (
+        <CardContent className="text-destructive pb-6 text-sm">{errorMessage(error)}</CardContent>
+      ) : !summary ? (
+        <CardContent className="pb-6">
+          <Skeleton className="h-24 w-full" />
+        </CardContent>
+      ) : summary.counts.length === 0 ? (
+        <CardContent className="text-muted-foreground pb-6 text-sm">The router holds no routes.</CardContent>
+      ) : (
+        <div className="overflow-x-auto pb-2">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="pl-6">VRF</TableHead>
+                <TableHead>Family</TableHead>
+                <TableHead>Protocol</TableHead>
+                <TableHead className="text-right">RIB</TableHead>
+                <TableHead className="pr-6 text-right">FIB</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {summary.counts.map((c) => (
+                <TableRow
+                  key={`${c.vrf}-${c.family}-${c.protocol}`}
+                  className="cursor-pointer"
+                  onClick={() => onPick(c.vrf, c.family, c.protocol)}
+                >
+                  <TableCell className="pl-6">{c.vrf}</TableCell>
+                  <TableCell>IPv{c.family}</TableCell>
+                  <TableCell>{c.protocol}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(c.rib)}</TableCell>
+                  <TableCell className="pr-6 text-right tabular-nums">{formatNumber(c.fib)}</TableCell>
+                </TableRow>
+              ))}
+              {totals && (
+                <TableRow className="font-medium">
+                  <TableCell className="pl-6" colSpan={3}>
+                    Total
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(totals.rib)}</TableCell>
+                  <TableCell className="pr-6 text-right tabular-nums">{formatNumber(totals.fib)}</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </Card>
   )
 }

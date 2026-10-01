@@ -15,6 +15,7 @@ Uses only the standard library. Exits with code 1 on the first failed check.
 
 import argparse
 import http.cookiejar
+import ipaddress
 import json
 import os
 import sys
@@ -171,6 +172,64 @@ def read_only_checks(admin, args):
         admin.delete(f"/routers/{r['id']}")
 
 
+def route_key(r):
+    return (r["vrf"], r["prefix"], r["protocol"], r["distance"])
+
+
+def route_checks(admin, R):
+    """Typed route table (RouteService, #27) on the mock: paging, filters, summary."""
+    st, summary = admin.get(R + "/routes/summary")
+    counts = (summary or {}).get("counts", [])
+    rib = {(c["vrf"], c["family"], c["protocol"]): c["rib"] for c in counts}
+    check(st == 200 and {v for v, _, _ in rib} == {"default", "red"} and {f for _, f, _ in rib} == {4, 6}
+          and {"bgp", "connected", "static", "ospf"} <= {p for _, _, p in rib},
+          "GetRouteSummary counts per VRF, family and protocol", summary)
+    check(all(0 <= c["fib"] <= c["rib"] for c in counts) and any(c["fib"] < c["rib"] for c in counts),
+          "summary keeps RIB and FIB apart", counts)
+    expected = sum(rib.values())
+
+    st, first = admin.get(R + "/routes?page_size=5000")
+    check(st == 200 and len(first["routes"]) == 5000 and first["next_page_token"] and first["snapshot_at"],
+          "ListRoutes answers one page of 5000 with a next-page token", {k: first[k] for k in first if k != "routes"} if first else first)
+    check(not first["total_known"], "the first page does not claim a total it has not read yet")
+    seen, token, pages, last = [route_key(r) for r in first["routes"]], first["next_page_token"], 1, first
+    while token:
+        # page_size is per call, not part of the snapshot.
+        st, last = admin.get(f"{R}/routes?page_size=5000&page_token={token}")
+        check(st == 200 and last["snapshot_at"] == first["snapshot_at"], f"page {pages + 1} continues the same snapshot", last and {k: last[k] for k in last if k != "routes"})
+        seen += [route_key(r) for r in last["routes"]]
+        token, pages = last["next_page_token"], pages + 1
+    check(pages >= 3 and last["total_known"] and last["total"] == len(seen) == expected,
+          f"paging through {pages} pages reads the whole table once ({len(seen)} routes, as the summary counts)",
+          {"pages": pages, "seen": len(seen), "total": last["total"], "summary": expected})
+    check(len(set(seen)) == len(seen), "no route is paged twice")
+
+    st, b = admin.get(R + "/routes?page_size=9000")
+    check(st == 200 and len(b["routes"]) == 5000, "page_size is capped at 5000", len((b or {}).get("routes", [])))
+
+    st, b = admin.get(R + "/routes?vrf=red&family=6&protocol=bgp&page_size=5000")
+    check(st == 200 and b["routes"] and all((r["vrf"], r["family"], r["protocol"]) == ("red", 6, "bgp") for r in b["routes"])
+          and len(b["routes"]) == rib[("red", 6, "bgp")], "filter by VRF, family and protocol matches the summary", b and len(b["routes"]))
+    net = ipaddress.ip_network("23.0.0.0/16")
+    st, b = admin.get(R + "/routes?prefix=23.0.0.0/16&page_size=5000")
+    inside = (b or {}).get("routes", [])
+    check(st == 200 and inside and all(ipaddress.ip_network(r["prefix"]).subnet_of(net) for r in inside),
+          f"prefix filter lists the prefix and what is inside it ({len(inside)} routes)", b)
+    st, b = admin.get(R + "/routes?prefix=23.0.0.0/16&selected=true&page_size=5000")
+    sel = (b or {}).get("routes", [])
+    check(st == 200 and sel and all(r["selected"] for r in sel) and len(sel) < len(inside),
+          "selected-only drops the routes FRR did not select", [len(sel), len(inside)])
+
+    st, b = admin.get(R + "/routes?family=5")
+    check(st == 422, "an unknown family is refused", b)
+    st, b = admin.get(R + "/routes?vrf=nope")
+    check(st == 404, "an unknown VRF answers NOT_FOUND, as Prisma 0.149.4 does", b)
+    st, b = admin.get(R + "/routes?page_token=999999.0")
+    check(st == 409 and b["error"]["code"] == "router_refused", "a token of a dropped snapshot answers 409", b)
+    st, _ = Client(admin.base).get(R + "/routes")
+    check(st == 401, "the route table requires a session")
+
+
 def lab(admin, args):
     """Real Prisma: read calls only. No candidate, commit or console."""
     st, b = tls_test(admin, args.lab, args.lab_profile, args.server_name)
@@ -201,6 +260,18 @@ def lab(admin, args):
         check(st == 200 and st2 == 200, f"policies and counters of the real Prisma ({len(pol['policies'])} policies, {len(cnt['uses'])} uses)", [pol, cnt])
         st, b = admin.post(R + "/policies/test", {"policy": "E2E-NO-SUCH-POLICY", "prefix": "192.0.2.0/24"})
         check(st == 404, "TestPolicy of an unknown policy on the real Prisma answers NOT_FOUND", b)
+        st, b = admin.get(R + "/routes?page_size=100")
+        if st == 501:
+            check(b["error"]["code"] == "router_unimplemented", "real Prisma without RouteService answers 501, the UI falls back to text", b)
+        else:
+            check(st == 200 and "routes" in b and b["snapshot_at"],
+                  f"ListRoutes on the real Prisma ({len(b['routes'])} routes on the first page, total {b['total'] if b['total_known'] else 'not known yet'})", b)
+            if b["next_page_token"]:
+                st, b2 = admin.get(f"{R}/routes?page_size=100&page_token={b['next_page_token']}")
+                check(st == 200 and b2["snapshot_at"] == b["snapshot_at"], f"second page of the real Prisma's snapshot ({len(b2['routes'])} routes)", b2)
+            st, s_ = admin.get(R + "/routes/summary")
+            check(st == 200 and "counts" in s_,
+                  f"GetRouteSummary on the real Prisma ({sum(c['rib'] for c in s_['counts'])} routes in the RIB, {sum(c['fib'] for c in s_['counts'])} in the FIB)", s_)
         st, b = admin.get(R + "/system")
         check(st == 200 and b.get("boot_time") and b.get("last_boot_reason"),
               f"uptime breakdown of the real Prisma (last boot: {b.get('last_boot_reason')}, dataplane restarted: {b.get('dataplane_restarted')})", b)
@@ -433,6 +504,8 @@ def main():
         check(st == 404 and "NOPE" in b["error"]["message"], "TestPolicy of an unknown policy answers NOT_FOUND", b)
         st, b = admin.post(R + "/policies/test", {"policy": "TRANSIT-IN", "prefix": "198.51.100.0/24", "attach_point": "nowhere"})
         check(st == 422, "TestPolicy at an unknown attach point answers INVALID_ARGUMENT", b)
+
+        route_checks(admin, R)
     finally:
         if op_id:
             admin.delete(f"/users/{op_id}")

@@ -407,3 +407,54 @@ export interface TestPolicyResponse {
   said: string[]
   refused: string[]
 }
+
+// Typed routing table, RouteService of Prisma 0.149.2 (#27).
+export interface RouteNextHop {
+  /** Empty for a route straight onto an interface. */
+  address: string
+  interface: string
+  active: boolean
+  fib: boolean
+  weight: number
+  directly_connected: boolean
+  /** The next hop's VRF when it is not the route's (a leaked route). */
+  vrf: string
+  /** "blackhole", "reject" or "" for a forwarding next hop. */
+  blackhole: string
+}
+
+export interface Route {
+  vrf: string
+  prefix: string
+  family: 4 | 6
+  protocol: string
+  distance: number
+  metric: number
+  selected: boolean
+  installed: boolean
+  next_hops: RouteNextHop[]
+  table: number
+  age_seconds: number
+}
+
+export interface ListRoutesResponse {
+  routes: Route[]
+  /** Empty on the snapshot's last page. */
+  next_page_token: string
+  /** Meaningful only when total_known. */
+  total: number
+  total_known: boolean
+  snapshot_at: string | null
+}
+
+export interface RouteCount {
+  vrf: string
+  family: 4 | 6
+  protocol: string
+  rib: number
+  fib: number
+}
+
+export interface RouteSummary {
+  counts: RouteCount[]
+}

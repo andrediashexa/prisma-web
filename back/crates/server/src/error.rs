@@ -55,6 +55,8 @@ impl AppError {
                 Code::NotFound => (StatusCode::NOT_FOUND, "router_not_found"),
                 Code::PermissionDenied => (StatusCode::FORBIDDEN, "router_forbidden"),
                 Code::DeadlineExceeded => (StatusCode::GATEWAY_TIMEOUT, "router_timeout"),
+                // A box older than the rpc: the front falls back to what it had before (#27).
+                Code::Unimplemented => (StatusCode::NOT_IMPLEMENTED, "router_unimplemented"),
                 _ => (StatusCode::BAD_GATEWAY, "router_unavailable"),
             },
             Self::Db(_) | Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
@@ -129,5 +131,6 @@ mod tests {
         assert_eq!(code(tonic::Status::unavailable("x")).0, StatusCode::BAD_GATEWAY);
         assert_eq!(code(tonic::Status::deadline_exceeded("x")).0, StatusCode::GATEWAY_TIMEOUT);
         assert_eq!(code(tonic::Status::permission_denied("x")).0, StatusCode::FORBIDDEN);
+        assert_eq!(code(tonic::Status::unimplemented("x")), (StatusCode::NOT_IMPLEMENTED, "router_unimplemented"));
     }
 }
