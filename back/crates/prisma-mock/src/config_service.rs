@@ -95,6 +95,11 @@ impl ConfigSvc {
 #[tonic::async_trait]
 impl ConfigService for ConfigSvc {
     async fn open_candidate(&self, req: Request<OpenCandidateRequest>) -> R<OpenCandidateResponse> {
+        // Like the box: a read-only login cannot open a candidate.
+        let who = crate::session::identity(&crate::session::account_of(&req));
+        if !who.can_configure && !who.can_configure_cgnat {
+            return Err(Status::permission_denied(format!("account {} is read-only", who.account)));
+        }
         let req = req.into_inner();
         let mut st = self.0.state.lock().unwrap();
         let config = match req.from_revision {

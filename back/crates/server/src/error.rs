@@ -19,6 +19,9 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    /// The box's account for this router cannot change anything (#28).
+    #[error("{0}")]
+    ReadOnly(String),
     #[error("too many attempts; try again in {0} minute(s)")]
     TooManyAttempts(u64),
     #[error("{0}")]
@@ -43,6 +46,7 @@ impl AppError {
             Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             Self::BadRequest(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
+            Self::ReadOnly(_) => (StatusCode::FORBIDDEN, "router_read_only"),
             Self::TooManyAttempts(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             // VTY refusals go back to the user with the VTY's own report.
             Self::Prisma(s) => match s.code() {

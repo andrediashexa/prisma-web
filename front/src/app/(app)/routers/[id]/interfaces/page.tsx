@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useMe } from "@/hooks/use-me"
+import { useRouterAccess } from "@/hooks/use-routers"
 import { errorMessage, fetcher } from "@/lib/api"
 import { formatBytes, formatNumber } from "@/lib/format"
 import { hasRole, MTU_MAX, MTU_MIN, routerApi, type RouterInterface } from "@/lib/types"
@@ -32,7 +33,8 @@ export default function InterfacesPage() {
   const [editing, setEditing] = useState<RouterInterface | null>(null)
   const [preparing, setPreparing] = useState<string | null>(null)
   const [review, setReview] = useState<Review | null>(null)
-  const canEdit = hasRole(me, "operator")
+  const { readOnly } = useRouterAccess(id)
+  const canEdit = hasRole(me, "operator") && !readOnly
 
   /** Opens a candidate with the lines and shows the review before commit. */
   async function propose(name: string, edit: EditBlock, title: string, comment: string) {

@@ -102,6 +102,9 @@ until the next reboot.
 | `operator` | Change the configuration, use the console and see the log. |
 | `viewer` | Only view. |
 
+These are the web roles. Each Prisma also gives prisma-web's account its own role (shown next to
+the router); when that role is read-only, nobody can change that router through prisma-web.
+
 - **Sessions:** an `HttpOnly` cookie with `SameSite=Strict`, and the database stores only the
   SHA-256 of the token.
 - **Brute force:** 10 failures in 15 min block the IP, or the whole /64 in the case of IPv6.

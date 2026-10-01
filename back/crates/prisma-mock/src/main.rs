@@ -6,6 +6,7 @@ mod config;
 mod config_service;
 mod operational;
 mod policy;
+mod session;
 mod state;
 mod telemetry;
 
@@ -15,6 +16,7 @@ use std::time::Duration;
 
 use prisma_proto::v1::config_service_server::ConfigServiceServer;
 use prisma_proto::v1::operational_service_server::OperationalServiceServer;
+use prisma_proto::v1::session_service_server::SessionServiceServer;
 use prisma_proto::v1::telemetry_service_server::TelemetryServiceServer;
 use tokio::sync::broadcast;
 use tonic::transport::server::Router;
@@ -89,6 +91,7 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
         .add_service(ConfigServiceServer::new(config_service::ConfigSvc(shared.clone())))
         .add_service(OperationalServiceServer::new(operational::OperationalSvc { shared: shared.clone(), hostname }))
         .add_service(TelemetryServiceServer::new(telemetry::TelemetrySvc(shared)))
+        .add_service(SessionServiceServer::new(session::SessionSvc))
 }
 
 /// Advances the simulation every second.

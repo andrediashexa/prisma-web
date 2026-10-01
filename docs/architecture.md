@@ -61,8 +61,10 @@ profile listing shows the account (CN), the CA and the validity, but never the c
 files.
 
 `prisma-mock-2` serves mTLS like the real Prisma. The `dev-certs` service generates a development
-CA and three profiles: `dev/mock` (valid), `dev/other-ca` (the client MUST refuse the server) and
-`dev/intruder` (the server MUST refuse the client). `scripts/e2e.py` checks all three.
+CA and four profiles: `dev/mock` (valid), `dev/other-ca` (the client MUST refuse the server),
+`dev/intruder` (the server MUST refuse the client) and `dev/readonly` (CN `noc`, which the mock maps
+to a read-only login). `scripts/e2e.py` checks all four. The mock takes the account from the client
+certificate's CN like the box, and its roles from `MOCK_ACCOUNTS`.
 
 ## Fleet status
 
@@ -199,6 +201,10 @@ cited:
   `Show`. The mock reproduces the 0.148.5 lock. Using a separate account for the console (a second
   certificate and a second account on each device) was rejected, and so was serializing everything
   in the back (it would slow the screens down needlessly on 0.148.6).
-- The role applies to all routers.
+- The web role applies to all routers. Each router also has the box's own role for prisma-web's
+  account (`WhoAmI`, refreshed every minute by the fleet monitor). A read-only login disables the
+  change actions on that router and the back refuses its changes with `router_read_only` before
+  calling the box. A box older than 0.149.2 answers `UNIMPLEMENTED`: the role is unknown and
+  nothing is disabled (#28).
 - The front has no automated tests beyond lint and build. The `scripts/e2e.py` script covers the
   behaviour through the API.

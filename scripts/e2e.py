@@ -109,6 +109,7 @@ def tls_checks(admin, args):
     m = args.tls_mock
     st, b = tls_test(admin, m, "dev/mock", args.server_name)
     check(st == 200 and b["account"] == "prisma-web-dev", "mTLS with the right profile connects and shows the account", b)
+    check((b.get("access") or {}).get("role") == "administrator", "connection test shows the role the box gives the account (WhoAmI)", b)
     st, b = tls_test(admin, m, "dev/other-ca", args.server_name)
     check(st == 422 and "UnknownIssuer" in b["error"]["message"], "server from an unknown CA is refused", b)
     st, b = tls_test(admin, m, "dev/intruder", args.server_name)
@@ -131,14 +132,37 @@ def tls_checks(admin, args):
               "mock with a restarted dataplane reports dataplane_restarted", sysinfo)
     finally:
         admin.delete(f"/routers/{r['id']}")
+    read_only_checks(admin, args)
     st, b = tls_test(admin, m, "../etc", args.server_name)
     check(st == 422 and "invalid TLS profile" in b["error"]["message"], "profile with ../ is refused", b)
+
+
+def read_only_checks(admin, args):
+    """A certificate the box maps to a read-only login (#28): shown, and refused by the back itself."""
+    st, r = admin.post("/routers", {"name": f"e2e-ro-{uuid.uuid4().hex[:6]}", "api_url": args.tls_mock, "tls_profile": "dev/readonly", "tls_server_name": args.server_name})
+    check(st == 201, "router registered with a read-only certificate", r)
+    try:
+        f = wait_for(
+            lambda: (lambda s: (bool(s) and s[0]["online"] and s[0].get("access") is not None, s))(
+                [x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]
+            ),
+            "fleet status carries the account's role",
+        )[0]
+        a = f["access"]
+        check(a["account"] == "noc" and a["role"] == "read-only" and not a["can_configure"], f"role of the read-only certificate ({a['account']}: {a['role']})", a)
+        st, b = admin.post(f"/routers/{r['id']}/config/candidates")
+        check(st == 403 and b["error"]["code"] == "router_read_only" and "read-only" in b["error"]["message"],
+              "the back refuses a candidate for a read-only account before asking the box", b)
+    finally:
+        admin.delete(f"/routers/{r['id']}")
 
 
 def lab(admin, args):
     """Real Prisma: read calls only. No candidate, commit or console."""
     st, b = tls_test(admin, args.lab, args.lab_profile, args.server_name)
     check(st == 200 and b.get("release"), f"mTLS with the real Prisma ({b.get('release') if st == 200 else '?'}), account {b.get('account') if st == 200 else '?'}", b)
+    a = b.get("access") or {}
+    check(a.get("role"), f"WhoAmI on the real Prisma: {a.get('account')} is {a.get('role')} (configure: {a.get('can_configure')}, CGNAT: {a.get('can_configure_cgnat')})", b)
     name = f"e2e-lab-{uuid.uuid4().hex[:6]}"
     registered_at = time.time()
     st, r = admin.post("/routers", {"name": name, "api_url": args.lab, "tls_profile": args.lab_profile, "tls_server_name": args.server_name})
