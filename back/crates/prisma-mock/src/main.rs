@@ -5,6 +5,7 @@
 mod config;
 mod config_service;
 mod operational;
+mod policy;
 mod state;
 mod telemetry;
 

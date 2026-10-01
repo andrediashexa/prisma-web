@@ -16,6 +16,7 @@ const TABS = [
   { href: "/config", label: "Configuration" },
   { href: "/cgnat", label: "CGNAT" },
   { href: "/routing", label: "Routing" },
+  { href: "/policies", label: "Policies" },
   { href: "/console", label: "Console" },
 ]
 

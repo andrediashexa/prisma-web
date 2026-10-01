@@ -105,6 +105,18 @@ Uptime card and warns in the fleet and in the router dashboard when the dataplan
 A field the box could not read is unset and MUST be shown as unknown, never as zero or as 1970;
 `crate::ser::timestamp` serializes an unset timestamp as `null`.
 
+## Routing policies
+
+From Prisma 0.148.12 the back end passes three read-only rpcs through (#21): `ListPolicies`
+(`GET /api/routers/{id}/policies`), `GetPolicyCounters` (`GET …/policies/counters?policy=`) and
+`TestPolicy` (`POST …/policies/test`, operators only, since it makes the box work even though it
+changes nothing). The Policies tab shows each policy with its terms, default action, where it is
+applied and its VTY text; the counters per attach point, where `counted = false` is shown as
+"no counter" (the daemon reported no such map, which is not zero) and `compiled = false` as "not
+compiled here"; and a test form with the verdict, the deciding term, every step and the route
+before and after the sets. A `then reject` term with `from policy X` is not special-cased: the
+box rejects more than X accepts until Prisma 0.148.13 (Prisma #542).
+
 ## Configuration
 
 ```mermaid

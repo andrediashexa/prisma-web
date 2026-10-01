@@ -11,7 +11,7 @@ The key words MUST, MUST NOT, SHOULD and MAY follow [RFC 2119](https://www.rfc-e
 
 | 5W2H | |
 |---|---|
-| **What** | Dashboard, configuration, CGNAT, routing and console for each Prisma; a per-user widget homepage; local accounts and a change log. |
+| **What** | Dashboard, configuration, CGNAT, routing, routing policies (with per-term counters and a policy test) and console for each Prisma; a per-user widget homepage; local accounts and a change log. |
 | **Why** | Touching a production router through the web is only acceptable if every change is reviewed first, can undo itself, and is recorded with its author and diff. |
 | **Who** | Administrators (users and router registration), operators (changes and console) and read-only users. |
 | **Where** | A host with Docker that can reach the gRPC port of each Prisma. |

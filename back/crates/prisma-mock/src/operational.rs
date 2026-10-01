@@ -382,6 +382,23 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         }))
     }
 
+    async fn list_policies(&self, _: Request<ListPoliciesRequest>) -> R<ListPoliciesResponse> {
+        let _turno = self.shared.ops.lock().await;
+        Ok(Response::new(ListPoliciesResponse { policies: crate::policy::policies() }))
+    }
+
+    async fn get_policy_counters(&self, req: Request<GetPolicyCountersRequest>) -> R<GetPolicyCountersResponse> {
+        let _turno = self.shared.ops.lock().await;
+        let uptime = self.shared.state.lock().unwrap().uptime_seconds();
+        let uses = crate::policy::counters(&req.into_inner().policy, uptime)?;
+        Ok(Response::new(GetPolicyCountersResponse { uses }))
+    }
+
+    async fn test_policy(&self, req: Request<TestPolicyRequest>) -> R<TestPolicyResponse> {
+        let _turno = self.shared.ops.lock().await;
+        Ok(Response::new(crate::policy::test(&req.into_inner())?))
+    }
+
     async fn show(&self, req: Request<ShowRequest>) -> R<ShowResponse> {
         let _turno = self.shared.ops.lock().await;
         let command = req.into_inner().command;

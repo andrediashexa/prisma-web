@@ -16,6 +16,19 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.7.0 - Routing policies — 2026-10-01
+
+### New
+- **Policies** tab per router: every routing policy with its terms, default action, where it is applied and its VTY text (#21).
+- Per-term counters at each place a policy is applied. "no counter" is shown apart from 0, and a term that compiles to nothing at a use is marked (#21).
+- Policy test: simulate a policy on a described route, or on one read from the router's RIB, at a given attach point. It shows the verdict, the deciding term, every step and the route before and after the sets. Needs Prisma 0.148.12 or newer (#21).
+
+### Internal
+- Client regenerated from the Prisma 0.148.12 contract (three new read-only rpcs). The mock implements them. `scripts/e2e.py` has 63 checks, and `--lab` has 14 checks, passed against the 0.148.12 lab box (#21).
+
+### Limits
+- A `then reject` term with `from policy X` rejects more than X accepts on the Prisma until 0.148.13 (Prisma #542); prisma-web shows what the box answers (#21).
+
 ## 0.6.0 - Uptime breakdown — 2026-10-01
 
 ### New
