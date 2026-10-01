@@ -89,7 +89,7 @@ services:
       - sh
       - -c
       - >-
-        test -d dev-certs/profiles/mock && exit 0;
+        test -d dev-certs/profiles/intruder && exit 0;
         apk add -q --no-cache openssl && sh scripts/dev-certs.sh &&
         chown -R ${PRISMA_TLS_GID:-1000}:${PRISMA_TLS_GID:-1000} dev-certs
 
@@ -103,7 +103,7 @@ services:
     restart: unless-stopped
     environment:
       BIND_ADDR: "[::]:50051"
-      MOCK_HOSTNAME: prisma-matriz
+      MOCK_HOSTNAME: prisma-hq
     networks: [internal]
 
   prisma-mock-2:
@@ -117,7 +117,7 @@ services:
     restart: unless-stopped
     environment:
       BIND_ADDR: "[::]:50051"
-      MOCK_HOSTNAME: prisma-filial
+      MOCK_HOSTNAME: prisma-branch
       MOCK_TRAFFIC_SCALE: "0.3"
       MOCK_TLS_DIR: /run/tls
     volumes:

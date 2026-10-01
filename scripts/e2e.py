@@ -98,9 +98,9 @@ def tls_checks(admin, args):
     m = args.tls_mock
     st, b = tls_test(admin, m, "dev/mock", args.server_name)
     check(st == 200 and b["account"] == "prisma-web-dev", "mTLS with the right profile connects and shows the account", b)
-    st, b = tls_test(admin, m, "dev/outra-ca", args.server_name)
+    st, b = tls_test(admin, m, "dev/other-ca", args.server_name)
     check(st == 422 and "UnknownIssuer" in b["error"]["message"], "server from an unknown CA is refused", b)
-    st, b = tls_test(admin, m, "dev/intruso", args.server_name)
+    st, b = tls_test(admin, m, "dev/intruder", args.server_name)
     check(st == 422, "client from another CA is refused by the server", b)
     st, b = tls_test(admin, m, "dev/mock", "wrong-name")
     check(st == 422 and "wrong-name" in b["error"]["message"], "wrong server name is refused", b)

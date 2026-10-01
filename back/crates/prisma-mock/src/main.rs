@@ -217,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn telemetry_stream() {
-        let ch = start("prisma-filial").await;
+        let ch = start("prisma-branch").await;
         let mut tel = TelemetryServiceClient::new(ch.clone());
         assert!(tel.subscribe(SubscribeRequest { interval_ms: 100, ..Default::default() }).await.is_err());
         let mut stream = tel

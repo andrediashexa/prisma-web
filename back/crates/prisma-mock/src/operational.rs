@@ -76,13 +76,13 @@ fn hms(secs: u64) -> String {
 
 impl OperationalSvc {
     fn bgp(&self, st: &State) -> Vec<BgpNeighbor> {
-        let filial = self.hostname.contains("filial");
+        let branch = self.hostname.contains("branch");
         st.running
             .bgp_neighbors()
             .into_iter()
             .map(|(peer, asn)| {
                 let v6 = peer.contains(':');
-                let down = v6 && filial;
+                let down = v6 && branch;
                 BgpNeighbor {
                     vrf: "default".into(),
                     remote_as: asn,
