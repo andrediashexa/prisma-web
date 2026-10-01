@@ -45,14 +45,17 @@ mapeamento fica em `front/src/lib/vty.ts`.
 - **A conta é o CN do certificado do cliente**, e o papel vem do VTY. O certificado do prisma-web
   tem CN `prisma-web`, com papel de administrador (Prisma).
 - **Nome do servidor no certificado: `prisma-api`**, e o IP também está no SAN (Prisma).
-- A 0.148.4 lista no `ListInterfaces` as interfaces `tap*` internas do linux_cp; isso será
-  corrigido na 0.148.5, e até lá o back as esconde (Prisma).
+- A 0.148.4 lista no `ListInterfaces` as interfaces `tap*` internas do linux_cp. A 0.148.5 já
+  as omite (Prisma; verificado no laboratório em 2026-10-01), e o filtro do back só tem efeito na
+  0.148.4.
 
 ### ✅ 1.3 `Show` e comandos que demoram — respondida
-Cada chamada roda no processo da conta, com **300 s** de limite no servidor. O corte de 30 s do
-console é mais curto, e isso é aceitável. `monitor` é uma tela ao vivo que o VTY recusa sem
-terminal: pelo `Show` ele não transmite. Contadores ao vivo vêm do `TelemetryService.Subscribe`.
-(Prisma)
+Cada chamada roda no processo da conta, com **300 s** de limite no servidor; passado esse tempo,
+a resposta é `UNAVAILABLE`. O corte de 30 s do console é mais curto, e isso é aceitável. A partir da
+0.148.5, o `Show` recusa `monitor`, que redesenha um terminal que a chamada não tem. Contadores ao
+vivo vêm do `TelemetryService.Subscribe`. Cada sessão atende **uma requisição por vez**: um
+candidate é um processo, e as leituras operacionais da conta são outro (guia, seção *Limits a
+client meets*). O efeito disso no prisma-web está na issue #14. (Prisma, guia)
 
 ### ✅ 1.4 Candidatos abandonados — respondida
 O servidor fecha um candidate **parado por 30 min** e o processo operacional de uma conta parado
