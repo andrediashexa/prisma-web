@@ -11,11 +11,11 @@ import { useFleetStatus, useRouters } from "@/hooks/use-routers"
 import { cn } from "@/lib/utils"
 
 const TABS = [
-  { href: "", label: "Painel" },
+  { href: "", label: "Dashboard" },
   { href: "/interfaces", label: "Interfaces" },
-  { href: "/config", label: "Configuração" },
+  { href: "/config", label: "Configuration" },
   { href: "/cgnat", label: "CGNAT" },
-  { href: "/routing", label: "Roteamento" },
+  { href: "/routing", label: "Routing" },
   { href: "/console", label: "Console" },
 ]
 
@@ -32,9 +32,9 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
     return (
       <div className="text-muted-foreground flex min-h-64 flex-col items-center justify-center gap-3 text-sm">
         <ServerOffIcon className="size-6" />
-        Roteador não encontrado. Ele pode ter sido removido.
+        Router not found. It may have been removed.
         <Button variant="outline" asChild>
-          <Link href="/routers">Ver roteadores</Link>
+          <Link href="/routers">View routers</Link>
         </Button>
       </div>
     )
@@ -83,10 +83,10 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
       <PendingConfirmBanner routerId={id} />
       {status && !status.online && (
         <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
-          Não foi possível falar com este Prisma: {status.error}
+          Could not reach this router: {status.error}
         </div>
       )}
-      {/* Grid, não flex: em flex, cards com overflow-hidden encolhem quando um widget usa h-full. */}
+      {/* Grid, not flex: in flex, cards with overflow-hidden shrink when a widget uses h-full. */}
       <div className="grid min-w-0 gap-6">{children}</div>
     </>
   )

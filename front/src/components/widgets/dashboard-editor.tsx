@@ -68,7 +68,7 @@ export function DashboardEditor() {
   const [adding, setAdding] = useState(false)
   const [configuring, setConfiguring] = useState<Widget | null>(null)
 
-  // O padrão gera ids novos; sem memo, os widgets remontariam a cada revalidação do SWR.
+  // The default layout generates new ids; without memo, widgets would remount on every SWR revalidation.
   const current = useMemo(
     () => (saved && routers ? (saved.layout ?? defaultLayout(routers)) : null),
     [saved, routers],
@@ -82,7 +82,7 @@ export function DashboardEditor() {
   if (!current || !routers) {
     return (
       <>
-        <PageHeader title="Visão geral" />
+        <PageHeader title="Overview" />
         <Skeleton className="h-96 w-full rounded-xl" />
       </>
     )
@@ -99,7 +99,7 @@ export function DashboardEditor() {
       await api.put("/dashboard", draft)
       await mutate({ layout: draft }, { revalidate: false })
       setDraft(null)
-      toast.success("Página salva")
+      toast.success("Page saved")
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -113,7 +113,7 @@ export function DashboardEditor() {
       await api.delete("/dashboard")
       await mutate({ layout: null }, { revalidate: false })
       setDraft(null)
-      toast.success("Página restaurada para o padrão")
+      toast.success("Page reset to default")
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -133,36 +133,36 @@ export function DashboardEditor() {
   return (
     <>
       <PageHeader
-        title="Visão geral"
-        description={editing ? "Arraste os widgets para reordenar. Use o menu de cada um para ajustar tamanho e dados." : "Sua página inicial personalizada"}
+        title="Overview"
+        description={editing ? "Drag widgets to reorder them. Use each widget's menu to adjust its size and data." : "Your personalized home page"}
       >
         {editing ? (
           <>
             <Button variant="ghost" onClick={reset} disabled={saving}>
-              <RotateCcwIcon /> Restaurar padrão
+              <RotateCcwIcon /> Reset to default
             </Button>
             <Button variant="outline" onClick={() => setAdding(true)}>
-              <PlusIcon /> Adicionar widget
+              <PlusIcon /> Add widget
             </Button>
             <Button variant="outline" onClick={() => setDraft(null)} disabled={saving}>
-              <XIcon /> Cancelar
+              <XIcon /> Cancel
             </Button>
             <Button onClick={save} disabled={saving}>
-              {saving ? <Loader2Icon className="animate-spin" /> : <SaveIcon />} Salvar
+              {saving ? <Loader2Icon className="animate-spin" /> : <SaveIcon />} Save
             </Button>
           </>
         ) : (
           <Button variant="outline" onClick={() => setDraft(current)}>
-            <PencilIcon /> Personalizar
+            <PencilIcon /> Customize
           </Button>
         )}
       </PageHeader>
 
       {layout.widgets.length === 0 && (
         <div className="text-muted-foreground flex min-h-48 flex-col items-center justify-center gap-3 rounded-xl border border-dashed text-sm">
-          Nenhum widget nesta página.
+          No widgets on this page.
           <Button variant="outline" onClick={() => { if (!editing) setDraft(current); setAdding(true) }}>
-            <PlusIcon /> Adicionar widget
+            <PlusIcon /> Add widget
           </Button>
         </div>
       )}
@@ -242,7 +242,7 @@ function SortableWidget({
             variant="ghost"
             size="icon"
             className="size-7 cursor-grab active:cursor-grabbing"
-            aria-label="Arrastar"
+            aria-label="Drag"
             {...attributes}
             {...listeners}
           >
@@ -252,7 +252,7 @@ function SortableWidget({
           <span className="text-muted-foreground hidden text-xs sm:inline">{SIZE_LABEL[widget.size]}</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-7" aria-label="Opções do widget">
+              <Button variant="ghost" size="icon" className="size-7" aria-label="Widget options">
                 <MoreVerticalIcon />
               </Button>
             </DropdownMenuTrigger>
@@ -260,12 +260,12 @@ function SortableWidget({
               {configurable && (
                 <>
                   <DropdownMenuItem onSelect={onConfigure}>
-                    <Settings2Icon /> Configurar
+                    <Settings2Icon /> Configure
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </>
               )}
-              <DropdownMenuLabel>Largura</DropdownMenuLabel>
+              <DropdownMenuLabel>Width</DropdownMenuLabel>
               <DropdownMenuRadioGroup value={String(widget.size)} onValueChange={(v) => onResize(Number(v) as WidgetSize)}>
                 {([1, 2, 3, 4] as WidgetSize[]).map((s) => (
                   <DropdownMenuRadioItem key={s} value={String(s)}>
@@ -275,7 +275,7 @@ function SortableWidget({
               </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
               <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-                <Trash2Icon /> Remover
+                <Trash2Icon /> Remove
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -309,9 +309,9 @@ function AddWidgetDialog({
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{picked ? `Configurar: ${WIDGETS[picked].title}` : "Adicionar widget"}</DialogTitle>
+          <DialogTitle>{picked ? `Configure: ${WIDGETS[picked].title}` : "Add widget"}</DialogTitle>
           <DialogDescription>
-            {picked ? "Escolha de qual Prisma o widget mostra os dados." : "Escolha o que mostrar na sua página inicial."}
+            {picked ? "Choose which router the widget shows data from." : "Choose what to show on your home page."}
           </DialogDescription>
         </DialogHeader>
         {picked ? (
@@ -319,7 +319,7 @@ function AddWidgetDialog({
             type={picked}
             routers={routers}
             initial={{ routerId: routers[0]?.id, minutes: 60 }}
-            submitLabel="Adicionar"
+            submitLabel="Add"
             onCancel={() => setPicked(null)}
             onSubmit={(config) => {
               onAdd(newWidget(picked, config))
@@ -345,7 +345,7 @@ function AddWidgetDialog({
                   <span>
                     <span className="block text-sm font-medium">{def.title}</span>
                     <span className="text-muted-foreground block text-xs">
-                      {blocked ? "Cadastre um roteador primeiro" : def.description}
+                      {blocked ? "Add a router first" : def.description}
                     </span>
                   </span>
                 </button>
@@ -373,8 +373,8 @@ function ConfigureDialog({
     <Dialog open={!!widget} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Configurar {widget && WIDGETS[widget.type]?.title}</DialogTitle>
-          <DialogDescription>Escolha de onde vêm os dados deste widget.</DialogDescription>
+          <DialogTitle>Configure {widget && WIDGETS[widget.type]?.title}</DialogTitle>
+          <DialogDescription>Choose where this widget&apos;s data comes from.</DialogDescription>
         </DialogHeader>
         {widget && (
           <WidgetConfigForm
@@ -382,7 +382,7 @@ function ConfigureDialog({
             type={widget.type}
             routers={routers}
             initial={widget.config}
-            submitLabel="Aplicar"
+            submitLabel="Apply"
             onCancel={onClose}
             onSubmit={onSave}
           />
@@ -425,7 +425,7 @@ function WidgetConfigForm({
     >
       <FieldGroup className="py-2">
         <Field>
-          <FieldLabel>Roteador</FieldLabel>
+          <FieldLabel>Router</FieldLabel>
           <Select
             value={routerId ?? ALL_ROUTERS}
             onValueChange={(v) => {
@@ -437,7 +437,7 @@ function WidgetConfigForm({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {def.optionalRouter && <SelectItem value={ALL_ROUTERS}>Todos os roteadores</SelectItem>}
+              {def.optionalRouter && <SelectItem value={ALL_ROUTERS}>All routers</SelectItem>}
               {routers.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
                   {r.name}
@@ -449,10 +449,10 @@ function WidgetConfigForm({
         {def.traffic && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel>Interface inicial</FieldLabel>
+              <FieldLabel>Initial interface</FieldLabel>
               <Select value={iface ?? ""} onValueChange={setIface} disabled={!ifaces}>
                 <SelectTrigger>
-                  <SelectValue placeholder={ifaces ? "Primeira disponível" : "Carregando…"} />
+                  <SelectValue placeholder={ifaces ? "First available" : "Loading…"} />
                 </SelectTrigger>
                 <SelectContent>
                   {ifaces?.interfaces
@@ -466,16 +466,16 @@ function WidgetConfigForm({
               </Select>
             </Field>
             <Field>
-              <FieldLabel>Período inicial</FieldLabel>
+              <FieldLabel>Initial range</FieldLabel>
               <Select value={minutes} onValueChange={setMinutes}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="15">15 minutos</SelectItem>
-                  <SelectItem value="60">1 hora</SelectItem>
-                  <SelectItem value="360">6 horas</SelectItem>
-                  <SelectItem value="1440">24 horas</SelectItem>
+                  <SelectItem value="15">15 minutes</SelectItem>
+                  <SelectItem value="60">1 hour</SelectItem>
+                  <SelectItem value="360">6 hours</SelectItem>
+                  <SelectItem value="1440">24 hours</SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -484,7 +484,7 @@ function WidgetConfigForm({
       </FieldGroup>
       <DialogFooter className="pt-4">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Voltar
+          Back
         </Button>
         <Button type="submit" disabled={def.perRouter && !routerId}>
           {submitLabel}

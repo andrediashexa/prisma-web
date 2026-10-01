@@ -3,7 +3,7 @@
 import { useFleetStatus } from "@/hooks/use-routers"
 import { cn } from "@/lib/utils"
 
-/** Resumo da frota no cabeçalho: quantos Prismas estão respondendo. */
+/** Fleet summary in the header: how many Prisma routers are responding. */
 export function RouterStatus() {
   const { data, error } = useFleetStatus()
   const total = data?.length ?? 0
@@ -19,7 +19,7 @@ export function RouterStatus() {
         <span className={cn("relative inline-flex size-2.5 rounded-full", color)} />
       </span>
       <span className="truncate font-medium">
-        {error ? "Sem conexão com o back" : !data ? "Conectando…" : total === 0 ? "Nenhum Prisma cadastrado" : `${online} de ${total} Prismas online`}
+        {error ? "No connection to the back end" : !data ? "Connecting…" : total === 0 ? "No routers registered" : `${online} of ${total} routers online`}
       </span>
     </div>
   )

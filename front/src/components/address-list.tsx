@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { isIpv6, isLinkLocal } from "@/lib/format"
 
-/** Lista de endereços com IPv6 em destaque e link-local atenuado. */
+/** Address list with IPv6 highlighted and link-local dimmed. */
 export function AddressList({ addresses, hideLinkLocal }: { addresses: string[]; hideLinkLocal?: boolean }) {
   const list = hideLinkLocal ? addresses.filter((a) => !isLinkLocal(a)) : addresses
   if (list.length === 0) return <span className="text-muted-foreground">—</span>

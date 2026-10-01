@@ -15,7 +15,7 @@ import {
   type VersionInfo,
 } from "@/lib/types"
 
-/** Os quatro indicadores principais de um roteador. */
+/** The four key metrics of a router. */
 export function RouterStatsWidget({ routerId }: { routerId: string }) {
   const opts = { refreshInterval: 5_000 }
   const { data: sys } = useSWR<SystemInfo>(routerApi(routerId, "/system"), fetcher, opts)
@@ -31,7 +31,7 @@ export function RouterStatsWidget({ routerId }: { routerId: string }) {
   return (
     <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
       <StatCard
-        label="Tempo ligado"
+        label="Uptime"
         icon={ClockIcon}
         loading={!sys}
         value={sys && formatUptime(sys.uptime_seconds)}
@@ -43,9 +43,9 @@ export function RouterStatsWidget({ routerId }: { routerId: string }) {
                 <Badge
                   variant="outline"
                   className="border-amber-500/40 text-amber-700 dark:text-amber-300"
-                  title="O upgrade trocou o VTY e os arquivos, mas o dataplane (VPP e o plugin de CGNAT) só passa para a versão nova no próximo reboot."
+                  title="The upgrade replaced the VTY and the files, but the dataplane (VPP and the CGNAT plugin) only switches to the new version on the next reboot."
                 >
-                  reboot pendente para concluir o upgrade
+                  reboot pending to finish the upgrade
                 </Badge>
               )}
             </span>
@@ -60,19 +60,19 @@ export function RouterStatsWidget({ routerId }: { routerId: string }) {
         hint={sys && `CPUs ${sys.worker_cpus} · main ${sys.main_thread_cpu} · ${sys.hugepages} hugepages 1G`}
       />
       <StatCard
-        label="Sessões CGNAT"
+        label="CGNAT sessions"
         icon={UsersIcon}
         loading={!ses}
         value={ses && formatNumber(ses.sessions)}
         percent={sessPct}
-        hint={ses && `${formatNumber(ses.subscribers)} assinantes · ${sessPct?.toFixed(1) ?? "?"}% da tabela`}
+        hint={ses && `${formatNumber(ses.subscribers)} subscribers · ${sessPct?.toFixed(1) ?? "?"}% of table`}
       />
       <StatCard
-        label="Interfaces com link"
+        label="Interfaces with link"
         icon={NetworkIcon}
         loading={!ifs}
         value={ifs && `${up} / ${physical.length}`}
-        hint={ifs && `${v6} prefixos IPv6 globais`}
+        hint={ifs && `${v6} global IPv6 prefixes`}
       />
     </div>
   )

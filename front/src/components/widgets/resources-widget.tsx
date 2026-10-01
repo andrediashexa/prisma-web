@@ -9,10 +9,10 @@ import { useFleetStatus } from "@/hooks/use-routers"
 import { formatNumber } from "@/lib/format"
 
 const config = {
-  occupancy: { label: "Ocupação da tabela de sessões", color: "var(--chart-1)" },
+  occupancy: { label: "Session table usage", color: "var(--chart-1)" },
 } satisfies ChartConfig
 
-/** Compara a ocupação da tabela de sessões entre os roteadores online. */
+/** Compares session table usage across the online routers. */
 export function ResourcesWidget() {
   const { data } = useFleetStatus()
   const rows =
@@ -28,14 +28,14 @@ export function ResourcesWidget() {
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Sessões por roteador</CardTitle>
-        <CardDescription>Ocupação da tabela de sessões do dataplane (%)</CardDescription>
+        <CardTitle>Sessions per router</CardTitle>
+        <CardDescription>Dataplane session table usage (%)</CardDescription>
       </CardHeader>
       <CardContent>
         {!data ? (
           <Skeleton className="h-56 w-full" />
         ) : rows.length === 0 ? (
-          <p className="text-muted-foreground text-sm">Nenhum roteador online.</p>
+          <p className="text-muted-foreground text-sm">No routers online.</p>
         ) : (
           <ChartContainer config={config} className="aspect-auto h-56 w-full">
             <BarChart data={rows} margin={{ left: -16, right: 4 }}>

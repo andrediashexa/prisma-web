@@ -34,7 +34,7 @@ export default function InterfacesPage() {
   const [review, setReview] = useState<Review | null>(null)
   const canEdit = hasRole(me, "operator")
 
-  /** Abre um candidate com as linhas e mostra a revisão antes do commit. */
+  /** Opens a candidate with the lines and shows the review before commit. */
   async function propose(name: string, edit: EditBlock, title: string, comment: string) {
     setPreparing(name)
     try {
@@ -52,7 +52,7 @@ export default function InterfacesPage() {
   return (
     <>
       <p className="text-muted-foreground text-sm">
-        Alterações viram um candidate no Prisma: você revisa o diff e o <span className="font-mono">commit check</span> antes de aplicar.
+        Changes become a candidate on Prisma: you review the diff and the <span className="font-mono">commit check</span> before applying.
       </p>
       <Card className="py-0">
         <div className="overflow-x-auto">
@@ -60,12 +60,12 @@ export default function InterfacesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Interface</TableHead>
-                <TableHead>Endereços</TableHead>
+                <TableHead>Addresses</TableHead>
                 <TableHead className="text-right">MTU</TableHead>
-                <TableHead className="text-right">Recebido</TableHead>
-                <TableHead className="text-right">Enviado</TableHead>
-                <TableHead className="text-right">Erros / descartes</TableHead>
-                <TableHead>Estado</TableHead>
+                <TableHead className="text-right">Received</TableHead>
+                <TableHead className="text-right">Sent</TableHead>
+                <TableHead className="text-right">Errors / drops</TableHead>
+                <TableHead>State</TableHead>
                 {canEdit && <TableHead className="w-24" />}
               </TableRow>
             </TableHeader>
@@ -90,7 +90,7 @@ export default function InterfacesPage() {
                         </span>
                         <div>
                           <div className="font-mono font-medium">{i.name}</div>
-                          <div className="text-muted-foreground text-xs">{i.description || "Sem descrição"}</div>
+                          <div className="text-muted-foreground text-xs">{i.description || "No description"}</div>
                           <div className="text-muted-foreground font-mono text-[11px]">
                             {[i.mac_address, i.linux_name && `linux: ${i.linux_name}`].filter(Boolean).join(" · ")}
                           </div>
@@ -135,13 +135,13 @@ export default function InterfacesPage() {
                               variant="ghost"
                               size="icon"
                               disabled={preparing === i.name}
-                              aria-label={i.admin_up ? `Desligar ${i.name}` : `Ligar ${i.name}`}
-                              title={i.admin_up ? "Desligar (shutdown)" : "Ligar (no shutdown)"}
+                              aria-label={i.admin_up ? `Shut down ${i.name}` : `Enable ${i.name}`}
+                              title={i.admin_up ? "Shut down (shutdown)" : "Enable (no shutdown)"}
                               onClick={() =>
                                 propose(
                                   i.name,
                                   interfaceEdit(i.name, { adminUp: !i.admin_up }),
-                                  `${i.admin_up ? "Desligar" : "Ligar"} ${i.name}`,
+                                  `${i.admin_up ? "Shut down" : "Enable"} ${i.name}`,
                                   `${i.admin_up ? "shutdown" : "no shutdown"} ${i.name}`,
                                 )
                               }
@@ -155,7 +155,7 @@ export default function InterfacesPage() {
                               )}
                             </Button>
                           )}
-                          <Button variant="ghost" size="icon" onClick={() => setEditing(i)} aria-label={`Editar ${i.name}`}>
+                          <Button variant="ghost" size="icon" onClick={() => setEditing(i)} aria-label={`Edit ${i.name}`}>
                             <PencilIcon />
                           </Button>
                         </div>
@@ -173,7 +173,7 @@ export default function InterfacesPage() {
         iface={editing}
         onClose={() => setEditing(null)}
         onPropose={async (i, change) => {
-          const ok = await propose(i.name, interfaceEdit(i.name, change), `Editar ${i.name}`, `editar ${i.name}`)
+          const ok = await propose(i.name, interfaceEdit(i.name, change), `Edit ${i.name}`, `edit ${i.name}`)
           if (ok) setEditing(null)
         }}
       />
@@ -206,12 +206,12 @@ function EditInterfaceDialog({
     const form = new FormData(e.currentTarget)
     const description = String(form.get("description") ?? "")
     const mtu = Number(form.get("mtu"))
-    // Só manda o que mudou, para o diff mostrar exatamente a intenção.
+    // Only send what changed, so the diff shows exactly the intent.
     const change: { description?: string; mtu?: number } = {}
     if (description.trim() !== (iface.description ?? "")) change.description = description
     if (mtu !== iface.mtu) change.mtu = mtu
     if (Object.keys(change).length === 0) {
-      setError("Nada foi alterado")
+      setError("Nothing was changed")
       return
     }
     setPending(true)
@@ -226,31 +226,31 @@ function EditInterfaceDialog({
         <form onSubmit={submit} key={iface?.name}>
           <DialogHeader>
             <DialogTitle>
-              Editar <span className="font-mono">{iface?.name}</span>
+              Edit <span className="font-mono">{iface?.name}</span>
             </DialogTitle>
-            <DialogDescription>No próximo passo você revisa o diff antes de aplicar.</DialogDescription>
+            <DialogDescription>In the next step you review the diff before applying.</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-4">
             <Field>
-              <FieldLabel htmlFor="description">Descrição</FieldLabel>
+              <FieldLabel htmlFor="description">Description</FieldLabel>
               <Input id="description" name="description" maxLength={64} defaultValue={iface?.description ?? ""} />
             </Field>
             <Field>
               <FieldLabel htmlFor="mtu">MTU</FieldLabel>
               <Input id="mtu" name="mtu" type="number" min={MTU_MIN} max={MTU_MAX} required defaultValue={iface?.mtu} />
               <FieldDescription>
-                Entre {MTU_MIN} e {MTU_MAX}. O IPv6 exige no mínimo {MTU_MIN}.
+                Between {MTU_MIN} and {MTU_MAX}. IPv6 requires at least {MTU_MIN}.
               </FieldDescription>
             </Field>
             {error && <FieldError>{error}</FieldError>}
           </FieldGroup>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
-              Cancelar
+              Cancel
             </Button>
             <Button type="submit" disabled={pending}>
               {pending && <Loader2Icon className="animate-spin" />}
-              Revisar alteração
+              Review change
             </Button>
           </DialogFooter>
         </form>

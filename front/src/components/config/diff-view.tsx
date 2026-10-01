@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils"
 
-/** Diff no formato de `show configuration compare` (linhas com + / -). */
+/** Diff in the `show configuration compare` format (lines with + / -). */
 export function DiffView({ diff, className }: { diff: string; className?: string }) {
   const lines = diff.replace(/\n$/, "").split("\n")
   return (
@@ -26,7 +26,7 @@ export function DiffView({ diff, className }: { diff: string; className?: string
   )
 }
 
-/** Texto de configuração com números de linha. */
+/** Configuration text with line numbers. */
 export function ConfigView({ text, className }: { text: string; className?: string }) {
   const lines = text.replace(/\n$/, "").split("\n")
   return (

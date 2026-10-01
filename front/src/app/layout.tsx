@@ -10,13 +10,13 @@ import "./globals.css"
 
 export const metadata: Metadata = {
   title: { default: "Prisma", template: "%s · Prisma" },
-  description: "Painel de gerenciamento do roteador Prisma",
+  description: "Management dashboard for the Prisma router",
 }
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
-      lang="pt-BR"
+      lang="en"
       suppressHydrationWarning
       className={`${GeistSans.variable} ${GeistMono.variable} h-full antialiased`}
     >

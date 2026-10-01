@@ -18,12 +18,12 @@ import type { AuditEntry, AuditPage } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const FILTERS = [
-  { value: "all", label: "Todos os eventos" },
-  { value: "config.", label: "Mudanças de configuração" },
-  { value: "box.", label: "Eventos no equipamento" },
-  { value: "router.", label: "Cadastro e comandos" },
-  { value: "user.", label: "Usuários" },
-  { value: "auth.", label: "Acessos" },
+  { value: "all", label: "All events" },
+  { value: "config.", label: "Configuration changes" },
+  { value: "box.", label: "Device events" },
+  { value: "router.", label: "Routers and commands" },
+  { value: "user.", label: "Users" },
+  { value: "auth.", label: "Logins" },
 ]
 
 export default function AuditPageView() {
@@ -47,7 +47,7 @@ export default function AuditPageView() {
 
   return (
     <>
-      <PageHeader title="Log de mudanças" description="Registro de alterações e acessos. Os eventos não podem ser editados nem apagados pela interface.">
+      <PageHeader title="Change log" description="Record of changes and logins. Events cannot be edited or deleted from the UI.">
         <Select value={action} onValueChange={(v) => { setAction(v); setOpen(null) }}>
           <SelectTrigger className="w-56">
             <SelectValue />
@@ -68,11 +68,11 @@ export default function AuditPageView() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8" />
-                <TableHead>Quando</TableHead>
-                <TableHead>Usuário</TableHead>
-                <TableHead>Ação</TableHead>
-                <TableHead>Alvo</TableHead>
-                <TableHead>Origem</TableHead>
+                <TableHead>When</TableHead>
+                <TableHead>User</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Target</TableHead>
+                <TableHead>Source</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -86,7 +86,7 @@ export default function AuditPageView() {
               {data && items.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-muted-foreground py-10 text-center">
-                    Nenhum evento encontrado.
+                    No events found.
                   </TableCell>
                 </TableRow>
               )}
@@ -123,7 +123,7 @@ export default function AuditPageView() {
         <div className="flex justify-center">
           <Button variant="outline" onClick={() => setSize(size + 1)} disabled={isValidating}>
             {isValidating && <Loader2Icon className="animate-spin" />}
-            Carregar mais
+            Load more
           </Button>
         </div>
       )}
@@ -131,7 +131,7 @@ export default function AuditPageView() {
   )
 }
 
-/** Mostra mudanças `{campo: {from, to}}` como diff; o resto como JSON. */
+/** Shows `{field: {from, to}}` changes as a diff; everything else as JSON. */
 function AuditDetails({ entry }: { entry: AuditEntry }) {
   const changes = Object.entries(entry.details).filter(
     ([, v]) => v && typeof v === "object" && "from" in (v as object) && "to" in (v as object),
@@ -145,7 +145,7 @@ function AuditDetails({ entry }: { entry: AuditEntry }) {
   return (
     <div className="space-y-3 py-1 text-sm">
       <div className="text-muted-foreground text-xs">
-        #{entry.id} · {ACTION_LABEL[entry.action] ? entry.action : "evento"}
+        #{entry.id} · {ACTION_LABEL[entry.action] ? entry.action : "event"}
       </div>
       {changes.length > 0 && (
         <div className="grid gap-1.5">

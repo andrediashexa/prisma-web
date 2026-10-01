@@ -20,7 +20,7 @@ interface Entry {
   error: boolean
 }
 
-/** Console operacional: comandos `show`/`ping` como no prompt. Configuração é recusada pelo Prisma. */
+/** Operational console: `show`/`ping` commands as at the prompt. Prisma rejects configuration commands. */
 export default function ConsolePage() {
   const { id } = useParams<{ id: string }>()
   const { data: me } = useMe()
@@ -35,7 +35,7 @@ export default function ConsolePage() {
   useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [entries, running])
 
   if (!hasRole(me, "operator")) {
-    return <p className="text-muted-foreground text-sm">O console está disponível para operadores e administradores.</p>
+    return <p className="text-muted-foreground text-sm">The console is available to operators and administrators.</p>
   }
 
   async function run(cmd: string) {
@@ -62,10 +62,10 @@ export default function ConsolePage() {
         <CardTitle className="flex items-center gap-2">
           <TerminalIcon className="size-4" /> Console
         </CardTitle>
-        <CardDescription>Comandos operacionais do VTY. Cada comando fica registrado no log de mudanças.</CardDescription>
+        <CardDescription>Operational VTY commands. Every command is recorded in the change log.</CardDescription>
         <CardAction>
           <Button variant="ghost" size="sm" onClick={() => setEntries([])} disabled={entries.length === 0}>
-            <Trash2Icon /> Limpar
+            <Trash2Icon /> Clear
           </Button>
         </CardAction>
       </CardHeader>
@@ -78,7 +78,7 @@ export default function ConsolePage() {
           ))}
         </div>
         <div className="h-[60vh] overflow-y-auto rounded-lg border bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-100">
-          {entries.length === 0 && !running && <div className="text-zinc-500">Digite um comando abaixo, ex.: show bgp summary</div>}
+          {entries.length === 0 && !running && <div className="text-zinc-500">Type a command below, e.g. show bgp summary</div>}
           {entries.map((e, i) => (
             <div key={i} className="mb-3">
               <div>
@@ -120,9 +120,9 @@ export default function ConsolePage() {
             spellCheck={false}
             className="h-10 flex-1 bg-transparent outline-none"
             placeholder="show bgp summary"
-            aria-label="Comando"
+            aria-label="Command"
           />
-          <Button type="submit" size="sm" variant="ghost" disabled={running || !command.trim()} aria-label="Executar">
+          <Button type="submit" size="sm" variant="ghost" disabled={running || !command.trim()} aria-label="Run">
             <CornerDownLeftIcon />
           </Button>
         </form>

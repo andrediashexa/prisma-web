@@ -48,9 +48,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {user.must_change_password && (
           <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
             <TriangleAlertIcon className="size-4 shrink-0" />
-            <span className="flex-1">Sua senha é provisória. Defina uma senha pessoal antes de continuar.</span>
+            <span className="flex-1">Your password is temporary. Set a personal password before continuing.</span>
             <Button size="sm" variant="outline" asChild>
-              <Link href="/settings">Trocar senha</Link>
+              <Link href="/settings">Change password</Link>
             </Button>
           </div>
         )}

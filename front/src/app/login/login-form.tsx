@@ -27,7 +27,7 @@ export function LoginForm() {
         password: form.get("password"),
       })
       const next = params.get("next")
-      // Só aceita caminhos internos para evitar redirecionamento aberto.
+      // Only accept internal paths to avoid an open redirect.
       router.replace(next?.startsWith("/") && !next.startsWith("//") ? next : "/")
     } catch (err) {
       setError(errorMessage(err))
@@ -41,17 +41,17 @@ export function LoginForm() {
         <form onSubmit={onSubmit}>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="username">Usuário</FieldLabel>
+              <FieldLabel htmlFor="username">Username</FieldLabel>
               <Input id="username" name="username" autoComplete="username" autoFocus required />
             </Field>
             <Field>
-              <FieldLabel htmlFor="password">Senha</FieldLabel>
+              <FieldLabel htmlFor="password">Password</FieldLabel>
               <Input id="password" name="password" type="password" autoComplete="current-password" required />
             </Field>
             {error && <FieldError>{error}</FieldError>}
             <Button type="submit" disabled={pending} className="w-full">
               {pending && <Loader2Icon className="animate-spin" />}
-              Entrar
+              Sign in
             </Button>
           </FieldGroup>
         </form>
