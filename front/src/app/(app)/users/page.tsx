@@ -50,9 +50,9 @@ import { PASSWORD_MIN_LEN, ROLE_LABEL, type Role, type UserView } from "@/lib/ty
 
 const ROLES: Role[] = ["admin", "operator", "viewer"]
 const ROLE_HINT: Record<Role, string> = {
-  admin: "Tudo, inclusive gerenciar usuários",
-  operator: "Altera o roteador e vê o log",
-  viewer: "Apenas visualiza",
+  admin: "Everything, including managing users",
+  operator: "Changes the router and sees the log",
+  viewer: "View only",
 }
 
 type Dialogs =
@@ -78,9 +78,9 @@ export default function UsersPage() {
 
   return (
     <>
-      <PageHeader title="Usuários" description="Contas locais com acesso a esta interface">
+      <PageHeader title="Users" description="Local accounts with access to this UI">
         <Button onClick={() => setDialog({ kind: "create" })}>
-          <PlusIcon /> Novo usuário
+          <PlusIcon /> New user
         </Button>
       </PageHeader>
 
@@ -89,11 +89,11 @@ export default function UsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-4">Usuário</TableHead>
-                <TableHead>Papel</TableHead>
+                <TableHead className="pl-4">User</TableHead>
+                <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Último acesso</TableHead>
-                <TableHead className="text-right">Sessões</TableHead>
+                <TableHead>Last login</TableHead>
+                <TableHead className="text-right">Sessions</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
@@ -111,33 +111,33 @@ export default function UsersPage() {
                   <TableRow key={u.id}>
                     <TableCell className="pl-4 font-medium">
                       {u.username}
-                      {self && <span className="text-muted-foreground ml-2 text-xs">(você)</span>}
+                      {self && <span className="text-muted-foreground ml-2 text-xs">(you)</span>}
                     </TableCell>
                     <TableCell>
                       <Badge variant={u.role === "admin" ? "default" : "secondary"}>{ROLE_LABEL[u.role]}</Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
-                        {u.disabled ? <Badge variant="destructive">desativado</Badge> : <Badge variant="outline">ativo</Badge>}
-                        {u.must_change_password && <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300">senha provisória</Badge>}
+                        {u.disabled ? <Badge variant="destructive">disabled</Badge> : <Badge variant="outline">active</Badge>}
+                        {u.must_change_password && <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300">temporary password</Badge>}
                       </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {u.last_login_at ? formatRelative(u.last_login_at) : "nunca"}
+                      {u.last_login_at ? formatRelative(u.last_login_at) : "never"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{u.active_sessions}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`Ações para ${u.username}`}>
+                          <Button variant="ghost" size="icon" aria-label={`Actions for ${u.username}`}>
                             <MoreHorizontalIcon />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
-                          <DropdownMenuLabel>Papel</DropdownMenuLabel>
+                          <DropdownMenuLabel>Role</DropdownMenuLabel>
                           <DropdownMenuRadioGroup
                             value={u.role}
-                            onValueChange={(r) => r !== u.role && patch(u, { role: r }, `${u.username} agora é ${ROLE_LABEL[r as Role].toLowerCase()}`)}
+                            onValueChange={(r) => r !== u.role && patch(u, { role: r }, `${u.username}'s role changed to ${ROLE_LABEL[r as Role]}`)}
                           >
                             {ROLES.map((r) => (
                               <DropdownMenuRadioItem key={r} value={r} disabled={self}>
@@ -147,18 +147,18 @@ export default function UsersPage() {
                           </DropdownMenuRadioGroup>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onSelect={() => setDialog({ kind: "password", user: u })}>
-                            <KeyRoundIcon /> Redefinir senha
+                            <KeyRoundIcon /> Reset password
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={self}
-                            onSelect={() => patch(u, { disabled: !u.disabled }, `${u.username} ${u.disabled ? "reativado" : "desativado"}`)}
+                            onSelect={() => patch(u, { disabled: !u.disabled }, `${u.username} ${u.disabled ? "re-enabled" : "disabled"}`)}
                           >
                             {u.disabled ? <UserCheckIcon /> : <UserXIcon />}
-                            {u.disabled ? "Reativar" : "Desativar"}
+                            {u.disabled ? "Re-enable" : "Disable"}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem variant="destructive" disabled={self} onSelect={() => setDialog({ kind: "delete", user: u })}>
-                            <Trash2Icon /> Excluir
+                            <Trash2Icon /> Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -176,27 +176,27 @@ export default function UsersPage() {
       <AlertDialog open={dialog?.kind === "delete"} onOpenChange={(o) => !o && setDialog(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir {dialog?.kind === "delete" && dialog.user.username}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete {dialog?.kind === "delete" && dialog.user.username}?</AlertDialogTitle>
             <AlertDialogDescription>
-              A conta e suas sessões são removidas. Os eventos dela no log de mudanças são mantidos.
+              The account and its sessions are removed. Its events in the change log are kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={async () => {
                 if (dialog?.kind !== "delete") return
                 try {
                   await api.delete(`/users/${dialog.user.id}`)
-                  toast.success(`${dialog.user.username} excluído`)
+                  toast.success(`${dialog.user.username} deleted`)
                   await mutate()
                 } catch (err) {
                   toast.error(errorMessage(err))
                 }
               }}
             >
-              Excluir
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -217,7 +217,7 @@ function CreateUserDialog({ open, onClose, onCreated }: { open: boolean; onClose
     setError(null)
     try {
       await api.post("/users", { username: form.get("username"), password: form.get("password"), role })
-      toast.success("Usuário criado")
+      toast.success("User created")
       onCreated()
       onClose()
     } catch (err) {
@@ -232,21 +232,21 @@ function CreateUserDialog({ open, onClose, onCreated }: { open: boolean; onClose
       <DialogContent>
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>Novo usuário</DialogTitle>
-            <DialogDescription>A senha é provisória: o usuário precisa trocá-la no primeiro acesso.</DialogDescription>
+            <DialogTitle>New user</DialogTitle>
+            <DialogDescription>The password is temporary: the user must change it at first login.</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-4">
             <Field>
-              <FieldLabel htmlFor="new-username">Usuário</FieldLabel>
+              <FieldLabel htmlFor="new-username">Username</FieldLabel>
               <Input id="new-username" name="username" required minLength={3} maxLength={32} pattern="[A-Za-z0-9._\-]+" autoComplete="off" />
             </Field>
             <Field>
-              <FieldLabel htmlFor="new-password">Senha provisória</FieldLabel>
+              <FieldLabel htmlFor="new-password">Temporary password</FieldLabel>
               <Input id="new-password" name="password" type="password" required minLength={PASSWORD_MIN_LEN} autoComplete="new-password" />
-              <FieldDescription>Mínimo de {PASSWORD_MIN_LEN} caracteres.</FieldDescription>
+              <FieldDescription>At least {PASSWORD_MIN_LEN} characters.</FieldDescription>
             </Field>
             <Field>
-              <FieldLabel>Papel</FieldLabel>
+              <FieldLabel>Role</FieldLabel>
               <Select value={role} onValueChange={(v) => setRole(v as Role)}>
                 <SelectTrigger>
                   <SelectValue />
@@ -264,11 +264,11 @@ function CreateUserDialog({ open, onClose, onCreated }: { open: boolean; onClose
           </FieldGroup>
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancelar</Button>
+              <Button type="button" variant="outline">Cancel</Button>
             </DialogClose>
             <Button type="submit" disabled={pending}>
               {pending && <Loader2Icon className="animate-spin" />}
-              Criar
+              Create
             </Button>
           </DialogFooter>
         </form>
@@ -289,7 +289,7 @@ function ResetPasswordDialog({ user, onClose, onDone }: { user: UserView | null;
     setError(null)
     try {
       await api.patch(`/users/${user.id}`, { password: form.get("password") })
-      toast.success(`Senha de ${user.username} redefinida`)
+      toast.success(`Password for ${user.username} reset`)
       onDone()
       onClose()
     } catch (err) {
@@ -304,23 +304,23 @@ function ResetPasswordDialog({ user, onClose, onDone }: { user: UserView | null;
       <DialogContent>
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>Redefinir senha de {user?.username}</DialogTitle>
-            <DialogDescription>As sessões abertas dele serão encerradas e a troca será exigida no próximo acesso.</DialogDescription>
+            <DialogTitle>Reset password for {user?.username}</DialogTitle>
+            <DialogDescription>Their open sessions will be signed out and a password change will be required at next login.</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-4">
             <Field>
-              <FieldLabel htmlFor="reset-password">Nova senha provisória</FieldLabel>
+              <FieldLabel htmlFor="reset-password">New temporary password</FieldLabel>
               <Input id="reset-password" name="password" type="password" required minLength={PASSWORD_MIN_LEN} autoComplete="new-password" />
             </Field>
             {error && <FieldError>{error}</FieldError>}
           </FieldGroup>
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">Cancelar</Button>
+              <Button type="button" variant="outline">Cancel</Button>
             </DialogClose>
             <Button type="submit" disabled={pending}>
               {pending && <Loader2Icon className="animate-spin" />}
-              Redefinir
+              Reset
             </Button>
           </DialogFooter>
         </form>

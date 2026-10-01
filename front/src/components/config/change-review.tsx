@@ -26,14 +26,14 @@ import {
 import type { EditBlock } from "@/lib/vty"
 
 const GATES = [
-  { key: "remap", ack: "acknowledge_remap", text: "Entendo que assinantes vão mudar de endereço público ou bloco de portas." },
-  { key: "cutoff", ack: "acknowledge_cutoff", text: "Entendo que o prefixo que carrega esta sessão deixará de ser anunciado." },
-  { key: "diverge", ack: "acknowledge_diverge", text: "Entendo que estes pools ficarão mapeados diferente do par de HA." },
+  { key: "remap", ack: "acknowledge_remap", text: "I understand that subscribers will change public address or port block." },
+  { key: "cutoff", ack: "acknowledge_cutoff", text: "I understand that the prefix carrying this session will no longer be advertised." },
+  { key: "diverge", ack: "acknowledge_diverge", text: "I understand that these pools will be mapped differently from the HA peer." },
 ] as const
 
 type Gate = (typeof GATES)[number]["key"]
 
-/** Abre um candidate e aplica as edições. Fecha o candidate se o VTY recusar uma linha. */
+/** Opens a candidate and applies the edits. Closes the candidate if the VTY rejects a line. */
 export async function prepareCandidate(routerId: string, edits: EditBlock[]) {
   const c = await api.post<OpenCandidateResponse>(routerApi(routerId, "/config/candidates"))
   try {
@@ -53,8 +53,8 @@ export async function discardCandidate(routerId: string, cid: string) {
 }
 
 /**
- * Revisão de uma alteração antes do commit: diff, `commit check`, confirmações
- * exigidas pelo VTY e opções de commit. Fechar sem aplicar descarta o candidate.
+ * Review of a change before commit: diff, `commit check`, acknowledgments
+ * required by the VTY and commit options. Closing without applying discards the candidate.
  */
 export function ChangeReview({
   routerId,
@@ -71,7 +71,7 @@ export function ChangeReview({
   defaultComment?: string
   onClose: () => void
   onCommitted?: (r: CommitResponse) => void
-  /** O editor de configuração mantém o candidate aberto ao voltar. */
+  /** The configuration editor keeps the candidate open when going back. */
   keepCandidateOnCancel?: boolean
 }) {
   const { mutate } = useSWRConfig()
@@ -119,10 +119,10 @@ export function ChangeReview({
       const r = await api.post<CommitResponse>(routerApi(routerId, `/config/candidates/${candidateId}/commit`), body)
       toast.success(
         confirmed
-          ? `Aplicado (${r.revision}). Confirme em até ${minutes} min, ou o Prisma desfaz sozinho.`
-          : `Aplicado (${r.revision}).`,
+          ? `Applied (${r.revision}). Confirm within ${minutes} min, or Prisma rolls it back on its own.`
+          : `Applied (${r.revision}).`,
       )
-      // Tudo que lê deste roteador pode ter mudado.
+      // Anything that reads from this router may have changed.
       await mutate((key) => typeof key === "string" && key.startsWith(routerApi(routerId, "")))
       onCommitted?.(r)
       onClose()
@@ -142,7 +142,7 @@ export function ChangeReview({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Revise o que muda no roteador antes de aplicar.</DialogDescription>
+          <DialogDescription>Review what changes on the router before applying.</DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[65vh] space-y-4 overflow-y-auto">
@@ -151,11 +151,11 @@ export function ChangeReview({
 
           {compare && (
             <section className="space-y-2">
-              <h3 className="text-sm font-medium">O que muda</h3>
+              <h3 className="text-sm font-medium">What changes</h3>
               {compare.changed ? (
                 <DiffView diff={compare.diff} />
               ) : (
-                <p className="text-muted-foreground text-sm">Nada muda em relação à configuração em uso.</p>
+                <p className="text-muted-foreground text-sm">Nothing changes compared to the running configuration.</p>
               )}
             </section>
           )}
@@ -163,14 +163,14 @@ export function ChangeReview({
           {check && (
             <section className="space-y-2">
               <h3 className="flex items-center gap-2 text-sm font-medium">
-                Verificação (commit check)
+                Validation (commit check)
                 {check.passed ? (
                   <span className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
-                    <CheckCircle2Icon className="size-4" /> aprovada
+                    <CheckCircle2Icon className="size-4" /> passed
                   </span>
                 ) : (
                   <span className="text-destructive flex items-center gap-1">
-                    <XCircleIcon className="size-4" /> recusada
+                    <XCircleIcon className="size-4" /> failed
                   </span>
                 )}
               </h3>
@@ -184,7 +184,7 @@ export function ChangeReview({
           {gates.length > 0 && (
             <section className="space-y-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
               <h3 className="flex items-center gap-2 text-sm font-medium text-amber-900 dark:text-amber-200">
-                <ShieldAlertIcon className="size-4" /> Esta alteração exige confirmação
+                <ShieldAlertIcon className="size-4" /> This change requires acknowledgment
               </h3>
               {gates.map((g) => (
                 <label key={g.key} className="flex items-start gap-3 text-sm">
@@ -205,8 +205,8 @@ export function ChangeReview({
           {check?.passed && compare?.changed && (
             <section className="grid gap-4 sm:grid-cols-2">
               <Field>
-                <FieldLabel htmlFor="commit-comment">Comentário</FieldLabel>
-                <Input id="commit-comment" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={200} placeholder="O que e por quê" />
+                <FieldLabel htmlFor="commit-comment">Comment</FieldLabel>
+                <Input id="commit-comment" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={200} placeholder="What and why" />
               </Field>
               <Field>
                 <FieldLabel>Commit confirmed</FieldLabel>
@@ -226,7 +226,7 @@ export function ChangeReview({
                   </Select>
                 </div>
                 <FieldDescription>
-                  {confirmed ? "Se você perder o acesso, o Prisma desfaz a mudança sozinho." : "A mudança fica valendo imediatamente."}
+                  {confirmed ? "If you lose access, Prisma rolls the change back on its own." : "The change takes effect immediately."}
                 </FieldDescription>
               </Field>
             </section>
@@ -244,11 +244,11 @@ export function ChangeReview({
 
         <DialogFooter>
           <Button variant="outline" onClick={cancel} disabled={committing}>
-            {keepCandidateOnCancel ? "Voltar" : "Descartar"}
+            {keepCandidateOnCancel ? "Back" : "Discard"}
           </Button>
           <Button onClick={commit} disabled={!canCommit}>
             {committing && <Loader2Icon className="animate-spin" />}
-            {confirmed && check?.passed ? `Aplicar (confirmar em ${minutes} min)` : "Aplicar"}
+            {confirmed && check?.passed ? `Apply (confirm within ${minutes} min)` : "Apply"}
           </Button>
         </DialogFooter>
       </DialogContent>

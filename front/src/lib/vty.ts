@@ -1,8 +1,8 @@
-// Linhas de VTY que a interface gera para mudanças simples.
+// VTY lines the UI generates for simple changes.
 //
-// A gramática real é do Prisma; este é o único lugar que a conhece. Todas as linhas
-// abaixo, inclusive as formas com `no`, foram confirmadas no equipamento com
-// `commit check` (docs/prisma-integracao.md, item 1.1).
+// The actual grammar belongs to Prisma; this is the only place that knows it. Every line
+// below, including the `no` forms, was confirmed on the device with
+// `commit check` (docs/prisma-integration.md, item 1.1).
 
 export interface EditBlock {
   path: string[]

@@ -2,31 +2,31 @@ import { Badge } from "@/components/ui/badge"
 
 export const ACTION_LABEL: Record<string, string> = {
   "auth.login": "login",
-  "auth.login_blocked": "login bloqueado",
+  "auth.login_blocked": "login blocked",
   "auth.logout": "logout",
-  "auth.password_change": "troca de senha",
-  "user.bootstrap": "admin inicial",
-  "user.create": "criou usuário",
-  "user.update": "alterou usuário",
-  "user.delete": "excluiu usuário",
-  "router.interface.update": "alterou interface",
-  "router.command": "comando",
+  "auth.password_change": "password change",
+  "user.bootstrap": "initial admin",
+  "user.create": "created user",
+  "user.update": "updated user",
+  "user.delete": "deleted user",
+  "router.interface.update": "updated interface",
+  "router.command": "command",
   "config.commit": "commit",
-  "config.confirm": "confirmou commit",
-  "config.save": "salvou configuração",
-  "box.commit": "commit no equipamento",
-  "box.confirm-pending": "commit confirmed no equipamento",
-  "box.confirmed": "confirmado no equipamento",
-  "box.rolled-back": "rollback automático",
-  "box.saved": "salvo no equipamento",
-  "router.create": "cadastrou Prisma",
-  "router.update": "alterou Prisma",
-  "router.delete": "removeu Prisma",
+  "config.confirm": "confirmed commit",
+  "config.save": "saved configuration",
+  "box.commit": "commit on device",
+  "box.confirm-pending": "commit confirmed on device",
+  "box.confirmed": "confirmed on device",
+  "box.rolled-back": "automatic rollback",
+  "box.saved": "saved on device",
+  "router.create": "added router",
+  "router.update": "updated router",
+  "router.delete": "removed router",
 }
 
 export function AuditActionBadge({ action, success }: { action: string; success: boolean }) {
   const label = ACTION_LABEL[action] ?? action
-  if (!success) return <Badge variant="destructive">{label} · falhou</Badge>
+  if (!success) return <Badge variant="destructive">{label} · failed</Badge>
   if (action === "box.rolled-back") return <Badge variant="destructive">{label}</Badge>
   const tone = action.startsWith("config.") || action.startsWith("box.")
     ? "bg-chart-1/15 text-chart-1"

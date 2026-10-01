@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils"
 
-/** Marca do Prisma: um triângulo que decompõe a luz em espectro. */
+/** Prisma logo: a triangle that splits light into a spectrum. */
 export function PrismaLogo({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" aria-hidden className={cn("size-8", className)}>

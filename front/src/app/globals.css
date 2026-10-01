@@ -132,7 +132,7 @@
   }
 }
 @layer utilities {
-  /* Gradiente do "prisma": usado no logotipo e em destaques. */
+  /* The "prism" gradient: used in the logo and in highlights. */
   .bg-prism {
     background-image: linear-gradient(135deg, var(--chart-1), var(--chart-2) 50%, var(--chart-3));
   }

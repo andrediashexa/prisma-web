@@ -1,6 +1,6 @@
 import { BoxesIcon, CableIcon, LockIcon, NetworkIcon, RepeatIcon, TagIcon } from "lucide-react"
 
-/** O proto não informa o tipo da interface; deduzimos pelo nome para o ícone. */
+/** The proto does not report the interface type; we infer it from the name to pick the icon. */
 export type InterfaceKind = "ethernet" | "bridge" | "vlan" | "wireguard" | "loopback" | "bundle"
 
 export function guessKind(name: string): InterfaceKind {

@@ -20,7 +20,7 @@ import {
   type VrrpRouter,
 } from "@/lib/types"
 
-/** Saída de um comando `show` do VTY (o proto ainda não tem rotas tipadas). */
+/** Output of a VTY `show` command (the proto has no typed routes yet). */
 function useShow(routerId: string, command: string) {
   return useSWR<{ text: string }>(
     [routerApi(routerId, "/show"), command],
@@ -40,16 +40,16 @@ export default function RoutingPage() {
 
   return (
     <>
-      <Section title="BGP" description="Vizinhos e prefixos recebidos" loading={!bgp} empty={bgp?.neighbors.length === 0}>
+      <Section title="BGP" description="Neighbors and received prefixes" loading={!bgp} empty={bgp?.neighbors.length === 0}>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-6">Vizinho</TableHead>
-              <TableHead>AS remoto</TableHead>
+              <TableHead className="pl-6">Neighbor</TableHead>
+              <TableHead>Remote AS</TableHead>
               <TableHead>VRF</TableHead>
-              <TableHead>Estado</TableHead>
-              <TableHead className="text-right">Tempo</TableHead>
-              <TableHead className="pr-6 text-right">Prefixos</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead className="text-right">Uptime</TableHead>
+              <TableHead className="pr-6 text-right">Prefixes</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -78,9 +78,9 @@ export default function RoutingPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-6">Router ID</TableHead>
-                <TableHead>Endereço</TableHead>
+                <TableHead>Address</TableHead>
                 <TableHead>Interface</TableHead>
-                <TableHead className="pr-6">Estado</TableHead>
+                <TableHead className="pr-6">State</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -107,8 +107,8 @@ export default function RoutingPage() {
               <TableRow>
                 <TableHead className="pl-6">System ID</TableHead>
                 <TableHead>Interface</TableHead>
-                <TableHead>Nível</TableHead>
-                <TableHead className="pr-6">Estado</TableHead>
+                <TableHead>Level</TableHead>
+                <TableHead className="pr-6">State</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -130,8 +130,8 @@ export default function RoutingPage() {
               <TableRow>
                 <TableHead className="pl-6">Interface</TableHead>
                 <TableHead>VR</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead className="pr-6">Endereços</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead className="pr-6">Addresses</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -157,8 +157,8 @@ export default function RoutingPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-6">Bundle</TableHead>
-                <TableHead>Modo</TableHead>
-                <TableHead className="pr-6">Membros</TableHead>
+                <TableHead>Mode</TableHead>
+                <TableHead className="pr-6">Members</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -211,7 +211,7 @@ function Section({
           <Skeleton className="h-16 w-full" />
         </CardContent>
       ) : empty ? (
-        <CardContent className="text-muted-foreground pb-6 text-sm">Nada configurado.</CardContent>
+        <CardContent className="text-muted-foreground pb-6 text-sm">Nothing configured.</CardContent>
       ) : (
         <div className="overflow-x-auto pb-2">{children}</div>
       )}
@@ -225,8 +225,8 @@ function RouteTables({ routerId }: { routerId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tabela de rotas</CardTitle>
-        <CardDescription>Saída do VTY (o proto ainda não expõe rotas tipadas)</CardDescription>
+        <CardTitle>Routing table</CardTitle>
+        <CardDescription>VTY output (the proto does not expose typed routes yet)</CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="v4">

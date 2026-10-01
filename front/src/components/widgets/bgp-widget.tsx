@@ -17,8 +17,8 @@ export function BgpStateBadge({ state }: { state: string }) {
   )
 }
 
-/** Vizinhos BGP de um roteador, com destaque para sessões que não subiram. */
-export function BgpWidget({ routerId, title = "Vizinhos BGP" }: { routerId: string; title?: string }) {
+/** BGP neighbors of a router, highlighting sessions that are not up. */
+export function BgpWidget({ routerId, title = "BGP neighbors" }: { routerId: string; title?: string }) {
   const { data } = useSWR<{ neighbors: BgpNeighbor[] }>(routerApi(routerId, "/bgp"), fetcher, { refreshInterval: 15_000 })
   const up = data?.neighbors.filter((n) => n.state === "Established").length ?? 0
 
@@ -26,11 +26,11 @@ export function BgpWidget({ routerId, title = "Vizinhos BGP" }: { routerId: stri
     <Card className="h-full">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{data ? `${up} de ${data.neighbors.length} estabelecidos` : "Sessões BGP"}</CardDescription>
+        <CardDescription>{data ? `${up} of ${data.neighbors.length} established` : "BGP sessions"}</CardDescription>
       </CardHeader>
       <CardContent>
         {!data && <Skeleton className="h-24 w-full" />}
-        {data?.neighbors.length === 0 && <p className="text-muted-foreground text-sm">Nenhum vizinho BGP configurado.</p>}
+        {data?.neighbors.length === 0 && <p className="text-muted-foreground text-sm">No BGP neighbors configured.</p>}
         <ul className="divide-y">
           {data?.neighbors.map((n) => (
             <li key={`${n.vrf}-${n.peer}`} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
@@ -39,7 +39,7 @@ export function BgpWidget({ routerId, title = "Vizinhos BGP" }: { routerId: stri
                 <div className="text-muted-foreground text-xs">
                   AS {n.remote_as}
                   {n.vrf !== "default" && ` · vrf ${n.vrf}`}
-                  {n.state === "Established" && ` · ${formatUptime(n.uptime_seconds)} · ${formatNumber(n.prefixes_received)} prefixos`}
+                  {n.state === "Established" && ` · ${formatUptime(n.uptime_seconds)} · ${formatNumber(n.prefixes_received)} prefixes`}
                 </div>
               </div>
               <BgpStateBadge state={n.state} />

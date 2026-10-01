@@ -9,9 +9,9 @@ pub type AppResult<T> = Result<T, AppError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
-    #[error("não autenticado")]
+    #[error("not authenticated")]
     Unauthorized,
-    #[error("sem permissão para esta ação")]
+    #[error("not allowed to perform this action")]
     Forbidden,
     #[error("{0}")]
     NotFound(String),
@@ -19,7 +19,7 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
-    #[error("muitas tentativas; tente novamente em {0} minuto(s)")]
+    #[error("too many attempts; try again in {0} minute(s)")]
     TooManyAttempts(u64),
     #[error("{0}")]
     Prisma(Box<tonic::Status>),
@@ -44,7 +44,7 @@ impl AppError {
             Self::BadRequest(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::TooManyAttempts(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
-            // Recusas do VTY voltam para o usuário com o relato do próprio VTY.
+            // VTY refusals go back to the user with the VTY's own report.
             Self::Prisma(s) => match s.code() {
                 Code::InvalidArgument => (StatusCode::UNPROCESSABLE_ENTITY, "router_rejected"),
                 Code::FailedPrecondition => (StatusCode::CONFLICT, "router_refused"),
@@ -67,16 +67,16 @@ impl IntoResponse for AppError {
         };
         let message = match &self {
             Self::Db(e) => {
-                tracing::error!(error = %e, "erro de banco");
-                "erro interno".to_string()
+                tracing::error!(error = %e, "database error");
+                "internal error".to_string()
             }
             Self::Internal(e) => {
-                tracing::error!(error = ?e, "erro interno");
-                "erro interno".to_string()
+                tracing::error!(error = ?e, "internal error");
+                "internal error".to_string()
             }
             Self::Prisma(s) => {
                 if matches!(s.code(), Code::Unavailable | Code::Unknown | Code::Internal) {
-                    tracing::warn!(code = ?s.code(), error = %s.message(), "falha ao falar com o Prisma");
+                    tracing::warn!(code = ?s.code(), error = %s.message(), "failed to talk to Prisma");
                 }
                 crate::grpc::describe(s)
             }

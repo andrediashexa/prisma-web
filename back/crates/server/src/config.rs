@@ -7,14 +7,14 @@ use anyhow::{bail, Context};
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub database_url: String,
-    /// Raiz dos perfis TLS (montada somente leitura no container).
+    /// Root of the TLS profiles (mounted read-only in the container).
     pub tls_dir: std::path::PathBuf,
-    /// Se definido e não houver roteadores, cadastra este como o primeiro.
+    /// If set and there are no routers, registers this one as the first.
     pub seed_router_url: Option<String>,
     pub session_ttl: Duration,
-    /// Marca o cookie de sessão como `Secure`. Deve ser `true` quando houver HTTPS.
+    /// Marks the session cookie as `Secure`. Must be `true` when HTTPS is in use.
     pub cookie_secure: bool,
-    /// Confia no `X-Forwarded-For` do proxy (Caddy) para descobrir o IP do cliente.
+    /// Trusts the proxy's (Caddy) `X-Forwarded-For` to find the client IP.
     pub trust_proxy: bool,
     pub admin_username: String,
     pub admin_password: Option<String>,
@@ -38,7 +38,7 @@ impl Config {
             login_window: Duration::from_secs(parse::<u64>("LOGIN_WINDOW_MINUTES", "15")? * 60),
         };
         if cfg.session_ttl.is_zero() {
-            bail!("SESSION_TTL_HOURS deve ser maior que zero");
+            bail!("SESSION_TTL_HOURS must be greater than zero");
         }
         Ok(cfg)
     }
@@ -49,7 +49,7 @@ fn var(name: &str) -> Option<String> {
 }
 
 fn required(name: &str) -> anyhow::Result<String> {
-    var(name).with_context(|| format!("variável de ambiente {name} é obrigatória"))
+    var(name).with_context(|| format!("environment variable {name} is required"))
 }
 
 fn parse<T: FromStr>(name: &str, default: &str) -> anyhow::Result<T>
@@ -58,5 +58,5 @@ where
 {
     let raw = var(name).unwrap_or_else(|| default.to_string());
     raw.parse::<T>()
-        .map_err(|e| anyhow::anyhow!("{name}='{raw}' inválido: {e}"))
+        .map_err(|e| anyhow::anyhow!("invalid {name}='{raw}': {e}"))
 }

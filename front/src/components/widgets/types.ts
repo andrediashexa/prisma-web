@@ -1,6 +1,6 @@
 export type WidgetType = "fleet" | "router-stats" | "traffic" | "interfaces" | "activity" | "resources" | "cgnat" | "bgp"
 
-/** Largura em colunas de uma grade de 4. */
+/** Width in columns of a 4-column grid. */
 export type WidgetSize = 1 | 2 | 3 | 4
 
 export interface WidgetConfig {

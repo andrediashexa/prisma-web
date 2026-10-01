@@ -66,7 +66,7 @@ pub async fn create(
     .bind(req.role)
     .fetch_optional(&st.db)
     .await?
-    .ok_or_else(|| AppError::Conflict(format!("já existe um usuário '{username}'")))?;
+    .ok_or_else(|| AppError::Conflict(format!("a user '{username}' already exists")))?;
 
     audit::record(
         &st.db,
@@ -97,7 +97,7 @@ pub async fn update(
 
     if id == user.id && (req.disabled == Some(true) || req.role.is_some_and(|r| r != Role::Admin)) {
         return Err(AppError::BadRequest(
-            "você não pode desativar nem rebaixar a própria conta".into(),
+            "you cannot disable or demote your own account".into(),
         ));
     }
 
@@ -131,14 +131,14 @@ pub async fn update(
         .bind(id)
         .execute(&mut *tx)
         .await?;
-        changes.insert("password".into(), json!("redefinida"));
+        changes.insert("password".into(), json!("reset"));
     }
 
     if changes.is_empty() {
         return Ok(Json(before));
     }
     ensure_admin_remains(&mut tx).await?;
-    // Qualquer mudança de acesso derruba as sessões abertas do usuário afetado.
+    // Any access change drops the open sessions of the affected user.
     if changes.contains_key("disabled") || changes.contains_key("password") || changes.contains_key("role") {
         sqlx::query("DELETE FROM sessions WHERE user_id = $1")
             .bind(id)
@@ -165,7 +165,7 @@ pub async fn delete(
 ) -> AppResult<StatusCode> {
     user.require(Role::Admin)?;
     if id == user.id {
-        return Err(AppError::BadRequest("você não pode excluir a própria conta".into()));
+        return Err(AppError::BadRequest("you cannot delete your own account".into()));
     }
     let target = fetch(&st, id).await?;
 
@@ -189,17 +189,17 @@ async fn fetch(st: &AppState, id: Uuid) -> AppResult<UserView> {
         .bind(id)
         .fetch_optional(&st.db)
         .await?
-        .ok_or_else(|| AppError::NotFound("usuário não encontrado".into()))
+        .ok_or_else(|| AppError::NotFound("user not found".into()))
 }
 
-/// Impede que o sistema fique sem nenhum administrador ativo.
+/// Prevents the system from being left without any active administrator.
 async fn ensure_admin_remains(tx: &mut sqlx::PgConnection) -> AppResult<()> {
     let admins: i64 =
         sqlx::query_scalar("SELECT count(*) FROM users WHERE role = 'admin' AND NOT disabled")
             .fetch_one(tx)
             .await?;
     if admins == 0 {
-        return Err(AppError::BadRequest("é preciso manter pelo menos um administrador ativo".into()));
+        return Err(AppError::BadRequest("at least one active administrator must remain".into()));
     }
     Ok(())
 }

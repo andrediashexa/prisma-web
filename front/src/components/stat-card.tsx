@@ -14,7 +14,7 @@ export function StatCard({
   value?: React.ReactNode
   hint?: React.ReactNode
   icon: React.ComponentType<{ className?: string }>
-  /** Exibe uma barra de uso (0–100). */
+  /** Shows a usage bar (0–100). */
   percent?: number
   loading?: boolean
 }) {

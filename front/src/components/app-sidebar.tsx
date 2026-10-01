@@ -47,27 +47,27 @@ import { hasRole, ROLE_LABEL, type CurrentUser, type Role } from "@/lib/types"
 type NavItem = { href: string; label: string; icon: React.ComponentType; role?: Role }
 
 const ROUTER_PAGES = [
-  { href: "", label: "Painel" },
+  { href: "", label: "Dashboard" },
   { href: "/interfaces", label: "Interfaces" },
-  { href: "/config", label: "Configuração" },
+  { href: "/config", label: "Configuration" },
   { href: "/cgnat", label: "CGNAT" },
-  { href: "/routing", label: "Roteamento" },
+  { href: "/routing", label: "Routing" },
   { href: "/console", label: "Console" },
 ]
 
 const NAV: { label: string; items: NavItem[] }[] = [
   {
-    label: "Geral",
+    label: "General",
     items: [
-      { href: "/", label: "Visão geral", icon: LayoutDashboardIcon },
-      { href: "/routers", label: "Roteadores", icon: ServerIcon },
+      { href: "/", label: "Overview", icon: LayoutDashboardIcon },
+      { href: "/routers", label: "Routers", icon: ServerIcon },
     ],
   },
   {
-    label: "Administração",
+    label: "Administration",
     items: [
-      { href: "/audit", label: "Log de mudanças", icon: HistoryIcon, role: "operator" },
-      { href: "/users", label: "Usuários", icon: UsersIcon, role: "admin" },
+      { href: "/audit", label: "Change log", icon: HistoryIcon, role: "operator" },
+      { href: "/users", label: "Users", icon: UsersIcon, role: "admin" },
     ],
   },
 ]
@@ -93,7 +93,7 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
                 <PrismaLogo className="size-8! shrink-0" />
                 <div className="grid flex-1 text-left leading-tight">
                   <span className="font-semibold tracking-tight">Prisma</span>
-                  <span className="text-muted-foreground text-xs">Gerenciamento</span>
+                  <span className="text-muted-foreground text-xs">Management</span>
                 </div>
               </Link>
             </SidebarMenuButton>
@@ -129,7 +129,7 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
             </SidebarGroup>
             {gi === 0 && routers && routers.length > 0 && (
               <SidebarGroup>
-                <SidebarGroupLabel>Prismas</SidebarGroupLabel>
+                <SidebarGroupLabel>Prisma routers</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
                     {routers.map((r) => {
@@ -194,16 +194,16 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="start" className="w-(--radix-dropdown-menu-trigger-width) min-w-56">
                 <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
-                  Conectado como {user.username}
+                  Signed in as {user.username}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/settings">
-                    <KeyRoundIcon /> Trocar senha
+                    <KeyRoundIcon /> Change password
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem variant="destructive" onSelect={logout}>
-                  <LogOutIcon /> Sair
+                  <LogOutIcon /> Sign out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { api, errorMessage, fetcher } from "@/lib/api"
 import { routerApi, type PendingConfirm } from "@/lib/types"
 
-/** Aviso de `commit confirmed` aguardando confirmação, com contagem regressiva. */
+/** Banner for a `commit confirmed` awaiting confirmation, with a countdown. */
 export function PendingConfirmBanner({ routerId }: { routerId: string }) {
   const key = routerApi(routerId, "/config/pending")
   const { data, mutate } = useSWR<{ pending: PendingConfirm | null }>(key, fetcher, { refreshInterval: 5_000 })
@@ -32,7 +32,7 @@ export function PendingConfirmBanner({ routerId }: { routerId: string }) {
     setConfirming(true)
     try {
       await api.post(routerApi(routerId, "/config/confirm"))
-      toast.success("Alteração confirmada")
+      toast.success("Change confirmed")
       await mutate({ pending: null }, { revalidate: true })
     } catch (err) {
       toast.error(errorMessage(err))
@@ -46,16 +46,16 @@ export function PendingConfirmBanner({ routerId }: { routerId: string }) {
       <TimerIcon className="size-5 shrink-0" />
       <div className="flex-1">
         <div className="font-medium">
-          Alteração aguardando confirmação{clock && <span className="ml-2 font-mono tabular-nums">{clock}</span>}
+          Change awaiting confirmation{clock && <span className="ml-2 font-mono tabular-nums">{clock}</span>}
         </div>
         <div className="text-xs opacity-80">
-          Commit {pending.revision ?? ""} de {pending.by}. Se ninguém confirmar a tempo, o Prisma volta à configuração anterior.
+          Commit {pending.revision ?? ""} by {pending.by}. If nobody confirms in time, Prisma rolls back to the previous configuration.
         </div>
       </div>
       {pending.can_confirm && (
         <Button size="sm" onClick={confirm} disabled={confirming}>
           {confirming && <Loader2Icon className="animate-spin" />}
-          Confirmar alteração
+          Confirm change
         </Button>
       )}
     </div>

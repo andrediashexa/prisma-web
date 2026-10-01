@@ -13,7 +13,7 @@ import { fetcher } from "@/lib/api"
 import { formatRelative } from "@/lib/format"
 import { hasRole, type AuditPage } from "@/lib/types"
 
-/** Últimos eventos do log; filtrado por roteador quando `routerId` é dado. */
+/** Latest log events; filtered by router when `routerId` is given. */
 export function ActivityWidget({ routerId }: { routerId?: string }) {
   const { data: me } = useMe()
   const allowed = hasRole(me, "operator")
@@ -24,13 +24,13 @@ export function ActivityWidget({ routerId }: { routerId?: string }) {
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Atividade recente</CardTitle>
-        <CardDescription>Últimas mudanças e acessos</CardDescription>
+        <CardTitle>Recent activity</CardTitle>
+        <CardDescription>Latest changes and logins</CardDescription>
         {allowed && (
           <CardAction>
             <Button variant="ghost" size="sm" asChild>
               <Link href="/audit">
-                Ver tudo <ArrowRightIcon />
+                View all <ArrowRightIcon />
               </Link>
             </Button>
           </CardAction>
@@ -38,11 +38,11 @@ export function ActivityWidget({ routerId }: { routerId?: string }) {
       </CardHeader>
       <CardContent>
         {!allowed ? (
-          <p className="text-muted-foreground text-sm">Disponível para operadores e administradores.</p>
+          <p className="text-muted-foreground text-sm">Available to operators and administrators.</p>
         ) : !data ? (
           <Skeleton className="h-40 w-full" />
         ) : data.items.length === 0 ? (
-          <p className="text-muted-foreground text-sm">Nenhum evento ainda.</p>
+          <p className="text-muted-foreground text-sm">No events yet.</p>
         ) : (
           <ol className="space-y-3">
             {data.items.map((e) => (
