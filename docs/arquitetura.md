@@ -14,7 +14,7 @@ As palavras-chave MUST, MUST NOT, SHOULD e MAY seguem a [RFC 2119](https://www.r
 | **Why** | Quem for mudar a integração precisa saber o que foi decidido e o que foi descartado. |
 | **Who** | Quem desenvolve o prisma-web ou o lado de gerenciamento do Prisma. |
 | **Where** | `back/crates/server` (ponte), `back/crates/prisma-proto` (código gerado) e `back/crates/prisma-mock`. |
-| **When** | Desde a v0.3.0 (issue #3). |
+| **When** | Desde a versão 0.3.0 (issue #3). |
 | **How** | Seções abaixo. |
 | **How much** | Por roteador: um canal HTTP/2, um stream de telemetria a cada 5 s e 24 h de histórico em memória. |
 
@@ -36,7 +36,7 @@ O monitor consulta `GetVersion`, `GetSystem` e `GetSessionsSummary` de todos os 
 paralelo, a cada 5 s, com 4 s de limite, e a interface lê esse cache. A primeira consulta de um
 roteador recém-cadastrado acontece na própria requisição.
 
-Medição da v0.2.0, que continua valendo: com um roteador fora do ar, o status caiu de cerca de 3 s
+Medição da versão 0.2.0, que continua valendo: com um roteador fora do ar, o status caiu de cerca de 3 s
 (a espera do timeout) para 4 a 7 ms.
 
 ## Telemetria

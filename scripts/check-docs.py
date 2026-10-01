@@ -6,7 +6,8 @@
 - nenhum diagrama em ASCII art (diagramas são Mermaid);
 - *.md e comentários de código em pt-BR, salvo as exceções nomeadas no bloco
   `language-exceptions` do CONTRIBUTING.md;
-- VERSION igual à versão dos manifestos Cargo e npm.
+- VERSION igual à versão dos manifestos Cargo e npm, com major 0;
+- cabeçalhos do CHANGELOG `## X.Y.Z - <nome> — AAAA-MM-DD` e tags git `X.Y.Z`.
 
 O teste de idioma é uma heurística: compara palavras funcionais do inglês e do
 português. Pega um texto escrito em inglês; não pega um erro de ortografia.
@@ -105,13 +106,23 @@ for pattern in ("back/**/*.rs", "front/src/**/*.ts", "front/src/**/*.tsx", "scri
 # ---- versões
 version = (ROOT / "VERSION").read_text().strip()
 if not re.fullmatch(r"0\.\d+\.\d+", version):
-    fail("VERSION", f"'{version}' não é 0.x.y")
+    fail("VERSION", f"'{version}' não é 0.x.y (versão major ainda não é permitida)")
 cargo = re.search(r'\[workspace\.package\].*?^version\s*=\s*"([^"]+)"', (ROOT / "back/Cargo.toml").read_text(), re.S | re.M)
 if not cargo or cargo.group(1) != version:
     fail("back/Cargo.toml", f"versão {cargo and cargo.group(1)} ≠ VERSION {version}")
 npm = json.loads((ROOT / "front/package.json").read_text())["version"]
 if npm != version:
     fail("front/package.json", f"versão {npm} ≠ VERSION {version}")
+
+# ---- formato das versões (CONTRIBUTING, seção 5)
+HEADING = re.compile(r"^## 0\.\d+\.\d+ - \S.* — \d{4}-\d{2}-\d{2}$")
+for line in (ROOT / "CHANGELOG.md").read_text().splitlines():
+    if line.startswith("## ") and not HEADING.match(line):
+        fail("CHANGELOG.md", f"cabeçalho fora do formato '## X.Y.Z - <nome> — AAAA-MM-DD': {line}")
+tags = subprocess.run(["git", "tag", "--list"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
+for tag in tags:
+    if not re.fullmatch(r"0\.\d+\.\d+", tag):
+        fail("git tag", f"'{tag}' fora do formato X.Y.Z com major 0")
 
 # ---- exceções que não existem mais (a lista não pode guardar lixo)
 for p in EXC:

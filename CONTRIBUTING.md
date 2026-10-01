@@ -186,13 +186,24 @@ A branch is ready to merge when **all** of the following hold:
 `VERSION` is the single source of truth; no version string is hardcoded
 anywhere else. The project stays on `0.x.y` until the maintainer declares it
 production-ready — `1.0.0` is a decision, not a milestone reached by counting
-features.
+features. **A major version MUST NOT be made** until the maintainer says so:
+only minor and patch bumps are allowed.
 
-| Change merged into `master` | Bump |
-|---|---|
-| A feature issue, or a parent issue with its sub-issues | `0.MINOR.0` |
-| A fix, a chore, a documentation-only change | `0.x.PATCH` |
-| Anything at all | never `1.0.0` on its own |
+| Change merged into `master` | Bump | Published as |
+|---|---|---|
+| A feature issue, or a parent issue with its sub-issues | `0.MINOR.0` | **release** |
+| A fix, a chore, a documentation-only change | `0.x.PATCH` | **pre-release** |
+| Anything at all | never `1.0.0` on its own | — |
+
+Every version has a **name** that says what it delivered, in a few words
+("Integração gRPC"). Names and numbers are written the same way everywhere:
+
+| Where | Format | Example |
+|---|---|---|
+| Git tag | `X.Y.Z` — no `v`, no name (tags cannot hold spaces) | `0.3.0` |
+| Release title | `X.Y.Z - <name>` | `0.3.0 - Integração gRPC` |
+| `CHANGELOG.md` heading | `## X.Y.Z - <name> — YYYY-MM-DD` | `## 0.3.0 - Integração gRPC — 2026-10-01` |
+| Artifact | `prisma-web-X.Y.Z.tar.gz` and its `.sha256` | `prisma-web-0.3.0.tar.gz` |
 
 Breaking changes are permitted before 1.0.0, but they MUST be called out in
 the changelog under their own heading.
@@ -200,21 +211,22 @@ the changelog under their own heading.
 Every merge into `master` is a release, and a release MUST produce:
 
 1. **A version bump** in `VERSION`.
-2. **An annotated tag** `vX.Y.Z`, created after the merge commit and pointing
+2. **An annotated tag** `X.Y.Z`, created after the merge commit and pointing
    at it, whose message is the release note — what changed and why.
 3. **A `CHANGELOG.md` entry** listing the issues closed, behaviour changes
    first, then fixes, then internal work.
 4. **A published release** on that tag, with the same note, the artifact and
-   its `sha256`. Its title is the changelog heading, version included. Release
-   notes MUST NOT be generated from the commit list: commits describe the
-   work, and a reader needs what changed for them.
+   its `sha256`, titled `X.Y.Z - <name>`. A patch MUST be marked as a
+   **pre-release**; a minor MUST NOT be. Release notes MUST NOT be generated
+   from the commit list: commits describe the work, and a reader needs what
+   changed for them.
 
 ```mermaid
 flowchart LR
     A["work done on<br/>its branch"] --> B["merge into master<br/>--no-ff"]
     B --> C["bump VERSION<br/>CHANGELOG entry"]
-    C --> D["annotated tag vX.Y.Z<br/>message = release note"]
-    D --> E["published release<br/>note + artifact + sha256"]
+    C --> D["annotated tag X.Y.Z<br/>message = release note"]
+    D --> E["release 'X.Y.Z - name'<br/>patch = pre-release<br/>note + artifact + sha256"]
     E --> F["close the issue<br/>criteria ticked, evidence"]
 ```
 
@@ -250,7 +262,7 @@ branch MUST NOT be merged while any of them fails.
 
 | Check | What it enforces | Command |
 |---|---|---|
-| Documentation | TL;DR, 5W2H and RFC 2119 citation in every `*.md`; no ASCII-art diagrams; language of `*.md` and of source comments; `VERSION` matching the Cargo and npm manifests | `scripts/check-docs.py` |
+| Documentation | TL;DR, 5W2H and RFC 2119 citation in every `*.md`; no ASCII-art diagrams; language of `*.md` and of source comments; `VERSION` matching the Cargo and npm manifests; major version 0; `CHANGELOG.md` headings and git tags in the section 5 format | `scripts/check-docs.py` |
 | Back end | Unit tests of the server and integration tests of the mock | `docker run --rm -v "$PWD/back":/src -w /src rust:1-bookworm cargo test --workspace` |
 | Front end | Lint and production build | `docker run --rm -v "$PWD/front":/w -w /w node:22-alpine sh -c "npm ci && npm run lint && npm run build"` |
 | End to end | Every acceptance criterion of the gRPC integration, through the API of a running stack | `E2E_USER=… E2E_PASSWORD=… scripts/e2e.py --base http://[::1]` |
