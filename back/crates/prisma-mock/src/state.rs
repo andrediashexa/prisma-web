@@ -59,6 +59,9 @@ pub struct State {
 pub struct Shared {
     pub state: Mutex<State>,
     pub events: broadcast::Sender<Event>,
+    /// O processo operacional da conta no Prisma 0.148.4/0.148.5: atende uma
+    /// chamada por vez, `Show` incluído (issue #14 do prisma-web).
+    pub ops: tokio::sync::Mutex<()>,
 }
 
 pub type SharedRef = Arc<Shared>;

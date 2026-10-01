@@ -63,6 +63,9 @@ pub struct RouterStatus {
     pub error: Option<String>,
     pub latency_ms: Option<u64>,
     pub checked_at: chrono::DateTime<chrono::Utc>,
+    /// O Prisma não respondeu porque um comando do console está ocupando o
+    /// processo da conta; os dados são os da última consulta (issue #14).
+    pub busy: bool,
 }
 
 pub struct Registry {
@@ -73,6 +76,26 @@ pub struct Registry {
     cache: RwLock<HashMap<Uuid, Arc<RouterHandle>>>,
     status: RwLock<HashMap<Uuid, RouterStatus>>,
     hostnames: HostnameCache,
+    /// `Show` do console em andamento, por roteador.
+    consoles: Arc<std::sync::Mutex<HashMap<Uuid, usize>>>,
+}
+
+/// Marca um comando de console em andamento enquanto existir.
+pub struct ConsoleGuard {
+    id: Uuid,
+    consoles: Arc<std::sync::Mutex<HashMap<Uuid, usize>>>,
+}
+
+impl Drop for ConsoleGuard {
+    fn drop(&mut self) {
+        let mut m = self.consoles.lock().unwrap();
+        if let Some(n) = m.get_mut(&self.id) {
+            *n -= 1;
+            if *n == 0 {
+                m.remove(&self.id);
+            }
+        }
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -99,6 +122,7 @@ impl Registry {
             cache: RwLock::new(HashMap::new()),
             status: RwLock::new(HashMap::new()),
             hostnames: Arc::new(RwLock::new(HashMap::new())),
+            consoles: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -138,6 +162,18 @@ impl Registry {
             out.push(self.get(id).await?);
         }
         Ok(out)
+    }
+
+    /// No Prisma 0.148.4/0.148.5 o `Show` divide com as leituras o processo da
+    /// conta, que atende uma chamada por vez: um `ping` longo faz o monitor
+    /// estourar o tempo. O console avisa aqui enquanto roda (issue #14).
+    pub fn console_started(&self, id: Uuid) -> ConsoleGuard {
+        *self.consoles.lock().unwrap().entry(id).or_default() += 1;
+        ConsoleGuard { id, consoles: self.consoles.clone() }
+    }
+
+    fn console_active(&self, id: Uuid) -> bool {
+        self.consoles.lock().unwrap().contains_key(&id)
     }
 
     /// Chamado ao editar ou remover um roteador: descarta canal, status e coletor.
@@ -188,6 +224,7 @@ impl Registry {
                     error: None,
                     latency_ms: None,
                     checked_at: chrono::Utc::now(),
+                    busy: false,
                 };
                 match res {
                     Ok(Ok((v, s, ss))) => {
@@ -214,7 +251,15 @@ impl Registry {
                 st
             });
         }
-        for st in set.join_all().await {
+        for mut st in set.join_all().await {
+            if !st.online && self.console_active(st.id) {
+                // Sem resposta porque o console ocupa a conta: não é queda.
+                let prev = self.status.read().unwrap().get(&st.id).cloned();
+                st = match prev.filter(|p| p.online) {
+                    Some(p) => RouterStatus { busy: true, ..p },
+                    None => RouterStatus { busy: true, error: Some("ocupado por um comando do console".into()), ..st },
+                };
+            }
             self.status.write().unwrap().insert(st.id, st);
         }
     }

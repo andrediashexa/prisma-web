@@ -145,9 +145,14 @@ ao front, que mostra a mensagem, o caminho e a linha que o VTY citou:
 - A 0.148.4 lista as interfaces `tap*` do linux_cp no `ListInterfaces`, e o back as esconde
   (`routes/ops.rs`). A partir da 0.148.5, o próprio Prisma as omite (verificado no laboratório), e o
   filtro só tem efeito enquanto houver equipamentos na 0.148.4.
-- O guia do Prisma (seção *Limits a client meets*) diz que cada sessão atende **uma requisição por
-  vez**. Ainda não está medido se um comando demorado no console atrasa o monitor de status, que
-  usa a mesma conta (issue #14).
+- **Console e status (issue #14):** na 0.148.4 e na 0.148.5, o `Show` divide com as leituras o
+  processo operacional da conta, que atende uma chamada por vez. Um `ping` longo fazia o monitor
+  estourar os 4 s, e o roteador aparecia offline (reproduzido no e2e: OFFLINE em 4 leituras
+  seguidas). O back conta os `Show` em andamento por roteador e, nesse caso, mantém os últimos
+  dados com `busy = true` ("ocupado (console)"). A 0.148.6 dá ao `Show` um processo próprio, e a
+  marcação deixa de ser necessária. O mock reproduz a trava da 0.148.5. Foi rejeitado usar uma conta
+  separada para o console (um segundo certificado e uma segunda conta em cada equipamento) e
+  serializar tudo no back (atrasaria as telas sem necessidade na 0.148.6).
 - O papel vale para todos os roteadores.
 - O front não tem testes automatizados além de lint e build. O roteiro `scripts/e2e.py` cobre o
   comportamento pela API.

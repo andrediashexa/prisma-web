@@ -296,6 +296,24 @@ def main():
         st, b = Client(args.base).post(f"{R}/show", {"command": "show version"})
         check(st == 401, "console exige sessão")
 
+        # Prisma 0.148.4/0.148.5: um Show longo segura o processo operacional da
+        # conta, e o monitor de status estoura o tempo atrás dele (issue #14).
+        import threading
+        result = {}
+        t = threading.Thread(
+            target=lambda: result.update(r=admin.post(f"{R}/show", {"command": "ping 2001:db8:100::1 count 40"}))
+        )
+        t.start()
+        seen = []
+        for _ in range(11):
+            time.sleep(1)
+            s_ = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+            seen.append("ocupado" if s_.get("busy") else ("online" if s_["online"] else "OFFLINE"))
+        t.join()
+        check(result["r"][0] == 200, "ping longo pelo console termina", result.get("r"))
+        check("ocupado" in seen, "o monitor marca o roteador como ocupado durante o comando", seen)
+        check("OFFLINE" not in seen, f"comando longo no console não deixa o roteador offline ({', '.join(seen)})", seen)
+
         # --- operacional -------------------------------------------------------------
         for path, key in [("/pools", "pools"), ("/bgp", "neighbors"), ("/interfaces", "interfaces")]:
             st, b = admin.get(R + path)
