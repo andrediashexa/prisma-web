@@ -38,60 +38,204 @@ export interface AuditPage {
   next_before: number | null
 }
 
-export interface SystemInfo {
+// ---- prisma.v1 (back/proto/prisma/v1/prisma.proto), como o back entrega em JSON
+
+export interface VersionInfo {
+  release: string
+  plugin_build: string
+  dataplane_current: boolean
+  vpp_version: string
+  frr_version: string
   hostname: string
-  version: string
-  uptime_seconds: number
-  cpu_cores: number
-  cpu_percent: number
-  memory_total_bytes: number
-  memory_used_bytes: number
-  load_average: [number, number, number]
-  ipv4_forwarding: boolean
-  ipv6_forwarding: boolean
+  api_transport: string
 }
 
-export type InterfaceKind = "ethernet" | "bridge" | "vlan" | "wireguard" | "loopback"
+export interface SystemInfo {
+  hostname: string
+  uptime_seconds: number
+  control_plane_cpus: string
+  main_thread_cpu: string
+  worker_cpus: string
+  workers: number
+  hugepages: number
+  cpu_text: string
+  memory_text: string
+}
+
+export interface SessionsSummary {
+  sessions: number
+  sessions_fit: number
+  subscribers: number
+  ports_in_use: number
+}
+
+export interface InterfaceCounters {
+  rx_bytes: number
+  tx_bytes: number
+  rx_packets: number
+  tx_packets: number
+  rx_errors: number
+  tx_errors: number
+  drops: number
+}
 
 export interface RouterInterface {
   name: string
-  kind: InterfaceKind
-  description: string | null
-  mac: string | null
-  mtu: number
   admin_up: boolean
-  oper_state: "up" | "down"
+  link_up: boolean
+  mtu: number
+  mac_address: string
   /** Notação CIDR, IPv4 e IPv6 misturados. */
   addresses: string[]
-  counters: {
-    rx_bytes: number
-    tx_bytes: number
-    rx_packets: number
-    tx_packets: number
-    rx_errors: number
-    tx_errors: number
-  }
+  linux_name: string
+  description: string
+  counters: InterfaceCounters | null
 }
 
-export interface InterfaceUpdate {
-  description?: string
-  mtu?: number
-  admin_up?: boolean
+export interface Pool {
+  name: string
+  mode: string
+  policy: string
+  block_size: number
+  prefixes_inside: string[]
+  prefixes_outside: string[]
+  capacity: number
+  guaranteed: number
+  subscribers: number
+  ports_in_use: number
+  refusals: number
+  sessions: number
 }
 
-export interface RouterRoute {
-  family: "ipv4" | "ipv6"
-  destination: string
-  gateway: string | null
-  interface: string
-  metric: number
+export interface Subscriber {
+  address: string
+  pool: string
+  blocks: { public_address: string; first_port: number; last_port: number }[]
+  sessions: number
+  text: string
+}
+
+export interface BgpNeighbor {
+  vrf: string
+  peer: string
+  remote_as: number
+  state: string
+  uptime_seconds: number
+  prefixes_received: number
+  description: string
+}
+
+export interface OspfNeighbor {
   protocol: string
+  router_id: string
+  address: string
+  interface: string
+  state: string
 }
 
-export interface TrafficSeries {
+export interface IsisAdjacency {
+  system_id: string
   interface: string
+  state: string
+  level: string
+}
+
+export interface VrrpRouter {
+  interface: string
+  vr_id: number
+  family: number
+  state: string
+  priority: number
+  addresses: string[]
+}
+
+export interface Bundle {
+  name: string
+  mode: string
+  members: string[]
+  active_members: string[]
+}
+
+export interface Diagnostic {
+  severity: "error" | "warning" | "note" | "unspecified"
+  message: string
+  path: string[]
+  line: string
+}
+
+export interface ConfigText {
+  text: string
+  revision: string
+}
+
+export interface OpenCandidateResponse {
+  candidate_id: string
+  base_revision: string
+  text: string
+}
+
+export interface EditResponse {
+  diagnostics: Diagnostic[]
+  output: string
+}
+
+export interface CompareResponse {
+  diff: string
+  changed: boolean
+}
+
+export interface CheckResponse {
+  passed: boolean
+  diagnostics: Diagnostic[]
+  remap: string[]
+  cutoff: string[]
+  diverge: string[]
+  output: string
+}
+
+export interface CommitResponse {
+  revision: string
+  confirm_deadline: string | null
+  diagnostics: Diagnostic[]
+  output: string
+}
+
+export interface Revision {
+  number: number
+  committed_at: string | null
+  comment: string
+}
+
+export interface PendingConfirm {
+  deadline: string | null
+  by: string
+  revision: string | null
+  can_confirm: boolean
+}
+
+export interface Series<T> {
   step_seconds: number
-  samples: { timestamp: string; rx_bps: number; tx_bps: number }[]
+  samples: T[]
+  /** false quando o stream de telemetria do roteador está caído. */
+  live: boolean
+}
+
+export interface RateSample {
+  timestamp: string
+  rx_bps: number
+  tx_bps: number
+}
+
+export interface CgnatSample {
+  timestamp: string
+  subscribers: number
+  ports_in_use: number
+  sessions: number
+  refusals: number
+}
+
+export interface TrafficSeries extends Series<RateSample> {
+  interface: string
 }
 
 /** Limites espelhados de prisma_api::MTU_MIN/MTU_MAX. */
@@ -116,7 +260,6 @@ export interface RouterView {
   name: string
   api_url: string
   description: string | null
-  has_token: boolean
   created_at: string
   updated_at: string
 }
@@ -125,7 +268,9 @@ export interface RouterStatus {
   id: string
   name: string
   online: boolean
+  version: VersionInfo | null
   system: SystemInfo | null
+  sessions: SessionsSummary | null
   error: string | null
   latency_ms: number | null
 }

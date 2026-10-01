@@ -1,0 +1,366 @@
+//! `OperationalService`: dados operacionais tipados e o `Show` com saídas
+//! no formato do VTY/FRR.
+
+use std::net::{IpAddr, Ipv4Addr};
+
+use prisma_proto::v1::diagnostic::Severity;
+use prisma_proto::v1::operational_service_server::OperationalService;
+use prisma_proto::v1::*;
+use prisma_proto::with_diagnostics;
+use tonic::{Request, Response, Status};
+
+use crate::config::{self, diag};
+use crate::state::{SharedRef, State};
+
+pub struct OperationalSvc {
+    pub shared: SharedRef,
+    pub hostname: String,
+}
+
+type R<T> = Result<Response<T>, Status>;
+
+const RELEASE: &str = "0.149.0-mock";
+
+fn workers_floor(capacity: u64) -> u64 {
+    // Garantido por worker (5 workers), como o piso do #210.
+    capacity / 5 * 5 * 9 / 10
+}
+
+fn pool(st: &State) -> Pool {
+    let c = &st.running;
+    let block_size = c.pool_block_size().max(1);
+    let capacity = c.pool_outside_addresses() * u64::from(64_512 / block_size);
+    let subscribers = (st.subscribers as u64).min(capacity);
+    Pool {
+        name: "RFC6598".into(),
+        mode: c.pool_line("mode ", "dynamic"),
+        policy: c.pool_line("policy ", "interleaved"),
+        block_size,
+        prefixes_inside: c.pool_prefixes("prefix-inside "),
+        prefixes_outside: c.pool_prefixes("prefix-outside "),
+        capacity,
+        guaranteed: workers_floor(capacity),
+        subscribers,
+        ports_in_use: subscribers * 180,
+        refusals: st.refusals,
+        sessions: subscribers * 35,
+    }
+}
+
+fn interfaces(st: &State, names: &[String]) -> Vec<Interface> {
+    st.running
+        .interfaces
+        .iter()
+        .filter(|i| names.is_empty() || names.contains(&i.name))
+        .map(|i| {
+            let sim = st.sim(&i.name);
+            Interface {
+                name: i.name.clone(),
+                admin_up: !i.shutdown,
+                link_up: i.name == "lo" || !i.shutdown,
+                mtu: i.mtu,
+                mac_address: sim.and_then(|s| s.mac.clone()).unwrap_or_default(),
+                addresses: i.v4.iter().chain(&i.v6).cloned().collect(),
+                linux_name: if i.name == "lo" { String::new() } else { format!("vpp-{}", i.name) },
+                description: i.description.clone().unwrap_or_default(),
+                counters: sim.map(|s| s.counters),
+            }
+        })
+        .collect()
+}
+
+fn hms(secs: u64) -> String {
+    let (d, h, m) = (secs / 86_400, secs % 86_400 / 3600, secs % 3600 / 60);
+    if d > 0 { format!("{d}d{h:02}h{m:02}m") } else { format!("{h:02}:{m:02}:{:02}", secs % 60) }
+}
+
+impl OperationalSvc {
+    fn bgp(&self, st: &State) -> Vec<BgpNeighbor> {
+        let filial = self.hostname.contains("filial");
+        st.running
+            .bgp_neighbors()
+            .into_iter()
+            .map(|(peer, asn)| {
+                let v6 = peer.contains(':');
+                let down = v6 && filial;
+                BgpNeighbor {
+                    vrf: "default".into(),
+                    remote_as: asn,
+                    state: if down { "Active".into() } else { "Established".into() },
+                    uptime_seconds: if down { 0 } else { st.uptime_seconds() - 600 },
+                    prefixes_received: if down { 0 } else if v6 { 201_388 } else { 1_002_117 },
+                    description: if v6 { "Transito IPv6".into() } else { "Transito IPv4".into() },
+                    peer,
+                }
+            })
+            .collect()
+    }
+
+    fn show(&self, st: &State, command: &str) -> Result<String, Status> {
+        let words: Vec<&str> = command.split_whitespace().collect();
+        let refuse = |msg: String| {
+            let d = diag(Severity::Error, msg.clone(), &[], command);
+            with_diagnostics(Status::invalid_argument(msg.clone()), &Diagnostics { items: vec![d], output: msg })
+        };
+        let Some(first) = words.first() else { return Err(refuse("% Empty command".into())) };
+        if matches!(*first, "configure" | "set" | "delete" | "commit" | "rollback" | "save" | "shell" | "start" | "edit") {
+            return Err(refuse(format!("not an operational command: {command}")));
+        }
+        match words.as_slice() {
+            ["show", "ip", "route"] => Ok(self.routes(st, false)),
+            ["show", "ipv6", "route"] => Ok(self.routes(st, true)),
+            ["show", "bgp", "summary"] => Ok(self.bgp_summary(st)),
+            ["show", "version"] => Ok(format!(
+                "Prisma {RELEASE} ({})\nplugin 0.149.0-mock+g1a2b3c (current)\nvpp 25.06\nfrr 10.3\nuptime {}\n",
+                self.hostname,
+                hms(st.uptime_seconds())
+            )),
+            ["show", "interfaces"] => {
+                let mut out = format!("{:<10} {:<6} {:<6} {:>6} {:>18} {:>18}\n", "Interface", "Admin", "Link", "MTU", "RX bytes", "TX bytes");
+                for i in interfaces(st, &[]) {
+                    let c = i.counters.unwrap_or_default();
+                    out += &format!(
+                        "{:<10} {:<6} {:<6} {:>6} {:>18} {:>18}\n",
+                        i.name,
+                        if i.admin_up { "up" } else { "down" },
+                        if i.link_up { "up" } else { "down" },
+                        i.mtu,
+                        c.rx_bytes,
+                        c.tx_bytes
+                    );
+                }
+                Ok(out)
+            }
+            ["ping", target, ..] => {
+                let addr: IpAddr = target.parse().map_err(|_| refuse(format!("% Invalid address: {target}")))?;
+                let mut out = format!("PING {addr} ({addr}): 56 data bytes\n");
+                let base = if addr.is_ipv4() { 3.1 } else { 3.4 };
+                let mut rtts = Vec::new();
+                for seq in 0..4 {
+                    let rtt = base + f64::from(seq % 3) * 0.17;
+                    rtts.push(rtt);
+                    out += &format!("64 bytes from {addr}: icmp_seq={seq} ttl=58 time={rtt:.3} ms\n");
+                }
+                let avg = rtts.iter().sum::<f64>() / rtts.len() as f64;
+                out += &format!(
+                    "\n--- {addr} ping statistics ---\n4 packets transmitted, 4 packets received, 0.0% packet loss\nround-trip min/avg/max = {:.3}/{avg:.3}/{:.3} ms\n",
+                    rtts.iter().cloned().fold(f64::MAX, f64::min),
+                    rtts.iter().cloned().fold(0.0, f64::max)
+                );
+                Ok(out)
+            }
+            _ => Err(refuse(format!("% Unknown command: {command}"))),
+        }
+    }
+
+    fn routes(&self, st: &State, v6: bool) -> String {
+        let up = |n: &str| st.running.iface(n).is_some_and(|i| !i.shutdown);
+        let age = hms(st.uptime_seconds());
+        let mut out = String::from(
+            "Codes: K - kernel route, C - connected, L - local, S - static,\n       O - OSPF, I - IS-IS, B - BGP,\n       > - selected route, * - FIB route\n\n",
+        );
+        if up("wan0") {
+            let (dst, via) = if v6 { ("::/0", "fe80::1") } else { ("0.0.0.0/0", "203.0.113.9") };
+            out += &format!("B>* {dst} [20/0] via {via}, wan0, weight 1, {age}\n");
+        }
+        for i in &st.running.interfaces {
+            if i.shutdown || i.name == "lo" {
+                continue;
+            }
+            for a in if v6 { &i.v6 } else { &i.v4 } {
+                if let Some(net) = config::network(a) {
+                    out += &format!("C>* {net} is directly connected, {}, {age}\n", i.name);
+                }
+                let host = a.split('/').next().unwrap_or_default();
+                out += &format!("L>* {host}/{} is directly connected, {}, {age}\n", if v6 { 128 } else { 32 }, i.name);
+            }
+        }
+        if !v6 && up("wg0") {
+            out += &format!("S>* 172.16.0.0/16 [1/0] via 10.8.0.2, wg0, weight 1, {age}\n");
+        }
+        let learned = self.bgp(st).iter().filter(|n| n.peer.contains(':') == v6).map(|n| n.prefixes_received).sum::<u64>();
+        if learned > 0 && up("wan0") {
+            out += &format!("\n{learned} BGP routes not shown (use \"show {} route bgp\")\n", if v6 { "ipv6" } else { "ip" });
+        }
+        out
+    }
+
+    fn bgp_summary(&self, st: &State) -> String {
+        let mut out = format!(
+            "BGP router identifier 203.0.113.10, local AS number 65000 vrf-id 0\n\n{:<26} {:>2} {:>8} {:>10} {:<12} {:>10}\n",
+            "Neighbor", "V", "AS", "Up/Down", "State", "PfxRcd"
+        );
+        for n in self.bgp(st) {
+            let updown = if n.uptime_seconds == 0 { "never".to_string() } else { hms(n.uptime_seconds) };
+            out += &format!("{:<26} {:>2} {:>8} {:>10} {:<12} {:>10}\n", n.peer, 4, n.remote_as, updown, n.state, n.prefixes_received);
+        }
+        out
+    }
+}
+
+#[tonic::async_trait]
+impl OperationalService for OperationalSvc {
+    async fn get_version(&self, _: Request<GetVersionRequest>) -> R<VersionInfo> {
+        Ok(Response::new(VersionInfo {
+            release: RELEASE.into(),
+            plugin_build: "0.149.0-mock+g1a2b3c".into(),
+            dataplane_current: true,
+            vpp_version: "25.06".into(),
+            frr_version: "10.3".into(),
+            hostname: self.hostname.clone(),
+            api_transport: "vpp_papi".into(),
+        }))
+    }
+
+    async fn get_system(&self, _: Request<GetSystemRequest>) -> R<SystemInfo> {
+        let st = self.shared.state.lock().unwrap();
+        let mib = st.mem_used >> 20;
+        let cpu_text = "\
+CPU  Role           Thread      Vectors/call  Loops/s
+0    control-plane  -           -             -
+1    control-plane  -           -             -
+2    main           vpp_main    1.02          41233
+3    worker         vpp_wk_0    18.71         38211
+4    worker         vpp_wk_1    17.93         38490
+5    worker         vpp_wk_2    19.40         37902
+6    worker         vpp_wk_3    18.05         38377
+7    worker         vpp_wk_4    16.88         39011
+"
+        .to_string();
+        let memory_text = format!(
+            "\
+              Total      Used      Free
+System      32768 MiB {:>6} MiB {:>6} MiB
+Hugepages   16384 MiB  16384 MiB      0 MiB  (16 x 1G)
+VPP heap     4096 MiB {:>6} MiB {:>6} MiB
+",
+            mib,
+            32_768 - mib,
+            1_200 + mib % 700,
+            4_096 - 1_200 - mib % 700
+        );
+        Ok(Response::new(SystemInfo {
+            hostname: self.hostname.clone(),
+            uptime_seconds: st.uptime_seconds(),
+            control_plane_cpus: "0-1".into(),
+            main_thread_cpu: "2".into(),
+            worker_cpus: "3-7".into(),
+            workers: 5,
+            hugepages: 16,
+            cpu_text,
+            memory_text,
+        }))
+    }
+
+    async fn list_interfaces(&self, req: Request<ListInterfacesRequest>) -> R<ListInterfacesResponse> {
+        let names = req.into_inner().names;
+        let st = self.shared.state.lock().unwrap();
+        Ok(Response::new(ListInterfacesResponse { interfaces: interfaces(&st, &names) }))
+    }
+
+    async fn list_pools(&self, _: Request<ListPoolsRequest>) -> R<ListPoolsResponse> {
+        let st = self.shared.state.lock().unwrap();
+        Ok(Response::new(ListPoolsResponse { pools: vec![pool(&st)] }))
+    }
+
+    async fn get_subscriber(&self, req: Request<GetSubscriberRequest>) -> R<Subscriber> {
+        let address = req.into_inner().address;
+        let inside = address
+            .parse::<Ipv4Addr>()
+            .ok()
+            .filter(|a| u32::from(*a) & 0xffc0_0000 == u32::from(Ipv4Addr::new(100, 64, 0, 0)));
+        let Some(addr) = inside else {
+            return Err(Status::not_found(format!("no subscriber {address}")));
+        };
+        let st = self.shared.state.lock().unwrap();
+        let p = pool(&st);
+        let h = u32::from(addr);
+        let block_size = p.block_size.max(1);
+        let block = |n: u32| {
+            let public = Ipv4Addr::new(203, 0, 113, 64 + ((h + n) % 32) as u8);
+            let first = 1024 + ((h / 32 + n) % (64_512 / block_size)) * block_size;
+            PortBlock { public_address: public.to_string(), first_port: first, last_port: first + block_size - 1 }
+        };
+        let blocks: Vec<PortBlock> = if h % 3 == 0 { vec![block(0), block(1)] } else { vec![block(0)] };
+        let sessions = u64::from(h % 120) + 4;
+        let mut text = format!("Subscriber {address}\n  pool       RFC6598 ({})\n  sessions   {sessions}\n  blocks\n", p.mode);
+        for b in &blocks {
+            text += &format!("    {}:{}-{}\n", b.public_address, b.first_port, b.last_port);
+        }
+        Ok(Response::new(Subscriber { address, pool: p.name, blocks, sessions, text }))
+    }
+
+    async fn get_sessions_summary(&self, _: Request<GetSessionsSummaryRequest>) -> R<SessionsSummary> {
+        let st = self.shared.state.lock().unwrap();
+        let p = pool(&st);
+        Ok(Response::new(SessionsSummary {
+            sessions: p.sessions,
+            sessions_fit: 4_000_000,
+            subscribers: p.subscribers,
+            ports_in_use: p.ports_in_use,
+        }))
+    }
+
+    async fn list_bgp_neighbors(&self, _: Request<ListBgpNeighborsRequest>) -> R<ListBgpNeighborsResponse> {
+        let st = self.shared.state.lock().unwrap();
+        Ok(Response::new(ListBgpNeighborsResponse { neighbors: self.bgp(&st) }))
+    }
+
+    async fn list_ospf_neighbors(&self, _: Request<ListOspfNeighborsRequest>) -> R<ListOspfNeighborsResponse> {
+        Ok(Response::new(ListOspfNeighborsResponse {
+            neighbors: vec![
+                OspfNeighbor {
+                    protocol: "ospf".into(),
+                    router_id: "192.168.10.2".into(),
+                    address: "192.168.10.2".into(),
+                    interface: "lan0".into(),
+                    state: "Full/DR".into(),
+                },
+                OspfNeighbor {
+                    protocol: "ospf6".into(),
+                    router_id: "192.168.10.2".into(),
+                    address: "fe80::5054:ff:fea1:10".into(),
+                    interface: "lan0".into(),
+                    state: "Full/DR".into(),
+                },
+            ],
+        }))
+    }
+
+    async fn list_isis_adjacencies(&self, _: Request<ListIsisAdjacenciesRequest>) -> R<ListIsisAdjacenciesResponse> {
+        Ok(Response::new(ListIsisAdjacenciesResponse {
+            adjacencies: vec![IsisAdjacency {
+                system_id: "0000.0000.0002".into(),
+                interface: "lan0".into(),
+                state: "Up".into(),
+                level: "L2".into(),
+            }],
+        }))
+    }
+
+    async fn list_vrrp(&self, _: Request<ListVrrpRequest>) -> R<ListVrrpResponse> {
+        let vr = |family, addr: &str| VrrpRouter {
+            interface: "lan0".into(),
+            vr_id: 10,
+            family,
+            state: "master".into(),
+            priority: 200,
+            addresses: vec![addr.into()],
+        };
+        Ok(Response::new(ListVrrpResponse { routers: vec![vr(4, "192.168.10.254"), vr(6, "2001:db8:200:10::fe")] }))
+    }
+
+    async fn list_bundles(&self, _: Request<ListBundlesRequest>) -> R<ListBundlesResponse> {
+        let members = vec!["TenGig0".to_string(), "TenGig1".to_string()];
+        Ok(Response::new(ListBundlesResponse {
+            bundles: vec![Bundle { name: "BondEthernet0".into(), mode: "lacp".into(), active_members: members.clone(), members }],
+        }))
+    }
+
+    async fn show(&self, req: Request<ShowRequest>) -> R<ShowResponse> {
+        let command = req.into_inner().command;
+        let st = self.shared.state.lock().unwrap();
+        let text = self.show(&st, command.trim())?;
+        Ok(Response::new(ShowResponse { text }))
+    }
+}

@@ -1,100 +1,100 @@
 # prisma-web
 
-Interface web para o **Prisma**, roteador em desenvolvimento. Gerencia **vários Prismas ao mesmo
-tempo**, roda inteira em Docker, com suporte completo a IPv4 e IPv6, contas locais, homepage
-personalizável por usuário e log de todas as mudanças.
+**TL;DR:** interface web para gerenciar **vários roteadores Prisma** ao mesmo tempo. Ela fala com
+cada um pelo contrato gRPC oficial (`prisma.v1`) e altera a configuração pelo modelo do próprio VTY:
+candidate, diff, `commit check` e `commit confirmed`. Também mostra painéis e gráficos da telemetria,
+registra no log quem mudou o quê e roda inteira em Docker, com IPv4 e IPv6. Ainda não há TLS entre o
+prisma-web e os Prismas.
 
-```
-             IPv4 / IPv6 :80
-                   │
-             ┌─────▼─────┐
-             │   proxy   │  Caddy — ponto único de entrada
-             └──┬─────┬──┘
-        /api/*  │     │  resto
-          ┌─────▼─┐ ┌─▼─────┐
-          │ back  │ │ front │  Rust (Axum)  ·  Next.js + shadcn/ui
-          └─┬───┬─┘ └───────┘
-            │   │ API HTTP (back/crates/prisma-api)
-     ┌──────▼┐ ┌▼──────────────────────┐
-     │  db   │ │ Prisma · Prisma · …   │  PostgreSQL  ·  N roteadores cadastrados
-     └───────┘ └───────────────────────┘
+As palavras-chave MUST, MUST NOT, SHOULD e MAY seguem a [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+
+| 5W2H | |
+|---|---|
+| **What** | Painel, configuração, CGNAT, roteamento e console de cada Prisma; homepage em widgets por usuário; contas locais e log de mudanças. |
+| **Why** | Mexer num roteador de produção pela web só é aceitável se cada mudança for revisada antes, puder se desfazer sozinha e ficar registrada com autor e diff. |
+| **Who** | Administradores (usuários e cadastro de roteadores), operadores (alterações e console) e leitura. |
+| **Where** | Um host com Docker, que alcance a porta gRPC de cada Prisma. |
+| **When** | Versão em [`VERSION`](VERSION); histórico em [`CHANGELOG.md`](CHANGELOG.md). |
+| **How** | Seis containers (abaixo). Detalhes em [`docs/arquitetura.md`](docs/arquitetura.md). |
+| **How much** | Medido em 2026-10-01 com 3 Prismas cadastrados: imagens de 655 MB no total (postgres 297, front 237, caddy 63, back 32, mock 27) e cerca de 175 MiB de RAM somando os containers (back 41 MiB). Cada Prisma custa ao back uma conexão gRPC e um stream de telemetria. |
+
+```mermaid
+flowchart LR
+    U["Navegador<br/>IPv4 / IPv6"] -->|":80"| P[proxy<br/>Caddy]
+    P -->|"/api/*"| B[back<br/>Rust · Axum]
+    P -->|"resto"| F[front<br/>Next.js · shadcn/ui]
+    B --> D[(db<br/>PostgreSQL)]
+    B -->|"gRPC prisma.v1"| R1[Prisma A]
+    B -->|"gRPC prisma.v1"| R2[Prisma B]
+    B -.->|"perfil mock"| M[prisma-mock<br/>prisma-mock-2]
 ```
 
-| Container     | Papel                                                                 |
-|---------------|-----------------------------------------------------------------------|
-| `proxy`       | Caddy. Publica a porta 80 em IPv4 e IPv6 e roteia `/api` → back.      |
-| `front`       | Next.js 16, shadcn/ui, Recharts. Painéis, gráficos e telas de gestão. |
-| `back`        | Rust/Axum. Login, sessões, papéis, log de mudanças, ponte com o Prisma. |
-| `db`          | PostgreSQL 17. Usuários (hash Argon2id), sessões e log de mudanças. Sem porta exposta. |
-| `prisma-mock`, `prisma-mock-2` | Dois Prismas simulados (perfil `mock`) para desenvolver sem o roteador real. |
+| Container | O que faz para você |
+|---|---|
+| `proxy` | Única porta exposta (80, IPv4 e IPv6). Manda `/api` para o back e o resto para o front. |
+| `front` | As telas. Fala só com o back e nunca com um Prisma direto. |
+| `back` | Login, papéis, log de mudanças, cadastro de roteadores e ponte gRPC: consulta, telemetria e configuração. |
+| `db` | Usuários (hash Argon2id), sessões, roteadores, homepages e log de mudanças. Fica numa rede interna, sem porta publicada. |
+| `prisma-mock`, `prisma-mock-2` | Dois Prismas simulados que implementam o proto inteiro, para desenvolver sem equipamento. |
 
 ## Subindo
 
 ```bash
-cp .env.example .env        # defina POSTGRES_PASSWORD e APP_SECRET_KEY (openssl rand -base64 32)
+cp .env.example .env            # defina POSTGRES_PASSWORD
 docker compose up -d --build
 docker compose logs back | grep "administrador inicial"   # senha gerada do admin
 ```
 
-Acesse `http://<ip-v4>/` ou `http://[<ip-v6>]/`. No primeiro login a troca de senha é exigida.
+Acesse `http://<ipv4>/` ou `http://[<ipv6>]/`. A troca de senha é exigida no primeiro login.
 
-## Vários Prismas
+Com `COMPOSE_PROFILES=mock` (o padrão do `.env.example`), o primeiro mock é cadastrado sozinho. O
+segundo é cadastrado em **Roteadores** com o endereço `http://prisma-mock-2:50051`.
 
-Cada roteador é cadastrado em **Roteadores** (só administradores) com nome, URL da API e token
-opcional — o botão *Testar* valida a conexão antes de salvar. O token fica cifrado no banco com
-ChaCha20-Poly1305 usando `APP_SECRET_KEY`; se a chave mudar, os tokens precisam ser recadastrados.
+## Cadastrando um Prisma real
 
-O back mantém um monitor em segundo plano que consulta todos os Prismas a cada 5 s; a interface lê
-esse cache, então um roteador lento ou fora do ar não atrasa as telas. Cada alteração no log de
-mudanças registra em qual roteador aconteceu.
+Em **Roteadores → Cadastrar Prisma**, informe o endereço gRPC, por exemplo
+`http://[2001:db8::1]:50051`, e use **Testar** antes de salvar. O endereço MUST usar `http://`:
+TLS e mTLS ainda não existem, e `https://` é recusado. O que falta do lado do Prisma está em
+[`docs/prisma-integracao.md`](docs/prisma-integracao.md).
 
-Para testar com os mocks: o primeiro (`http://prisma-mock:8080`) é cadastrado sozinho a partir de
-`PRISMA_API_URL`; cadastre o segundo com `http://prisma-mock-2:8080` e token `filial-token-de-teste`.
+## Mudando a configuração
 
-## Homepage personalizável
+Toda alteração, seja pela tela de Interfaces ou pelo editor em **Configuração**, abre um candidate
+no Prisma:
 
-A *Visão geral* é uma grade de widgets salva por usuário. Em **Personalizar** dá para adicionar,
-remover, arrastar para reordenar, escolher a largura e configurar de qual Prisma cada widget mostra
-dados. Widgets: frota de roteadores, recursos por roteador (gráfico comparativo), indicadores, tráfego,
-interfaces e atividade recente. *Restaurar padrão* volta ao layout inicial.
+1. as linhas são aplicadas como no prompt, e uma recusa do VTY aparece com a linha e o caminho;
+2. a revisão mostra o diff e o `commit check`;
+3. os portões `remap`, `cutoff` e `diverge` exigem uma confirmação explícita;
+4. o commit SHOULD ser `commit confirmed`, que é o padrão de 5 min: se ninguém confirmar a tempo,
+   o próprio Prisma desfaz a mudança;
+5. o comentário leva `[prisma-web:<usuário>]`, para a trilha do equipamento saber quem foi.
+
+Um candidate pertence a quem o abriu. Só o autor ou um admin pode confirmar um `commit confirmed`.
+**Salvar para o boot** (`save`) é um passo separado: sem ele, a mudança vale até o próximo reboot.
 
 ## Acesso e auditoria
 
-- **Papéis:** `admin` (tudo), `operator` (altera o roteador, vê o log), `viewer` (só leitura).
-- **Sessões:** cookie `HttpOnly` + `SameSite=Strict`; no banco fica só o SHA-256 do token.
-  Trocar senha, desativar ou mudar papel encerra as sessões do usuário afetado.
-- **Força bruta:** 10 falhas em 15 min bloqueiam o IP — em IPv6, o /64 inteiro.
-- **Log de mudanças** (`audit_log`): logins (com sucesso e falha), gestão de usuários e toda
-  alteração no roteador com valor anterior e novo, usuário e IP de origem.
-- Sempre resta ao menos um administrador ativo.
+| Papel | Pode |
+|---|---|
+| `admin` | Tudo, inclusive usuários, cadastro de roteadores e confirmar commits de outros. |
+| `operator` | Alterar a configuração, usar o console e ver o log. |
+| `viewer` | Só ver. |
 
-## IPv6
+- **Sessões:** cookie `HttpOnly` com `SameSite=Strict`, e o banco guarda só o SHA-256 do token.
+- **Força bruta:** 10 falhas em 15 min bloqueiam o IP, ou o /64 inteiro no caso de IPv6.
+- **Log de mudanças:** registra logins, usuários, roteadores, cada commit com o seu diff, as
+  confirmações, os comandos do console e os eventos do próprio equipamento (`box.*`). Um rollback
+  automático de `commit confirmed` sempre entra no log.
 
-- As redes Docker são dual-stack (`enable_ipv6`, prefixos ULA `fd70:5057::/48`).
-- Todos os serviços escutam em `[::]`; IPv4 mapeado (`::ffff:a.b.c.d`) é normalizado.
-- A API usa notação CIDR para IPv4 e IPv6 igualmente; MTU mínimo é 1280 (RFC 8200).
+## Testes
 
-> Conexões via `localhost`/`127.0.0.1` passam pelo proxy do Docker e aparecem no log com o IP
-> do gateway da rede (`172.30.57.1`). Clientes reais, IPv4 ou IPv6, mantêm o IP de origem.
+| Suíte | Comando |
+|---|---|
+| Back (unidades e integração do mock) | `docker run --rm -v "$PWD/back":/src -w /src rust:1-bookworm cargo test --workspace` |
+| Front (lint e build) | `docker run --rm -v "$PWD/front":/w -w /w node:22-alpine sh -c "npm ci && npm run lint && npm run build"` |
+| Ponta a ponta, contra a stack no ar | `E2E_USER=admin E2E_PASSWORD=… scripts/e2e.py --base http://[::1]` |
+| Documentação e versões | `scripts/check-docs.py` |
 
-## Conectando ao Prisma real
+## Contribuindo
 
-O contrato está em [`docs/prisma-api.md`](docs/prisma-api.md) e, como código, em
-`back/crates/prisma-api`. Quando o Prisma implementar a API, cadastre-o pela interface com a URL
-(ex.: `http://[2001:db8::1]:8080`) e o token. Para desligar os mocks, deixe `COMPOSE_PROFILES=`
-vazio no `.env`.
-
-## HTTPS
-
-Hoje o acesso é HTTP puro. Para ativar HTTPS: em `proxy/Caddyfile`, troque `:80` pelo
-domínio e remova `auto_https off`; publique a 443 no compose; use `COOKIE_SECURE=true`.
-
-## Desenvolvimento
-
-```bash
-# back: testes do workspace Rust
-docker run --rm -v "$PWD/back":/src -w /src rust:1-bookworm cargo test --workspace
-
-# front: lint e build
-docker run --rm -v "$PWD/front":/w -w /w node:22-alpine sh -c "npm ci && npm run lint && npm run build"
-```
+As regras de issues, branches, documentação e releases estão em [`CONTRIBUTING.md`](CONTRIBUTING.md).

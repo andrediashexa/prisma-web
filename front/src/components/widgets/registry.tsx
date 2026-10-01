@@ -1,12 +1,14 @@
 "use client"
 
-import { ActivityIcon, BarChart3Icon, GaugeIcon, NetworkIcon, ServerIcon, TrendingUpIcon, UnplugIcon } from "lucide-react"
+import { ActivityIcon, BarChart3Icon, GaugeIcon, NetworkIcon, ServerIcon, ShareIcon, TrendingUpIcon, UnplugIcon, UsersIcon } from "lucide-react"
 
 import { TrafficChart } from "@/components/traffic-chart"
 import { Card, CardContent } from "@/components/ui/card"
 import type { RouterView } from "@/lib/types"
 
 import { ActivityWidget } from "./activity-widget"
+import { BgpWidget } from "./bgp-widget"
+import { CgnatWidget } from "./cgnat-widget"
 import { FleetWidget } from "./fleet-widget"
 import { InterfacesWidget } from "./interfaces-widget"
 import { ResourcesWidget } from "./resources-widget"
@@ -35,15 +37,15 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
     perRouter: false,
   },
   resources: {
-    title: "Recursos por roteador",
-    description: "Gráfico comparando CPU e memória entre os Prismas",
+    title: "Sessões por roteador",
+    description: "Gráfico comparando a ocupação da tabela de sessões entre os Prismas",
     icon: BarChart3Icon,
     defaultSize: 2,
     perRouter: false,
   },
   "router-stats": {
     title: "Indicadores",
-    description: "Tempo ligado, CPU, memória e interfaces de um Prisma",
+    description: "Tempo ligado, dataplane, sessões e interfaces de um Prisma",
     icon: GaugeIcon,
     defaultSize: 4,
     perRouter: true,
@@ -60,6 +62,20 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
     title: "Interfaces",
     description: "Lista de interfaces com endereços IPv4 e IPv6",
     icon: NetworkIcon,
+    defaultSize: 2,
+    perRouter: true,
+  },
+  cgnat: {
+    title: "CGNAT",
+    description: "Gráfico de sessões e assinantes ao longo do tempo",
+    icon: UsersIcon,
+    defaultSize: 2,
+    perRouter: true,
+  },
+  bgp: {
+    title: "Vizinhos BGP",
+    description: "Estado das sessões BGP de um Prisma",
+    icon: ShareIcon,
     defaultSize: 2,
     perRouter: true,
   },
@@ -103,7 +119,8 @@ export function defaultLayout(routers: RouterView[]): DashboardLayout {
     widgets.push(
       newWidget("router-stats", { routerId: first }),
       newWidget("traffic", { routerId: first, minutes: 60 }),
-      newWidget("interfaces", { routerId: first }),
+      newWidget("cgnat", { routerId: first }),
+      newWidget("bgp", { routerId: first }),
     )
   }
   widgets.push(routers.length > 1 ? newWidget("resources") : newWidget("activity"))
@@ -146,6 +163,10 @@ export function WidgetView({ widget, routers }: { widget: Widget; routers: Route
       ) : null
     case "interfaces":
       return routerId ? <InterfacesWidget routerId={routerId} title={router ? `Interfaces · ${router.name}` : undefined} /> : null
+    case "cgnat":
+      return routerId ? <CgnatWidget routerId={routerId} title={router ? `CGNAT · ${router.name}` : undefined} /> : null
+    case "bgp":
+      return routerId ? <BgpWidget routerId={routerId} title={router ? `BGP · ${router.name}` : undefined} /> : null
     case "activity":
       return <ActivityWidget routerId={router?.id} />
   }

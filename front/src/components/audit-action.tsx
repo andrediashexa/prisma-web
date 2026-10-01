@@ -10,6 +10,15 @@ export const ACTION_LABEL: Record<string, string> = {
   "user.update": "alterou usuário",
   "user.delete": "excluiu usuário",
   "router.interface.update": "alterou interface",
+  "router.command": "comando",
+  "config.commit": "commit",
+  "config.confirm": "confirmou commit",
+  "config.save": "salvou configuração",
+  "box.commit": "commit no equipamento",
+  "box.confirm-pending": "commit confirmed no equipamento",
+  "box.confirmed": "confirmado no equipamento",
+  "box.rolled-back": "rollback automático",
+  "box.saved": "salvo no equipamento",
   "router.create": "cadastrou Prisma",
   "router.update": "alterou Prisma",
   "router.delete": "removeu Prisma",
@@ -18,7 +27,8 @@ export const ACTION_LABEL: Record<string, string> = {
 export function AuditActionBadge({ action, success }: { action: string; success: boolean }) {
   const label = ACTION_LABEL[action] ?? action
   if (!success) return <Badge variant="destructive">{label} · falhou</Badge>
-  const tone = action.startsWith("router.interface")
+  if (action === "box.rolled-back") return <Badge variant="destructive">{label}</Badge>
+  const tone = action.startsWith("config.") || action.startsWith("box.")
     ? "bg-chart-1/15 text-chart-1"
     : action.startsWith("router.")
       ? "bg-chart-2/15 text-chart-2"

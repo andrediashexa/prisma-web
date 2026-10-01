@@ -6,7 +6,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use chrono::{DateTime, Utc};
-use prisma_api::SystemInfo;
+use prisma_proto::v1::operational_service_client::OperationalServiceClient;
+use prisma_proto::v1::{GetVersionRequest, VersionInfo};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sqlx::PgPool;
@@ -16,7 +17,8 @@ use crate::audit::{self, Entry};
 use crate::auth::{ClientMeta, CurrentUser, Role};
 use crate::config::Config;
 use crate::error::{AppError, AppResult};
-use crate::registry::{validate_api_url, Registry, RouterStatus};
+use crate::grpc;
+use crate::registry::{probe_channel, validate_api_url, RouterStatus};
 use crate::AppState;
 
 /// Tempo máximo para um Prisma responder ao teste de conexão.
@@ -28,13 +30,12 @@ pub struct RouterView {
     name: String,
     api_url: String,
     description: Option<String>,
-    has_token: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
 
 const SELECT_ROUTERS: &str = "
-    SELECT id, name, api_url, description, token_enc IS NOT NULL AS has_token, created_at, updated_at
+    SELECT id, name, api_url, description, created_at, updated_at
       FROM routers";
 
 pub async fn list(State(st): State<AppState>, _: CurrentUser) -> AppResult<Json<Vec<RouterView>>> {
@@ -55,37 +56,28 @@ pub async fn status(State(st): State<AppState>, _: CurrentUser) -> AppResult<Jso
 #[derive(Deserialize)]
 pub struct TestRequest {
     api_url: String,
-    token: Option<String>,
-    /// Ao editar um roteador sem redigitar o token, testa com o token salvo.
-    router_id: Option<Uuid>,
 }
 
 /// Testa a conexão com um Prisma antes de salvar o cadastro.
 pub async fn test(
-    State(st): State<AppState>,
+    State(_st): State<AppState>,
     user: CurrentUser,
     Json(req): Json<TestRequest>,
-) -> AppResult<Json<SystemInfo>> {
+) -> AppResult<Json<VersionInfo>> {
     user.require(Role::Admin)?;
     let url = validate_api_url(&req.api_url)?;
-    let token = match (req.token.filter(|t| !t.is_empty()), req.router_id) {
-        (Some(t), _) => Some(t),
-        (None, Some(id)) => saved_token(&st, id).await?,
-        (None, None) => None,
-    };
-    let client = st.routers.client_for(&url, token)?;
-    let system = tokio::time::timeout(STATUS_TIMEOUT, client.system())
+    let mut client = OperationalServiceClient::new(probe_channel(&url)?);
+    let version = tokio::time::timeout(STATUS_TIMEOUT, client.get_version(grpc::req(GetVersionRequest {})))
         .await
         .map_err(|_| AppError::BadRequest("o Prisma não respondeu a tempo".into()))?
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
-    Ok(Json(system))
+        .map_err(|s| AppError::BadRequest(grpc::describe(&s)))?;
+    Ok(Json(version.into_inner()))
 }
 
 #[derive(Deserialize)]
 pub struct CreateRouter {
     name: String,
     api_url: String,
-    token: Option<String>,
     description: Option<String>,
 }
 
@@ -100,19 +92,14 @@ pub async fn create(
     let url = validate_api_url(&req.api_url)?;
     let description = clean_description(req.description)?;
     let id = Uuid::new_v4();
-    let token_enc = req
-        .token
-        .filter(|t| !t.is_empty())
-        .map(|t| st.routers.secrets.encrypt(&t, id.as_bytes()));
-
-    insert(&st.db, id, &name, &url, token_enc.as_deref(), description.as_deref()).await?;
+    insert(&st.db, id, &name, &url, description.as_deref()).await?;
 
     audit::record(
         &st.db,
         Entry::by(&user, &meta, "router.create")
             .target(&name)
             .router(id)
-            .details(json!({ "api_url": url, "has_token": token_enc.is_some() })),
+            .details(json!({ "api_url": url })),
     )
     .await;
     Ok((StatusCode::CREATED, Json(fetch(&st.db, id).await?)))
@@ -122,8 +109,6 @@ pub async fn create(
 pub struct UpdateRouter {
     name: Option<String>,
     api_url: Option<String>,
-    /// `""` remove o token; ausente mantém o atual.
-    token: Option<String>,
     description: Option<String>,
 }
 
@@ -151,17 +136,6 @@ pub async fn update(
     if let Some(d) = description.as_ref().filter(|d| Some(d.as_str()).filter(|d| !d.is_empty()) != before.description.as_deref()) {
         changes.insert("description".into(), json!({ "from": before.description, "to": d }));
     }
-    // O token nunca vai para o log, só o fato de ter mudado.
-    let token_change = req.token.map(|t| {
-        if t.is_empty() {
-            None
-        } else {
-            Some(st.routers.secrets.encrypt(&t, id.as_bytes()))
-        }
-    });
-    if let Some(t) = &token_change {
-        changes.insert("token".into(), json!(if t.is_some() { "alterado" } else { "removido" }));
-    }
     if changes.is_empty() {
         return Ok(Json(before));
     }
@@ -171,7 +145,6 @@ pub async fn update(
              name        = COALESCE($2, name),
              api_url     = COALESCE($3, api_url),
              description = CASE WHEN $4::text IS NULL THEN description ELSE NULLIF($4, '') END,
-             token_enc   = CASE WHEN $5 THEN $6 ELSE token_enc END,
              updated_at  = now()
           WHERE id = $1",
     )
@@ -179,8 +152,6 @@ pub async fn update(
     .bind(&name)
     .bind(&url)
     .bind(&description)
-    .bind(token_change.is_some())
-    .bind(token_change.flatten())
     .execute(&st.db)
     .await;
     map_unique(res, name.as_deref().unwrap_or(&before.name))?;
@@ -217,7 +188,7 @@ pub async fn delete(
 }
 
 /// Na primeira subida, cadastra o roteador de `PRISMA_API_URL` (se definido).
-pub async fn seed_from_env(db: &PgPool, registry: &Registry, cfg: &Config) -> anyhow::Result<()> {
+pub async fn seed_from_env(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
     let Some(raw_url) = &cfg.seed_router_url else { return Ok(()) };
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM routers").fetch_one(db).await?;
     if count > 0 {
@@ -232,8 +203,7 @@ pub async fn seed_from_env(db: &PgPool, registry: &Registry, cfg: &Config) -> an
         .filter(|h| !h.is_empty())
         .unwrap_or("prisma")
         .to_string();
-    let token = cfg.seed_router_token.as_ref().map(|t| registry.secrets.encrypt(t, id.as_bytes()));
-    insert(db, id, &name, &url, token.as_deref(), Some("Cadastrado a partir de PRISMA_API_URL"))
+    insert(db, id, &name, &url, Some("Cadastrado a partir de PRISMA_API_URL"))
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     audit::record(db, Entry::system("router.create", Some(&name)).router(id)).await;
@@ -246,17 +216,13 @@ async fn insert(
     id: Uuid,
     name: &str,
     url: &str,
-    token_enc: Option<&[u8]>,
     description: Option<&str>,
 ) -> AppResult<()> {
-    let res = sqlx::query(
-        "INSERT INTO routers (id, name, api_url, token_enc, description) VALUES ($1, $2, $3, $4, $5)",
-    )
-    .bind(id)
-    .bind(name)
-    .bind(url)
-    .bind(token_enc)
-    .bind(description)
+    let res = sqlx::query("INSERT INTO routers (id, name, api_url, description) VALUES ($1, $2, $3, $4)")
+        .bind(id)
+        .bind(name)
+        .bind(url)
+        .bind(description)
     .execute(db)
     .await;
     map_unique(res, name)
@@ -278,14 +244,6 @@ async fn fetch(db: &PgPool, id: Uuid) -> AppResult<RouterView> {
         .fetch_optional(db)
         .await?
         .ok_or_else(|| AppError::NotFound("roteador não encontrado".into()))
-}
-
-async fn saved_token(st: &AppState, id: Uuid) -> AppResult<Option<String>> {
-    let enc: Option<Option<Vec<u8>>> = sqlx::query_scalar("SELECT token_enc FROM routers WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&st.db)
-        .await?;
-    Ok(enc.flatten().map(|e| st.routers.secrets.decrypt(&e, id.as_bytes())).transpose()?)
 }
 
 fn validate_name(name: &str) -> AppResult<String> {

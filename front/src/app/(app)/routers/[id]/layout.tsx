@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import { ServerOffIcon } from "lucide-react"
 
+import { PendingConfirmBanner } from "@/components/config/pending-confirm"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFleetStatus, useRouters } from "@/hooks/use-routers"
@@ -12,7 +13,10 @@ import { cn } from "@/lib/utils"
 const TABS = [
   { href: "", label: "Painel" },
   { href: "/interfaces", label: "Interfaces" },
-  { href: "/routes", label: "Rotas" },
+  { href: "/config", label: "Configuração" },
+  { href: "/cgnat", label: "CGNAT" },
+  { href: "/routing", label: "Roteamento" },
+  { href: "/console", label: "Console" },
 ]
 
 export default function RouterLayout({ children }: { children: React.ReactNode }) {
@@ -54,10 +58,10 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
             {router.description ?? status?.system?.hostname ?? "Prisma"}
             <span className="mx-2">·</span>
             <span className="font-mono text-xs">{router.api_url}</span>
-            {status?.system && <span className="ml-2 text-xs">· {status.system.version}</span>}
+            {status?.version && <span className="ml-2 text-xs">· Prisma {status.version.release}</span>}
           </p>
         </div>
-        <nav className="bg-muted text-muted-foreground inline-flex h-9 items-center rounded-lg p-1">
+        <nav className="bg-muted text-muted-foreground inline-flex h-9 max-w-full items-center overflow-x-auto rounded-lg p-1">
           {TABS.map((t) => {
             const href = base + t.href
             const active = t.href === "" ? pathname === base : pathname.startsWith(href)
@@ -66,7 +70,7 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
                 key={t.label}
                 href={href}
                 className={cn(
-                  "rounded-md px-3 py-1 text-sm font-medium transition-colors",
+                  "rounded-md px-3 py-1 text-sm font-medium whitespace-nowrap transition-colors",
                   active ? "bg-background text-foreground shadow-sm" : "hover:text-foreground",
                 )}
               >
@@ -76,12 +80,14 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
           })}
         </nav>
       </div>
+      <PendingConfirmBanner routerId={id} />
       {status && !status.online && (
         <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
           Não foi possível falar com este Prisma: {status.error}
         </div>
       )}
-      {children}
+      {/* Grid, não flex: em flex, cards com overflow-hidden encolhem quando um widget usa h-full. */}
+      <div className="grid min-w-0 gap-6">{children}</div>
     </>
   )
 }

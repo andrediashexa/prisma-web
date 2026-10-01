@@ -1,4 +1,4 @@
-export type WidgetType = "fleet" | "router-stats" | "traffic" | "interfaces" | "activity" | "resources"
+export type WidgetType = "fleet" | "router-stats" | "traffic" | "interfaces" | "activity" | "resources" | "cgnat" | "bgp"
 
 /** Largura em colunas de uma grade de 4. */
 export type WidgetSize = 1 | 2 | 3 | 4

@@ -49,7 +49,10 @@ type NavItem = { href: string; label: string; icon: React.ComponentType; role?: 
 const ROUTER_PAGES = [
   { href: "", label: "Painel" },
   { href: "/interfaces", label: "Interfaces" },
-  { href: "/routes", label: "Rotas" },
+  { href: "/config", label: "Configuração" },
+  { href: "/cgnat", label: "CGNAT" },
+  { href: "/routing", label: "Roteamento" },
+  { href: "/console", label: "Console" },
 ]
 
 const NAV: { label: string; items: NavItem[] }[] = [

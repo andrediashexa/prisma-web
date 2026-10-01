@@ -34,10 +34,8 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-prisma}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@db:5432/${POSTGRES_DB:-prisma_web}
       BIND_ADDR: "[::]:8000"
-      APP_SECRET_KEY: ${APP_SECRET_KEY:?defina APP_SECRET_KEY no .env (openssl rand -base64 32)}
-      # Opcional: cadastra este Prisma na primeira subida. Os demais são cadastrados pela interface.
+      # Opcional: cadastra este Prisma (endereço gRPC) na primeira subida. Os demais, pela interface.
       PRISMA_API_URL: ${PRISMA_API_URL:-}
-      PRISMA_API_TOKEN: ${PRISMA_API_TOKEN:-}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
@@ -66,7 +64,7 @@ services:
     networks: [internal]
 
   # Prismas simulados para desenvolvimento, ativos pelo perfil "mock" (COMPOSE_PROFILES=mock).
-  # Cadastre-os na interface com as URLs http://prisma-mock:8080 e http://prisma-mock-2:8080.
+  # Implementam o proto do Prisma (gRPC). Endereços: http://prisma-mock:50051 e http://prisma-mock-2:50051.
   prisma-mock:
     profiles: [mock]
     build:
@@ -76,9 +74,8 @@ services:
     image: prisma-web-prisma-mock
     restart: unless-stopped
     environment:
-      BIND_ADDR: "[::]:8080"
+      BIND_ADDR: "[::]:50051"
       MOCK_HOSTNAME: prisma-matriz
-      PRISMA_API_TOKEN: ${PRISMA_API_TOKEN:-}
     networks: [internal]
 
   prisma-mock-2:
@@ -87,11 +84,9 @@ services:
     depends_on: [prisma-mock]
     restart: unless-stopped
     environment:
-      BIND_ADDR: "[::]:8080"
+      BIND_ADDR: "[::]:50051"
       MOCK_HOSTNAME: prisma-filial
       MOCK_TRAFFIC_SCALE: "0.3"
-      # Token próprio, para testar o cadastro com autenticação.
-      PRISMA_API_TOKEN: filial-token-de-teste
     networks: [internal]
 
 networks:
