@@ -59,7 +59,7 @@ export default function ConfigPage() {
   const [saving, setSaving] = useState(false)
   const [askSave, setAskSave] = useState(false)
 
-  // Não deixa candidate órfão no Prisma ao sair da página.
+  // Don't leave an orphan candidate on Prisma when leaving the page.
   const open = useRef<string | null>(null)
   useEffect(() => {
     open.current = candidate?.candidate_id ?? null
@@ -79,7 +79,7 @@ export default function ConfigPage() {
         fromRevision === undefined ? {} : { from_revision: fromRevision },
       )
       setCandidate(c)
-      if (fromRevision !== undefined) toast.info(`Revisão ${fromRevision} carregada no candidate. Revise e aplique para voltar a ela.`)
+      if (fromRevision !== undefined) toast.info(`Revision ${fromRevision} loaded into the candidate. Review and apply it to roll back to it.`)
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -91,7 +91,7 @@ export default function ConfigPage() {
     setSaving(true)
     try {
       const r = await api.post<{ output: string }>(routerApi(id, "/config/save"))
-      toast.success(r.output || "Configuração salva")
+      toast.success(r.output || "Configuration saved")
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -117,16 +117,16 @@ export default function ConfigPage() {
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-muted-foreground flex items-center gap-2 text-sm">
-          Configuração em uso
+          Running configuration
           {running && <Badge variant="outline" className="font-mono">{running.revision}</Badge>}
         </div>
         {canEdit && (
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setAskSave(true)} disabled={saving}>
-              {saving ? <Loader2Icon className="animate-spin" /> : <HardDriveDownloadIcon />} Salvar para o boot
+              {saving ? <Loader2Icon className="animate-spin" /> : <HardDriveDownloadIcon />} Save for boot
             </Button>
             <Button onClick={() => openCandidate()} disabled={opening}>
-              {opening ? <Loader2Icon className="animate-spin" /> : <FilePenLineIcon />} Nova alteração
+              {opening ? <Loader2Icon className="animate-spin" /> : <FilePenLineIcon />} New change
             </Button>
           </div>
         )}
@@ -134,9 +134,9 @@ export default function ConfigPage() {
 
       <Tabs defaultValue="running">
         <TabsList>
-          <TabsTrigger value="running">Em uso</TabsTrigger>
+          <TabsTrigger value="running">Running</TabsTrigger>
           <TabsTrigger value="revisions">
-            <HistoryIcon /> Revisões {revs && `(${revs.revisions.length})`}
+            <HistoryIcon /> Revisions {revs && `(${revs.revisions.length})`}
           </TabsTrigger>
         </TabsList>
         <TabsContent value="running" className="mt-4">
@@ -148,8 +148,8 @@ export default function ConfigPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-16 pl-4">#</TableHead>
-                  <TableHead>Quando</TableHead>
-                  <TableHead>Comentário</TableHead>
+                  <TableHead>When</TableHead>
+                  <TableHead>Comment</TableHead>
                   {canEdit && <TableHead className="w-40" />}
                 </TableRow>
               </TableHeader>
@@ -170,7 +170,7 @@ export default function ConfigPage() {
                       <TableCell className="text-right">
                         {r.number > 0 && (
                           <Button variant="ghost" size="sm" onClick={() => openCandidate(r.number)} disabled={opening}>
-                            Voltar a esta
+                            Roll back to this
                           </Button>
                         )}
                       </TableCell>
@@ -186,15 +186,15 @@ export default function ConfigPage() {
       <AlertDialog open={askSave} onOpenChange={setAskSave}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Salvar a configuração em uso?</AlertDialogTitle>
+            <AlertDialogTitle>Save the running configuration?</AlertDialogTitle>
             <AlertDialogDescription>
-              Grava a configuração atual no arquivo que o Prisma carrega ao ligar (<span className="font-mono">save</span>).
-              Sem isso, as mudanças aplicadas se perdem no próximo reboot.
+              Writes the current configuration to the file Prisma loads at boot (<span className="font-mono">save</span>).
+              Without this, applied changes are lost on the next reboot.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={save}>Salvar</AlertDialogAction>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={save}>Save</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -232,11 +232,11 @@ function CandidateEditor({
       setLines("")
     } catch (err) {
       setRefusal({
-        message: err instanceof Error ? err.message : "Recusado",
+        message: err instanceof Error ? err.message : "Rejected",
         items: err instanceof ApiError ? (err.diagnostics?.items ?? []) : [],
       })
     } finally {
-      // Linhas antes da recusada ficam aplicadas, então o texto muda mesmo com erro.
+      // Lines before the rejected one stay applied, so the text changes even on error.
       await mutate()
       setApplying(false)
     }
@@ -246,17 +246,17 @@ function CandidateEditor({
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
-          <Badge variant="secondary">Candidate aberto</Badge>
+          <Badge variant="secondary">Candidate open</Badge>
           <span className="text-muted-foreground">
-            sobre a revisão <span className="font-mono">{candidate.base_revision}</span>. Nada muda no roteador até você aplicar.
+            based on revision <span className="font-mono">{candidate.base_revision}</span>. Nothing changes on the router until you apply.
           </span>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => onDone(false)}>
-            <Trash2Icon /> Descartar
+            <Trash2Icon /> Discard
           </Button>
           <Button onClick={() => setReviewing(true)}>
-            <PlayIcon /> Revisar e aplicar
+            <PlayIcon /> Review and apply
           </Button>
         </div>
       </div>
@@ -264,13 +264,13 @@ function CandidateEditor({
       <div className="grid gap-4 xl:grid-cols-5">
         <Card className="xl:col-span-2">
           <CardHeader>
-            <CardTitle>Editar</CardTitle>
-            <CardDescription>As linhas são aplicadas como se digitadas no prompt, no nível indicado.</CardDescription>
+            <CardTitle>Edit</CardTitle>
+            <CardDescription>Lines are applied as if typed at the prompt, at the given level.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={apply} className="space-y-4">
               <Field>
-                <FieldLabel htmlFor="edit-path">Nível</FieldLabel>
+                <FieldLabel htmlFor="edit-path">Level</FieldLabel>
                 <Input
                   id="edit-path"
                   value={path}
@@ -278,10 +278,10 @@ function CandidateEditor({
                   placeholder="nat / cgnat / pool RFC6598"
                   className="font-mono"
                 />
-                <FieldDescription>Vazio é o topo. Separe os níveis com “/”.</FieldDescription>
+                <FieldDescription>Empty means top level. Separate levels with “/”.</FieldDescription>
               </Field>
               <Field>
-                <FieldLabel htmlFor="edit-lines">Linhas</FieldLabel>
+                <FieldLabel htmlFor="edit-lines">Lines</FieldLabel>
                 <Textarea
                   id="edit-lines"
                   value={lines}
@@ -293,12 +293,12 @@ function CandidateEditor({
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) apply(e)
                   }}
                 />
-                <FieldDescription>Uma por linha. Ctrl+Enter aplica.</FieldDescription>
+                <FieldDescription>One per line. Ctrl+Enter applies.</FieldDescription>
               </Field>
               {refusal && (
-                // As linhas antes da recusada continuam aplicadas (regra do VTY).
+                // Lines before the rejected one remain applied (VTY rule).
                 <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-3">
-                  <p className="text-destructive text-sm font-medium">O VTY recusou a alteração</p>
+                  <p className="text-destructive text-sm font-medium">The VTY rejected the change</p>
                   {refusal.items.length > 0 ? (
                     <DiagnosticsList items={refusal.items} />
                   ) : (
@@ -308,17 +308,17 @@ function CandidateEditor({
               )}
               <Button type="submit" disabled={applying || !lines.trim()}>
                 {applying && <Loader2Icon className="animate-spin" />}
-                Aplicar no candidate
+                Apply to candidate
               </Button>
             </form>
 
             {applied.length > 0 && (
               <div className="mt-6 space-y-3">
-                <h3 className="text-sm font-medium">Aplicado neste candidate</h3>
+                <h3 className="text-sm font-medium">Applied to this candidate</h3>
                 <ol className="space-y-2">
                   {applied.map((a, i) => (
                     <li key={i} className="bg-muted/50 rounded-md border p-2 font-mono text-xs">
-                      <div className="text-muted-foreground">{a.path.length ? a.path.join(" › ") : "(topo)"}</div>
+                      <div className="text-muted-foreground">{a.path.length ? a.path.join(" › ") : "(top)"}</div>
                       {a.lines.map((l, j) => (
                         <div key={j}>{l}</div>
                       ))}
@@ -334,7 +334,7 @@ function CandidateEditor({
         <Card className="xl:col-span-3">
           <CardHeader>
             <CardTitle>Candidate</CardTitle>
-            <CardDescription>Como ficará o show running-config depois do commit</CardDescription>
+            <CardDescription>What show running-config will look like after the commit</CardDescription>
             <CardAction>
               <Badge variant="outline" className="font-mono">
                 {candidate.candidate_id.slice(0, 8)}
@@ -350,7 +350,7 @@ function CandidateEditor({
       <ChangeReview
         routerId={routerId}
         candidateId={reviewing ? candidate.candidate_id : null}
-        title="Aplicar alteração"
+        title="Apply change"
         keepCandidateOnCancel
         onClose={() => setReviewing(false)}
         onCommitted={() => void onDone(true)}

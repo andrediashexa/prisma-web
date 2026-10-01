@@ -23,24 +23,24 @@ export default function CgnatPage() {
 
   return (
     <>
-      <CgnatWidget routerId={id} title="Sessões e assinantes" />
+      <CgnatWidget routerId={id} title="Sessions and subscribers" />
 
       <Card className="py-0">
         <CardHeader className="pt-6">
           <CardTitle>Pools</CardTitle>
-          <CardDescription>Ocupação de cada pool de endereços públicos</CardDescription>
+          <CardDescription>Usage of each public address pool</CardDescription>
         </CardHeader>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-6">Pool</TableHead>
-                <TableHead>Prefixos</TableHead>
-                <TableHead>Bloco</TableHead>
-                <TableHead className="w-56">Assinantes</TableHead>
-                <TableHead className="text-right">Portas em uso</TableHead>
-                <TableHead className="text-right">Sessões</TableHead>
-                <TableHead className="text-right">Recusas</TableHead>
+                <TableHead>Prefixes</TableHead>
+                <TableHead>Block</TableHead>
+                <TableHead className="w-56">Subscribers</TableHead>
+                <TableHead className="text-right">Ports in use</TableHead>
+                <TableHead className="text-right">Sessions</TableHead>
+                <TableHead className="text-right">Refusals</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -76,12 +76,12 @@ export default function CgnatPage() {
                         </div>
                       ))}
                     </TableCell>
-                    <TableCell className="font-mono tabular-nums">{p.block_size} portas</TableCell>
+                    <TableCell className="font-mono tabular-nums">{p.block_size} ports</TableCell>
                     <TableCell>
                       <div className="flex justify-between text-xs tabular-nums">
                         <span>{formatNumber(p.subscribers)}</span>
                         <span className="text-muted-foreground">
-                          de {formatNumber(p.capacity)} (garantidos {formatNumber(p.guaranteed)})
+                          of {formatNumber(p.capacity)} ({formatNumber(p.guaranteed)} guaranteed)
                         </span>
                       </div>
                       <div className="bg-muted mt-1.5 h-1.5 overflow-hidden rounded-full">
@@ -132,14 +132,14 @@ function SubscriberLookup({ routerId }: { routerId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Buscar assinante</CardTitle>
-        <CardDescription>Endereço interno do assinante, para ver o IP público e as portas que ele recebeu</CardDescription>
+        <CardTitle>Look up subscriber</CardTitle>
+        <CardDescription>Enter the subscriber&apos;s inside address to see the public IP and ports assigned to it</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <form onSubmit={search} className="flex max-w-md gap-2">
           <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="100.64.1.23" className="font-mono" required />
           <Button type="submit" disabled={loading}>
-            {loading ? <Loader2Icon className="animate-spin" /> : <SearchIcon />} Buscar
+            {loading ? <Loader2Icon className="animate-spin" /> : <SearchIcon />} Search
           </Button>
         </form>
         {error && <p className="text-destructive text-sm">{error}</p>}
@@ -148,7 +148,7 @@ function SubscriberLookup({ routerId }: { routerId: string }) {
             <div className="space-y-3 text-sm">
               <div className="flex flex-wrap gap-x-6 gap-y-1">
                 <span>
-                  <span className="text-muted-foreground">Assinante </span>
+                  <span className="text-muted-foreground">Subscriber </span>
                   <span className="font-mono">{result.address}</span>
                 </span>
                 <span>
@@ -156,15 +156,15 @@ function SubscriberLookup({ routerId }: { routerId: string }) {
                   {result.pool}
                 </span>
                 <span>
-                  <span className="text-muted-foreground">Sessões </span>
+                  <span className="text-muted-foreground">Sessions </span>
                   {formatNumber(result.sessions)}
                 </span>
               </div>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>IP público</TableHead>
-                    <TableHead>Portas</TableHead>
+                    <TableHead>Public IP</TableHead>
+                    <TableHead>Ports</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

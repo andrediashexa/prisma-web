@@ -20,39 +20,39 @@ interface WidgetDef {
   description: string
   icon: React.ComponentType<{ className?: string }>
   defaultSize: WidgetSize
-  /** O widget mostra dados de um roteador específico. */
+  /** The widget shows data from a specific router. */
   perRouter: boolean
-  /** Aceita escolher interface e período (gráfico de tráfego). */
+  /** Lets the user pick an interface and time range (traffic chart). */
   traffic?: boolean
-  /** Filtro opcional por roteador (atividade). */
+  /** Optional filter by router (activity). */
   optionalRouter?: boolean
 }
 
 export const WIDGETS: Record<WidgetType, WidgetDef> = {
   fleet: {
-    title: "Roteadores",
-    description: "Estado de todos os Prismas cadastrados",
+    title: "Routers",
+    description: "State of every registered router",
     icon: ServerIcon,
     defaultSize: 4,
     perRouter: false,
   },
   resources: {
-    title: "Sessões por roteador",
-    description: "Gráfico comparando a ocupação da tabela de sessões entre os Prismas",
+    title: "Sessions per router",
+    description: "Chart comparing session table usage across routers",
     icon: BarChart3Icon,
     defaultSize: 2,
     perRouter: false,
   },
   "router-stats": {
-    title: "Indicadores",
-    description: "Tempo ligado, dataplane, sessões e interfaces de um Prisma",
+    title: "Key metrics",
+    description: "Uptime, dataplane, sessions and interfaces of a router",
     icon: GaugeIcon,
     defaultSize: 4,
     perRouter: true,
   },
   traffic: {
-    title: "Tráfego",
-    description: "Gráfico de download e upload de uma interface",
+    title: "Traffic",
+    description: "Download and upload chart for an interface",
     icon: TrendingUpIcon,
     defaultSize: 4,
     perRouter: true,
@@ -60,28 +60,28 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
   },
   interfaces: {
     title: "Interfaces",
-    description: "Lista de interfaces com endereços IPv4 e IPv6",
+    description: "Interface list with IPv4 and IPv6 addresses",
     icon: NetworkIcon,
     defaultSize: 2,
     perRouter: true,
   },
   cgnat: {
     title: "CGNAT",
-    description: "Gráfico de sessões e assinantes ao longo do tempo",
+    description: "Chart of sessions and subscribers over time",
     icon: UsersIcon,
     defaultSize: 2,
     perRouter: true,
   },
   bgp: {
-    title: "Vizinhos BGP",
-    description: "Estado das sessões BGP de um Prisma",
+    title: "BGP neighbors",
+    description: "State of a router's BGP sessions",
     icon: ShareIcon,
     defaultSize: 2,
     perRouter: true,
   },
   activity: {
-    title: "Atividade recente",
-    description: "Últimos eventos do log de mudanças",
+    title: "Recent activity",
+    description: "Latest events from the change log",
     icon: ActivityIcon,
     defaultSize: 2,
     perRouter: false,
@@ -90,13 +90,13 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
 }
 
 export const SIZE_LABEL: Record<WidgetSize, string> = {
-  1: "Estreito (1/4)",
-  2: "Médio (1/2)",
-  3: "Largo (3/4)",
-  4: "Linha inteira",
+  1: "Narrow (1/4)",
+  2: "Medium (1/2)",
+  3: "Wide (3/4)",
+  4: "Full row",
 }
 
-/** Classes de coluna para uma grade 1 → 2 → 4 colunas. */
+/** Column classes for a 1 → 2 → 4 column grid. */
 export const SIZE_CLASS: Record<WidgetSize, string> = {
   1: "",
   2: "md:col-span-2",
@@ -104,14 +104,14 @@ export const SIZE_CLASS: Record<WidgetSize, string> = {
   4: "md:col-span-2 xl:col-span-4",
 }
 
-// crypto.randomUUID só existe em contexto seguro (HTTPS/localhost); a interface roda em HTTP.
+// crypto.randomUUID only exists in a secure context (HTTPS/localhost); the UI runs over HTTP.
 const widgetId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 
 export function newWidget(type: WidgetType, config: WidgetConfig = {}): Widget {
   return { id: widgetId(), type, size: WIDGETS[type].defaultSize, config }
 }
 
-/** Homepage inicial de quem ainda não personalizou. */
+/** Default home page for users who have not customized theirs yet. */
 export function defaultLayout(routers: RouterView[]): DashboardLayout {
   const first = routers[0]?.id
   const widgets: Widget[] = [newWidget("fleet")]
@@ -136,12 +136,12 @@ export function widgetTitle(w: Widget, routers: RouterView[] | undefined) {
 
 export function WidgetView({ widget, routers }: { widget: Widget; routers: RouterView[] | undefined }) {
   const def = WIDGETS[widget.type]
-  if (!def) return <Missing text={`Widget desconhecido: ${widget.type}`} />
+  if (!def) return <Missing text={`Unknown widget: ${widget.type}`} />
 
   const routerId = widget.config.routerId
   const router = routerId ? routers?.find((r) => r.id === routerId) : undefined
   if (def.perRouter && routers && !router) {
-    return <Missing text="O roteador deste widget foi removido ou não está configurado. Edite a página para escolher outro." />
+    return <Missing text="This widget's router was removed or is not configured. Edit the page to pick another one." />
   }
 
   switch (widget.type) {
@@ -156,7 +156,7 @@ export function WidgetView({ widget, routers }: { widget: Widget; routers: Route
         <TrafficChart
           key={`${routerId}-${widget.config.interface}-${widget.config.minutes}`}
           routerId={routerId}
-          title={router ? `Tráfego · ${router.name}` : "Tráfego"}
+          title={router ? `Traffic · ${router.name}` : "Traffic"}
           defaultInterface={widget.config.interface}
           defaultMinutes={widget.config.minutes}
         />

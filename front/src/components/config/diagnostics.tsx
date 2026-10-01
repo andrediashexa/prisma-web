@@ -4,13 +4,13 @@ import type { Diagnostic } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const STYLE = {
-  error: { icon: CircleAlertIcon, cls: "text-destructive", label: "Erro" },
-  warning: { icon: TriangleAlertIcon, cls: "text-amber-600 dark:text-amber-400", label: "Aviso" },
-  note: { icon: InfoIcon, cls: "text-muted-foreground", label: "Nota" },
-  unspecified: { icon: InfoIcon, cls: "text-muted-foreground", label: "Nota" },
+  error: { icon: CircleAlertIcon, cls: "text-destructive", label: "Error" },
+  warning: { icon: TriangleAlertIcon, cls: "text-amber-600 dark:text-amber-400", label: "Warning" },
+  note: { icon: InfoIcon, cls: "text-muted-foreground", label: "Note" },
+  unspecified: { icon: InfoIcon, cls: "text-muted-foreground", label: "Note" },
 } as const
 
-/** O que o VTY disse sobre a alteração, com o caminho e a linha citados. */
+/** What the VTY said about the change, with the path and line it refers to. */
 export function DiagnosticsList({ items, className }: { items: Diagnostic[]; className?: string }) {
   if (items.length === 0) return null
   return (

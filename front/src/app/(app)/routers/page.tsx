@@ -61,10 +61,10 @@ export default function RoutersPage() {
 
   return (
     <>
-      <PageHeader title="Roteadores" description="Prismas gerenciados por esta interface, pela API gRPC de cada um.">
+      <PageHeader title="Routers" description="Prisma routers managed by this UI, through each one's gRPC API.">
         {isAdmin && (
           <Button onClick={() => setDialog({ kind: "edit", router: null })}>
-            <PlusIcon /> Cadastrar Prisma
+            <PlusIcon /> Add router
           </Button>
         )}
       </PageHeader>
@@ -74,11 +74,11 @@ export default function RoutersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-4">Nome</TableHead>
-                <TableHead>Endereço gRPC</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Versão</TableHead>
-                <TableHead>Ligado há</TableHead>
+                <TableHead className="pl-4">Name</TableHead>
+                <TableHead>gRPC address</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Version</TableHead>
+                <TableHead>Uptime</TableHead>
                 {isAdmin && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
@@ -93,7 +93,7 @@ export default function RoutersPage() {
               {routers?.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-muted-foreground py-10 text-center">
-                    Nenhum Prisma cadastrado ainda.
+                    No routers registered yet.
                   </TableCell>
                 </TableRow>
               )}
@@ -112,13 +112,13 @@ export default function RoutersPage() {
                         {r.tls_profile ? (
                           <LockIcon className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-label="mTLS" />
                         ) : (
-                          <TriangleAlertIcon className="size-3.5 text-amber-600 dark:text-amber-400" aria-label="sem TLS" />
+                          <TriangleAlertIcon className="size-3.5 text-amber-600 dark:text-amber-400" aria-label="no TLS" />
                         )}
                         <span className="font-mono text-xs">{r.api_url}</span>
                       </div>
                       {r.tls_profile && (
                         <div className="text-muted-foreground text-xs">
-                          conta <span className="font-mono">{r.tls_account ?? "?"}</span> · perfil{" "}
+                          account <span className="font-mono">{r.tls_account ?? "?"}</span> · profile{" "}
                           <span className="font-mono">{r.tls_profile}</span>
                         </div>
                       )}
@@ -127,8 +127,8 @@ export default function RoutersPage() {
                       {!s ? (
                         <Skeleton className="h-5 w-16" />
                       ) : s.busy ? (
-                        <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300" title="Um comando do console ocupa a conta no Prisma (0.148.4/0.148.5); os dados são da última consulta.">
-                          ocupado (console)
+                        <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300" title="A console command holds the account on Prisma (0.148.4/0.148.5); data is from the last poll.">
+                          busy (console)
                         </Badge>
                       ) : s.online ? (
                         <Badge variant="outline" className="border-emerald-500/40 text-emerald-700 dark:text-emerald-300">
@@ -148,17 +148,17 @@ export default function RoutersPage() {
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label={`Ações para ${r.name}`}>
+                            <Button variant="ghost" size="icon" aria-label={`Actions for ${r.name}`}>
                               <MoreHorizontalIcon />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onSelect={() => setDialog({ kind: "edit", router: r })}>
-                              <PencilIcon /> Editar
+                              <PencilIcon /> Edit
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem variant="destructive" onSelect={() => setDialog({ kind: "delete", router: r })}>
-                              <Trash2Icon /> Remover
+                              <Trash2Icon /> Remove
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -182,28 +182,28 @@ export default function RoutersPage() {
       <AlertDialog open={dialog?.kind === "delete"} onOpenChange={(o) => !o && setDialog(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover {dialog?.kind === "delete" && dialog.router.name}?</AlertDialogTitle>
+            <AlertDialogTitle>Remove {dialog?.kind === "delete" && dialog.router.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              O prisma-web deixa de gerenciar este roteador. Nada é alterado no próprio Prisma, e o histórico dele no log
-              de mudanças é mantido.
+              prisma-web stops managing this router. Nothing is changed on the Prisma itself, and its history in the change
+              log is kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={async () => {
                 if (dialog?.kind !== "delete") return
                 try {
                   await api.delete(`/routers/${dialog.router.id}`)
-                  toast.success(`${dialog.router.name} removido`)
+                  toast.success(`${dialog.router.name} removed`)
                   await refresh()
                 } catch (err) {
                   toast.error(errorMessage(err))
                 }
               }}
             >
-              Remover
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -226,7 +226,7 @@ function RouterDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
-        {/* key remonta o formulário ao trocar entre cadastrar/editar */}
+        {/* key remounts the form when switching between add/edit */}
         <RouterForm key={router?.id ?? "new"} router={router} onClose={onClose} onSaved={onSaved} />
       </DialogContent>
     </Dialog>
@@ -253,7 +253,7 @@ function RouterForm({
   const [serverName, setServerName] = useState(router?.tls_server_name ?? "prisma-api")
   const { data: profiles } = useSWR<TlsProfile[]>("/routers/tls-profiles", fetcher)
   const https = url.trim().startsWith("https://")
-  // Os campos de TLS só valem com https:// (o Prisma real só aceita mTLS).
+  // The TLS fields only apply with https:// (a real Prisma only accepts mTLS).
   const connection = {
     api_url: url,
     tls_profile: https ? profile || undefined : undefined,
@@ -282,10 +282,10 @@ function RouterForm({
     try {
       if (router) {
         await api.patch(`/routers/${router.id}`, { name, description, ...connection })
-        toast.success(`${name} atualizado`)
+        toast.success(`${name} updated`)
       } else {
         await api.post("/routers", { name, description, ...connection })
-        toast.success(`${name} cadastrado`)
+        toast.success(`${name} added`)
       }
       await onSaved()
       onClose()
@@ -299,15 +299,15 @@ function RouterForm({
   return (
     <form onSubmit={submit}>
       <DialogHeader>
-        <DialogTitle>{router ? `Editar ${router.name}` : "Cadastrar Prisma"}</DialogTitle>
+        <DialogTitle>{router ? `Edit ${router.name}` : "Add router"}</DialogTitle>
         <DialogDescription>
-          Endereço gRPC do Prisma. Um Prisma real usa <span className="font-mono">https://</span> com mTLS; <span className="font-mono">http://</span>{" "}
-          serve só para os simulados. IPv6 vai entre colchetes.
+          The Prisma gRPC address. A real Prisma uses <span className="font-mono">https://</span> with mTLS; <span className="font-mono">http://</span>{" "}
+          is only for the simulated ones. Put IPv6 addresses in brackets.
         </DialogDescription>
       </DialogHeader>
       <FieldGroup className="py-4">
         <Field>
-          <FieldLabel htmlFor="r-url">Endereço da API</FieldLabel>
+          <FieldLabel htmlFor="r-url">API address</FieldLabel>
           <div className="flex gap-2">
             <Input
               id="r-url"
@@ -321,20 +321,20 @@ function RouterForm({
               required
             />
             <Button type="button" variant="outline" onClick={test} disabled={!url || testing}>
-              {testing ? <Loader2Icon className="animate-spin" /> : <PlugZapIcon />} Testar
+              {testing ? <Loader2Icon className="animate-spin" /> : <PlugZapIcon />} Test
             </Button>
           </div>
           {tested && (
             <FieldDescription className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
-              <CheckCircle2Icon className="size-4" /> Conectado: {[tested.hostname, `Prisma ${tested.release}`].filter(Boolean).join(" · ")}
-              {tested.account && <> · conta {tested.account}</>}
+              <CheckCircle2Icon className="size-4" /> Connected: {[tested.hostname, `Prisma ${tested.release}`].filter(Boolean).join(" · ")}
+              {tested.account && <> · account {tested.account}</>}
             </FieldDescription>
           )}
         </Field>
         {https && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
-              <FieldLabel>Perfil TLS</FieldLabel>
+              <FieldLabel>TLS profile</FieldLabel>
               <Select
                 value={profile}
                 onValueChange={(v) => {
@@ -343,21 +343,21 @@ function RouterForm({
                 }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={profiles?.length ? "Escolha o certificado" : "Nenhum perfil no host"} />
+                  <SelectValue placeholder={profiles?.length ? "Choose the certificate" : "No profiles on the host"} />
                 </SelectTrigger>
                 <SelectContent>
                   {profiles?.map((p) => (
                     <SelectItem key={p.id} value={p.id} disabled={!!p.error}>
                       <span className="font-mono">{p.id}</span>
-                      <span className="text-muted-foreground"> — {p.error ?? `conta ${p.account ?? "?"}`}</span>
+                      <span className="text-muted-foreground"> — {p.error ?? `account ${p.account ?? "?"}`}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <FieldDescription>Certificados em diretórios do host, montados somente leitura.</FieldDescription>
+              <FieldDescription>Certificates in host directories, mounted read-only.</FieldDescription>
             </Field>
             <Field>
-              <FieldLabel htmlFor="r-sni">Nome no certificado do servidor</FieldLabel>
+              <FieldLabel htmlFor="r-sni">Name in the server certificate</FieldLabel>
               <Input
                 id="r-sni"
                 value={serverName}
@@ -372,22 +372,22 @@ function RouterForm({
           </div>
         )}
         <Field>
-          <FieldLabel htmlFor="r-name">Nome</FieldLabel>
-          <Input id="r-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={48} required placeholder="Matriz" />
+          <FieldLabel htmlFor="r-name">Name</FieldLabel>
+          <Input id="r-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={48} required placeholder="Headquarters" />
         </Field>
         <Field>
-          <FieldLabel htmlFor="r-desc">Descrição</FieldLabel>
-          <Input id="r-desc" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={120} placeholder="Opcional" />
+          <FieldLabel htmlFor="r-desc">Description</FieldLabel>
+          <Input id="r-desc" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={120} placeholder="Optional" />
         </Field>
         {error && <FieldError>{error}</FieldError>}
       </FieldGroup>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onClose}>
-          Cancelar
+          Cancel
         </Button>
         <Button type="submit" disabled={pending}>
           {pending && <Loader2Icon className="animate-spin" />}
-          {router ? "Salvar" : "Cadastrar"}
+          {router ? "Save" : "Add"}
         </Button>
       </DialogFooter>
     </form>

@@ -34,7 +34,7 @@ const config = {
 
 export function TrafficChart({
   routerId,
-  title = "Tráfego",
+  title = "Traffic",
   defaultInterface,
   defaultMinutes = 60,
 }: {
@@ -46,7 +46,7 @@ export function TrafficChart({
   const { data: ifs } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(routerId, "/interfaces"), fetcher, {
     refreshInterval: 30_000,
   })
-  // Interfaces com link primeiro: a padrão do gráfico deve ter tráfego para mostrar.
+  // Interfaces with link first: the chart's default should have traffic to show.
   const candidates = [...(ifs?.interfaces.filter((i) => i.name !== "lo") ?? [])].sort(
     (a, b) => Number(b.link_up) - Number(a.link_up),
   )
@@ -66,7 +66,7 @@ export function TrafficChart({
   const points = data?.samples.map((s) => ({ t: new Date(s.timestamp).getTime(), rx: s.rx_bps, tx: s.tx_bps })) ?? []
   const last = points.at(-1)
   const tick = (t: number) =>
-    new Date(t).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    new Date(t).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
 
   return (
     <Card className="h-full">
@@ -81,9 +81,9 @@ export function TrafficChart({
               <span className="text-chart-2">↑ {formatBps(last.tx)}</span>
             </span>
           ) : (
-            "Taxa de transferência por interface"
+            "Throughput per interface"
           )}
-          {data && !data.live && points.length > 0 && <span className="text-destructive ml-2">· telemetria desconectada</span>}
+          {data && !data.live && points.length > 0 && <span className="text-destructive ml-2">· telemetry disconnected</span>}
         </CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -117,11 +117,11 @@ export function TrafficChart({
           <div className="text-muted-foreground flex h-72 flex-col items-center justify-center gap-1 text-center text-sm">
             {data.live ? (
               <>
-                <span>Coletando amostras…</span>
-                <span className="text-xs">O histórico é montado pelo prisma-web a partir da telemetria do Prisma.</span>
+                <span>Collecting samples…</span>
+                <span className="text-xs">prisma-web builds the history from Prisma&apos;s telemetry.</span>
               </>
             ) : (
-              <span className="text-destructive">Sem telemetria deste Prisma no momento.</span>
+              <span className="text-destructive">No telemetry from this router right now.</span>
             )}
           </div>
         ) : (
@@ -154,7 +154,7 @@ export function TrafficChart({
                   <ChartTooltipContent
                     indicator="dot"
                     labelFormatter={(_, payload) =>
-                      payload?.[0] ? new Date(payload[0].payload.t).toLocaleString("pt-BR") : ""
+                      payload?.[0] ? new Date(payload[0].payload.t).toLocaleString("en-US") : ""
                     }
                     formatter={(value, name) => (
                       <div className="flex w-full justify-between gap-4">

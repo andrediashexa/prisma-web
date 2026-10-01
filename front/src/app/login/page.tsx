@@ -5,12 +5,12 @@ import { PrismaLogo } from "@/components/prisma-logo"
 
 import { LoginForm } from "./login-form"
 
-export const metadata: Metadata = { title: "Entrar" }
+export const metadata: Metadata = { title: "Sign in" }
 
 export default function LoginPage() {
   return (
     <main className="relative flex min-h-svh items-center justify-center overflow-hidden p-6">
-      {/* Feixes de luz difusos ao fundo, na paleta do prisma. */}
+      {/* Diffuse light beams in the background, in the prism palette. */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="bg-chart-1/25 absolute -top-32 left-1/2 size-[36rem] -translate-x-[70%] rounded-full blur-3xl" />
         <div className="bg-chart-2/20 absolute top-1/3 left-1/2 size-[30rem] translate-x-[5%] rounded-full blur-3xl" />
@@ -22,7 +22,7 @@ export default function LoginPage() {
           <PrismaLogo className="size-12 shadow-lg" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Prisma</h1>
-            <p className="text-muted-foreground text-sm">Entre para gerenciar o roteador</p>
+            <p className="text-muted-foreground text-sm">Sign in to manage the router</p>
           </div>
         </div>
         <Suspense>

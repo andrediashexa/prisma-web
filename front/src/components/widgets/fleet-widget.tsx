@@ -10,7 +10,7 @@ import { useFleetStatus } from "@/hooks/use-routers"
 import { formatNumber, formatUptime } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-/** Todos os roteadores cadastrados, com estado e recursos. */
+/** Every registered router, with state and resources. */
 export function FleetWidget() {
   const { data } = useFleetStatus()
   const online = data?.filter((r) => r.online).length ?? 0
@@ -18,16 +18,16 @@ export function FleetWidget() {
   return (
     <Card className="h-full">
       <CardHeader>
-        <CardTitle>Roteadores</CardTitle>
+        <CardTitle>Routers</CardTitle>
         <CardDescription>
-          {data ? `${online} de ${data.length} online` : "Consultando os roteadores…"}
+          {data ? `${online} of ${data.length} online` : "Polling the routers…"}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {!data && <Skeleton className="h-28 w-full" />}
         {data?.length === 0 && (
           <p className="text-muted-foreground text-sm">
-            Nenhum roteador cadastrado. <Link href="/routers" className="text-primary underline-offset-4 hover:underline">Cadastrar</Link>
+            No routers registered. <Link href="/routers" className="text-primary underline-offset-4 hover:underline">Add one</Link>
           </p>
         )}
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
@@ -55,26 +55,26 @@ export function FleetWidget() {
                     variant="outline"
                     className={cn("ml-auto", r.online ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-300" : "border-destructive/40 text-destructive")}
                   >
-                    {r.busy ? "ocupado (console)" : r.online ? `${r.latency_ms} ms` : "offline"}
+                    {r.busy ? "busy (console)" : r.online ? `${r.latency_ms} ms` : "offline"}
                   </Badge>
                 </div>
                 {s ? (
                   <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                    <Metric label="Sessões" value={ses ? formatNumber(ses.sessions) : "—"} pct={occ} />
+                    <Metric label="Sessions" value={ses ? formatNumber(ses.sessions) : "—"} pct={occ} />
                     <div>
-                      <div className="text-muted-foreground">Assinantes</div>
+                      <div className="text-muted-foreground">Subscribers</div>
                       <div className="font-medium tabular-nums">{ses ? formatNumber(ses.subscribers) : "—"}</div>
                     </div>
                     <div>
-                      <div className="text-muted-foreground">Ligado</div>
+                      <div className="text-muted-foreground">Uptime</div>
                       <div className="font-medium tabular-nums">{formatUptime(s.uptime_seconds)}</div>
                     </div>
                     {r.version && (
                       <div className="text-muted-foreground col-span-3 truncate">
                         Prisma {r.version.release}
                         {!r.version.dataplane_current && (
-                          <span className="text-amber-600 dark:text-amber-400" title="O upgrade trocou o VTY e os arquivos, mas o dataplane (VPP e o plugin de CGNAT) só passa para a versão nova no próximo reboot.">
-                            {" "}· reboot pendente
+                          <span className="text-amber-600 dark:text-amber-400" title="The upgrade replaced the VTY and the files, but the dataplane (VPP and the CGNAT plugin) only switches to the new version on the next reboot.">
+                            {" "}· reboot pending
                           </span>
                         )}
                       </div>

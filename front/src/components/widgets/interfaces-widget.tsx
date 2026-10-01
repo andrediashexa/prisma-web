@@ -21,11 +21,11 @@ export function InterfacesWidget({ routerId, title = "Interfaces" }: { routerId:
     <Card className="h-full">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>Estado e endereçamento dual-stack</CardDescription>
+        <CardDescription>State and dual-stack addressing</CardDescription>
         <CardAction>
           <Button variant="ghost" size="sm" asChild>
             <Link href={`/routers/${routerId}/interfaces`}>
-              Gerenciar <ArrowRightIcon />
+              Manage <ArrowRightIcon />
             </Link>
           </Button>
         </CardAction>

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 
-// Checagem otimista: sem cookie de sessão, nem tenta renderizar o painel.
-// A validação real da sessão acontece no back a cada chamada da API.
+// Optimistic check: without a session cookie, don't even try to render the dashboard.
+// The real session validation happens in the back end on every API call.
 export function proxy(request: NextRequest) {
   const hasSession = request.cookies.has("pw_session")
   const { pathname, search } = request.nextUrl
@@ -15,6 +15,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Não intercepta /api (é do back, via Caddy), assets do Next nem arquivos estáticos.
+  // Does not intercept /api (owned by the back end, via Caddy), Next assets or static files.
   matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.[a-z0-9]+$).*)"],
 }

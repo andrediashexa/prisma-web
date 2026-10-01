@@ -1,4 +1,4 @@
-const nf = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 })
+const nf = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 })
 
 export function formatBytes(bytes: number) {
   const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
@@ -10,7 +10,7 @@ export function formatBytes(bytes: number) {
   return `${nf.format(bytes)} ${units[i]}`
 }
 
-/** Taxa em bits por segundo, base 1000 como em equipamentos de rede. */
+/** Rate in bits per second, base 1000 as in network equipment. */
 export function formatBps(bps: number) {
   const units = ["bps", "kbps", "Mbps", "Gbps", "Tbps"]
   let i = 0
@@ -21,7 +21,7 @@ export function formatBps(bps: number) {
   return `${nf.format(bps)} ${units[i]}`
 }
 
-/** Versão curta para eixos de gráfico: 750M, 1,2G. */
+/** Short form for chart axes: 750M, 1.2G. */
 export function formatBpsShort(bps: number) {
   const units = ["", "k", "M", "G", "T"]
   let i = 0
@@ -29,7 +29,7 @@ export function formatBpsShort(bps: number) {
     bps /= 1000
     i++
   }
-  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: bps < 10 ? 1 : 0 }).format(bps)}${units[i]}`
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: bps < 10 ? 1 : 0 }).format(bps)}${units[i]}`
 }
 
 export function formatUptime(seconds: number) {
@@ -42,16 +42,16 @@ export function formatUptime(seconds: number) {
 }
 
 export function formatNumber(n: number) {
-  return new Intl.NumberFormat("pt-BR").format(n)
+  return new Intl.NumberFormat("en-US").format(n)
 }
 
-const dtf = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "medium" })
+const dtf = new Intl.DateTimeFormat("en-US", { dateStyle: "short", timeStyle: "medium" })
 
 export function formatDateTime(iso: string) {
   return dtf.format(new Date(iso))
 }
 
-const rtf = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" })
+const rtf = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" })
 
 export function formatRelative(iso: string) {
   const diff = (new Date(iso).getTime() - Date.now()) / 1000

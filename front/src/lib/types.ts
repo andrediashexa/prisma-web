@@ -1,4 +1,4 @@
-// Espelha os tipos de back/crates/prisma-api e das rotas do back.
+// Mirrors the types from back/crates/prisma-api and the back-end routes.
 
 export type Role = "admin" | "operator" | "viewer"
 
@@ -38,7 +38,7 @@ export interface AuditPage {
   next_before: number | null
 }
 
-// ---- prisma.v1 (back/proto/prisma/v1/prisma.proto), como o back entrega em JSON
+// ---- prisma.v1 (back/proto/prisma/v1/prisma.proto), as the back end serves it in JSON
 
 export interface VersionInfo {
   release: string
@@ -85,7 +85,7 @@ export interface RouterInterface {
   link_up: boolean
   mtu: number
   mac_address: string
-  /** Notação CIDR, IPv4 e IPv6 misturados. */
+  /** CIDR notation, IPv4 and IPv6 mixed. */
   addresses: string[]
   linux_name: string
   description: string
@@ -216,7 +216,7 @@ export interface PendingConfirm {
 export interface Series<T> {
   step_seconds: number
   samples: T[]
-  /** false quando o stream de telemetria do roteador está caído. */
+  /** false when the router's telemetry stream is down. */
   live: boolean
 }
 
@@ -238,15 +238,15 @@ export interface TrafficSeries extends Series<RateSample> {
   interface: string
 }
 
-/** Limites espelhados de prisma_api::MTU_MIN/MTU_MAX. */
+/** Limits mirrored from prisma_api::MTU_MIN/MTU_MAX. */
 export const MTU_MIN = 1280
 export const MTU_MAX = 9216
 export const PASSWORD_MIN_LEN = 10
 
 export const ROLE_LABEL: Record<Role, string> = {
-  admin: "Administrador",
-  operator: "Operador",
-  viewer: "Leitura",
+  admin: "Administrator",
+  operator: "Operator",
+  viewer: "Read-only",
 }
 
 const ROLE_RANK: Record<Role, number> = { viewer: 0, operator: 1, admin: 2 }
@@ -260,10 +260,10 @@ export interface RouterView {
   name: string
   api_url: string
   description: string | null
-  /** Perfil TLS (diretório de certificados no host); null nos mocks sem TLS. */
+  /** TLS profile (certificate directory on the host); null for mocks without TLS. */
   tls_profile: string | null
   tls_server_name: string | null
-  /** CN do certificado do perfil: a conta que o Prisma vê. */
+  /** CN of the profile's certificate: the account Prisma sees. */
   tls_account: string | null
   created_at: string
   updated_at: string
@@ -276,13 +276,13 @@ export interface RouterStatus {
   version: VersionInfo | null
   system: SystemInfo | null
   sessions: SessionsSummary | null
-  /** Sem resposta porque um comando do console ocupa a conta; dados da última consulta. */
+  /** No response because a console command holds the account; data from the last poll. */
   busy: boolean
   error: string | null
   latency_ms: number | null
 }
 
-/** Caminho da API de um roteador específico: `/routers/{id}/...`. */
+/** API path for a specific router: `/routers/{id}/...`. */
 export function routerApi(id: string, path: string) {
   return `/routers/${encodeURIComponent(id)}${path}`
 }

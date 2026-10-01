@@ -9,7 +9,7 @@ export function useRouters() {
   return useSWR<RouterView[]>("/routers", fetcher)
 }
 
-/** Status de todos os roteadores; compartilhado por sidebar, header e widgets. */
+/** Status of every router; shared by the sidebar, header and widgets. */
 export function useFleetStatus() {
   return useSWR<RouterStatus[]>("/routers/status", fetcher, { refreshInterval: 10_000 })
 }

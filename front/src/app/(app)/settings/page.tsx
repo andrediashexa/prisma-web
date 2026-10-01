@@ -23,7 +23,7 @@ export default function SettingsPage() {
     const formEl = e.currentTarget
     const form = new FormData(formEl)
     if (form.get("new_password") !== form.get("confirm")) {
-      setError("A confirmação não confere com a nova senha")
+      setError("The confirmation does not match the new password")
       return
     }
     setPending(true)
@@ -33,7 +33,7 @@ export default function SettingsPage() {
         current_password: form.get("current_password"),
         new_password: form.get("new_password"),
       })
-      toast.success("Senha alterada. Suas outras sessões foram encerradas.")
+      toast.success("Password changed. Your other sessions were signed out.")
       formEl.reset()
       await mutate()
     } catch (err) {
@@ -45,32 +45,32 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Minha conta" />
+      <PageHeader title="My account" />
       <Card className="max-w-lg">
         <CardHeader>
-          <CardTitle>Trocar senha</CardTitle>
-          <CardDescription>Ao trocar, as outras sessões abertas com sua conta são encerradas.</CardDescription>
+          <CardTitle>Change password</CardTitle>
+          <CardDescription>Changing it signs out every other open session of your account.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit}>
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="current_password">Senha atual</FieldLabel>
+                <FieldLabel htmlFor="current_password">Current password</FieldLabel>
                 <Input id="current_password" name="current_password" type="password" required autoComplete="current-password" />
               </Field>
               <Field>
-                <FieldLabel htmlFor="new_password">Nova senha</FieldLabel>
+                <FieldLabel htmlFor="new_password">New password</FieldLabel>
                 <Input id="new_password" name="new_password" type="password" required minLength={PASSWORD_MIN_LEN} autoComplete="new-password" />
-                <FieldDescription>Mínimo de {PASSWORD_MIN_LEN} caracteres.</FieldDescription>
+                <FieldDescription>At least {PASSWORD_MIN_LEN} characters.</FieldDescription>
               </Field>
               <Field>
-                <FieldLabel htmlFor="confirm">Confirmar nova senha</FieldLabel>
+                <FieldLabel htmlFor="confirm">Confirm new password</FieldLabel>
                 <Input id="confirm" name="confirm" type="password" required minLength={PASSWORD_MIN_LEN} autoComplete="new-password" />
               </Field>
               {error && <FieldError>{error}</FieldError>}
               <Button type="submit" disabled={pending} className="w-fit">
                 {pending && <Loader2Icon className="animate-spin" />}
-                Salvar nova senha
+                Save new password
               </Button>
             </FieldGroup>
           </form>
