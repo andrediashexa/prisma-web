@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use prisma_proto::v1::config_service_client::ConfigServiceClient;
 use prisma_proto::v1::operational_service_client::OperationalServiceClient;
+use prisma_proto::v1::route_service_client::RouteServiceClient;
 use prisma_proto::v1::telemetry_service_client::TelemetryServiceClient;
 use prisma_proto::v1::{
     GetRunningRequest, GetSessionsSummaryRequest, GetSystemRequest, GetVersionRequest, SessionsSummary, SystemInfo,
@@ -49,6 +50,11 @@ impl RouterHandle {
 
     pub fn telemetry(&self) -> TelemetryServiceClient<Channel> {
         TelemetryServiceClient::new(self.channel.clone())
+    }
+
+    /// The typed routing table (Prisma 0.149.2, #27); older boxes answer UNIMPLEMENTED.
+    pub fn routes(&self) -> RouteServiceClient<Channel> {
+        RouteServiceClient::new(self.channel.clone())
     }
 }
 

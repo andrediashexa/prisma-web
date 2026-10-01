@@ -99,10 +99,11 @@ message SystemInfo {
 message WorkerLoad { uint32 cpu = 1; double vectors_per_call = 2; double busy_ratio = 3; }
 ```
 
-### 🟡 2.2 Untyped route table
-There is no `ListRoutes`; the routing screen shows the text of `show ip route` and
-`show ipv6 route` through `Show`. With a typed rpc it would be possible to filter, search and count
-by protocol:
+### ✅ 2.2 Untyped route table — answered
+Prisma 0.149.2 added `RouteService` (`ListRoutes`, paged from a snapshot and filtered by VRF,
+family, prefix, protocol and selected; `GetRouteSummary`, RIB and FIB counts), and the Routing tab
+uses it from #27 (`docs/architecture.md`, *Routing table*). The text of `show ip route` stays as
+the fallback for boxes that answer `UNIMPLEMENTED`. The original suggestion was:
 ```proto
 rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
 message Route {
@@ -141,7 +142,8 @@ Today prisma-web uses `GetVersion` to find out whether the Prisma is alive. If t
 | `Subscribe` (counters, CGNAT, events) | Traffic and session charts; events go to the change log |
 | `ListPools`, `GetSubscriber` | CGNAT screen, subscriber lookup |
 | `ListBgpNeighbors`, `ListOspfNeighbors`, `ListIsisAdjacencies`, `ListVrrp`, `ListBundles` | Routing screen |
-| `Show` | Command console (operator or admin) and route text |
+| `ListRoutes`, `GetRouteSummary` | Routing screen: route table, paged and filtered, and the RIB/FIB summary (#27) |
+| `Show` | Command console (operator or admin), and route text on boxes without `RouteService` |
 | `OpenCandidate` → `Edit` → `Compare` → `Check` → `Commit` → `CloseCandidate` | Configuration editor and interface editing |
 | `Confirm` | Pending *commit confirmed* warning, with countdown |
 | `GetRunning`, `ListRevisions`, `Rollback`, `Save` | Configuration screen |

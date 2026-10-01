@@ -128,6 +128,37 @@ the routes X accepts, and the routes X rejects continue to the next term, as in 
 still refused when X itself holds a `from policy` term that is not `accept` (the VTY says why), and
 a policy literally named `X-SUB` or `X-NOT` may collide (Prisma #543, open).
 
+## Routing table
+
+From Prisma 0.149.2 the back end passes `RouteService` through (#27): `ListRoutes`
+(`GET /api/routers/{id}/routes?vrf=&family=&prefix=&protocol=&selected=&page_size=&page_token=`)
+and `GetRouteSummary` (`GET …/routes/summary?vrf=`), both open to every role, like the other
+reads. A full table holds about a million routes, so the back end MUST NOT read it whole: each
+request is one `ListRoutes` call, one page of the box's snapshot. `page_size` is capped at 5000,
+Prisma's own ceiling, and it is per call, so a token request sends it again; the filters belong
+to the snapshot and a token ignores them. The call gets 65 s instead of the usual 10, because a
+page waits up to 60 s for the box's snapshot to reach it. Empty query fields mean "any", so the
+query is parsed by hand into a JSON 422 rather than refused by Axum as plain text.
+
+The Routing tab shows the summary (RIB and FIB per VRF, family and protocol; a row filters the
+table to it) and the table, with a prefix search, VRF, family, protocol and selected-only
+filters, and server-side paging. The front keeps a stack of the tokens it reached, so Back
+returns to a page already read without asking the box again; the first page (no token) is a new
+snapshot and is fetched only when the filters change or on New snapshot, never on focus. The
+total is shown only when `total_known`, and the snapshot time always. A token the box no longer
+holds (idle for 10 minutes, or one of more than four snapshots) answers 409 and the tab offers a
+new snapshot. A box without `RouteService` answers `UNIMPLEMENTED`, which the back end turns into
+501 `router_unimplemented`, and the tab falls back to the text of `show ip route` and
+`show ipv6 route` through `Show`, as before (that view needs an operator, like the console).
+
+The mock serves a fixed table of 11,710 routes (two VRFs, both families; bgp, connected, local,
+static, ospf and ospf6, with floating statics that BGP beats, so selected-only and RIB versus FIB
+differ), three pages at 5000. Its refusals follow what Prisma 0.149.4 answered on the lab box: an
+unknown VRF is `NOT_FOUND`, an unknown protocol word `INVALID_ARGUMENT`, and a malformed or
+unknown token `FAILED_PRECONDITION`. One difference is deliberate: the mock's first page reports
+`total_known = false` whenever more pages follow, so the "total not known yet" path is always
+exercised, while the lab box, with 9 routes, knew its total on the first page.
+
 ## Configuration
 
 ```mermaid
@@ -175,6 +206,7 @@ cited:
 | `NOT_FOUND` | 404 | `router_not_found` |
 | `PERMISSION_DENIED` | 403 | `router_forbidden` |
 | `DEADLINE_EXCEEDED` | 504 | `router_timeout` |
+| `UNIMPLEMENTED` | 501 | `router_unimplemented` (a box older than the rpc; the front falls back) |
 | others | 502 | `router_unavailable` |
 
 ## Limits
