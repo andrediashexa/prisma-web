@@ -241,7 +241,21 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             1_200 + mib % 700,
             4_096 - 1_200 - mib % 700
         );
+        // Uptime breakdown of Prisma 0.148.7 (#20). MOCK_DATAPLANE_RESTARTED=1
+        // makes the dataplane look like it restarted by itself 15 minutes ago.
+        let now = chrono::Utc::now();
+        let boot = now - chrono::Duration::seconds(st.uptime_seconds() as i64);
+        let restarted = std::env::var("MOCK_DATAPLANE_RESTARTED").is_ok_and(|v| v == "1");
+        let dataplane = if restarted { now - chrono::Duration::minutes(15) } else { boot + chrono::Duration::seconds(40) };
+        let ts = |t: chrono::DateTime<chrono::Utc>| Some(prost_types::Timestamp { seconds: t.timestamp(), nanos: 0 });
         Ok(Response::new(SystemInfo {
+            boot_time: ts(boot),
+            dataplane_started: ts(dataplane),
+            control_plane_started: ts(boot + chrono::Duration::seconds(50)),
+            vty_started: ts(boot + chrono::Duration::seconds(55)),
+            last_boot_reason: "system reboot by admin".into(),
+            release_installed_at: ts(boot - chrono::Duration::hours(2)),
+            dataplane_restarted: restarted,
             hostname: self.hostname.clone(),
             uptime_seconds: st.uptime_seconds(),
             control_plane_cpus: "0-1".into(),

@@ -49,3 +49,21 @@ pub fn with_diagnostics(mut status: tonic::Status, diag: &v1::Diagnostics) -> to
     );
     status
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::v1::SystemInfo;
+
+    /// A field the box could not read is unset and MUST reach the UI as null,
+    /// never as the epoch (#20).
+    #[test]
+    fn unset_and_set_timestamps_serialize() {
+        let mut s = SystemInfo::default();
+        let v = serde_json::to_value(&s).unwrap();
+        assert!(v["boot_time"].is_null() && v["release_installed_at"].is_null());
+        s.boot_time = Some(prost_types::Timestamp { seconds: 1_790_000_000, nanos: 0 });
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["boot_time"], "2026-09-21T14:13:20+00:00");
+        assert_eq!(v["dataplane_restarted"], false);
+    }
+}

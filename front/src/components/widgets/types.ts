@@ -1,4 +1,4 @@
-export type WidgetType = "fleet" | "router-stats" | "traffic" | "interfaces" | "activity" | "resources" | "cgnat" | "bgp"
+export type WidgetType = "fleet" | "router-stats" | "traffic" | "interfaces" | "activity" | "resources" | "cgnat" | "bgp" | "uptime"
 
 /** Width in columns of a 4-column grid. */
 export type WidgetSize = 1 | 2 | 3 | 4

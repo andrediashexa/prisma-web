@@ -41,6 +41,11 @@ export function formatUptime(seconds: number) {
   return `${m}min`
 }
 
+/** Time elapsed since an ISO instant, as an uptime ("3d 2h 4min"). */
+export function formatSince(iso: string) {
+  return formatUptime(Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000))
+}
+
 export function formatNumber(n: number) {
   return new Intl.NumberFormat("en-US").format(n)
 }

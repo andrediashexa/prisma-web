@@ -16,6 +16,16 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.6.0 - Uptime breakdown — 2026-10-01
+
+### New
+- Uptime card per router: since when the box, the dataplane, the routing daemons and the management container run, why the box last booted (as recorded by the box) and when the running release was installed. Needs Prisma 0.148.7 or newer (#20).
+- Warning when the dataplane restarted by itself after the box booted, in the router dashboard and in the fleet: every session it carried was dropped (#20).
+
+### Internal
+- Client regenerated from the Prisma 0.148.7 contract (additions only); unset timestamps reach the UI as `null` and are shown as "unknown" (#20).
+- `prisma-mock-2` simulates a dataplane restart (`MOCK_DATAPLANE_RESTARTED=1`). `scripts/e2e.py` has 55 checks, and `--lab` has 12 checks, passed against the 0.148.7 lab box (#20).
+
 ## 0.5.0 - English — 2026-10-01
 
 ### Behaviour changes

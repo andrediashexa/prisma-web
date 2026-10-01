@@ -94,6 +94,17 @@ sequenceDiagram
   a confirmation or a save, is treated as its echo and does not create a second log entry.
   `rolled-back` is the exception: it always goes into the log, because nobody asked for it.
 
+## Uptime breakdown
+
+From Prisma 0.148.7, `SystemInfo` says since when each part of the box runs: the kernel boot, the
+dataplane (VPP, by its own clock), the routing daemons, the management container, why the box last
+booted (verbatim, never guessed) and when the running release was installed. `dataplane_restarted`
+is true when the dataplane started more than five minutes after the box, which means it restarted
+by itself and dropped every session it carried. prisma-web shows the breakdown in the router's
+Uptime card and warns in the fleet and in the router dashboard when the dataplane restarted (#20).
+A field the box could not read is unset and MUST be shown as unknown, never as zero or as 1970;
+`crate::ser::timestamp` serializes an unset timestamp as `null`.
+
 ## Configuration
 
 ```mermaid
