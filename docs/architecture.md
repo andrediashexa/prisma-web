@@ -53,8 +53,8 @@ profile listing shows the account (CN), the CA and the validity, but never the c
 files.
 
 `prisma-mock-2` serves mTLS like the real Prisma. The `dev-certs` service generates a development
-CA and three profiles: `dev/mock` (valid), `dev/outra-ca` (the client MUST refuse the server) and
-`dev/intruso` (the server MUST refuse the client). `scripts/e2e.py` checks all three.
+CA and three profiles: `dev/mock` (valid), `dev/other-ca` (the client MUST refuse the server) and
+`dev/intruder` (the server MUST refuse the client). `scripts/e2e.py` checks all three.
 
 ## Fleet status
 

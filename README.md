@@ -70,7 +70,7 @@ The API exists from **0.148.4** onwards and MUST be enabled on the device (`api 
 
 2. **Make sure the back can read them:** the directory is mounted read-only, and the back runs with
    the group `PRISMA_TLS_GID` (default `1000`), which MUST be the group that owns the files.
-3. **Register it under Routers → Add Prisma:** address `https://<ip>:50051` (IPv6 in square
+3. **Register it under Routers → Add router:** address `https://<ip>:50051` (IPv6 in square
    brackets), the profile (shown as `host/<subdirectory>`) and the name in the server certificate
    (`prisma-api` on the Prisma). **Test** shows the version and the account used. `http://` without
    TLS is only for the simulated ones.

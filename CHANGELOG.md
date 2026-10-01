@@ -29,7 +29,7 @@ Portuguese and are kept as published (issue #15).
 
 ### Fixed
 - The name of Prisma 0.148.4 routers was shown empty: their API returns an empty hostname (a Prisma bug, fixed in 0.148.6). prisma-web now takes the name from the running configuration, read at most every 10 min (#13).
-- "Restart pending" now reads "reboot pending to complete the upgrade" and explains that the dataplane only switches version on reboot (#13).
+- "Restart pending" now reads "reboot pending to finish the upgrade" and explains that the dataplane only switches version on reboot (#13).
 
 ## 0.4.0 - mTLS com o Prisma real — 2026-10-01
 
