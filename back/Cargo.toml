@@ -4,7 +4,7 @@ members = ["crates/prisma-proto", "crates/server", "crates/prisma-mock"]
 
 [workspace.package]
 edition = "2021"
-version = "0.8.2"
+version = "0.8.3"
 license = "UNLICENSED"
 publish = false
 
