@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
 
     auth::bootstrap_admin(&db, &cfg).await?;
     routes::routers::seed_from_env(&db, &cfg).await?;
-    let routers = Arc::new(Registry::new(db.clone(), cfg.tls_dir.clone()));
+    let routers = Arc::new(Registry::new(db.clone(), cfg.tls_dir.clone(), cfg.allow_plaintext));
     tokio::spawn(auth::purge_expired_sessions(db.clone()));
     tokio::spawn(routers.clone().monitor());
 

@@ -55,6 +55,7 @@ certificate. The certificates live **in files on the host**, mounted read-only i
 | Profile in files, mounted read-only | Uploading the certificate and key through the screen, with the key encrypted in the database | The key never goes through the browser, the API or the database backups. The Prisma team explicitly asked to keep it out of the repository and the image. |
 | One profile per router | A single global identity through environment variables | Serves several Prismas, with different CAs and accounts. |
 | `https://` MUST have a profile, and `http://` MUST NOT | Accepting TLS without a client certificate | The Prisma refuses a client without a certificate, and a middle ground would only postpone the error. The rule is also in the database (`routers_tls_consistent`). |
+| `http://` only with `PRISMA_ALLOW_PLAINTEXT=true` | Accepting `http://` everywhere | Plaintext exists for the simulated Prismas; a real one only speaks mTLS, and a router registered as `http://` failed with handshake errors instead of a clear refusal (#35). With the flag off, an existing `http://` router is listed offline with the reason and never dialled; a router that cannot be dialled no longer fails the whole fleet. |
 
 The profile id comes from the client and is validated against path traversal (`tls::tests`). The
 profile listing shows the account (CN), the CA and the validity, but never the contents of the

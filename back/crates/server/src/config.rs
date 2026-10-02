@@ -20,6 +20,9 @@ pub struct Config {
     pub admin_password: Option<String>,
     pub login_max_failures: u32,
     pub login_window: Duration,
+    /// Accepts `http://` (gRPC without TLS) routers. A real Prisma speaks mTLS
+    /// only; plaintext is for the simulated Prismas (#35).
+    pub allow_plaintext: bool,
 }
 
 impl Config {
@@ -36,6 +39,7 @@ impl Config {
             admin_password: var("ADMIN_PASSWORD"),
             login_max_failures: parse("LOGIN_MAX_FAILURES", "10")?,
             login_window: Duration::from_secs(parse::<u64>("LOGIN_WINDOW_MINUTES", "15")? * 60),
+            allow_plaintext: parse("PRISMA_ALLOW_PLAINTEXT", "false")?,
         };
         if cfg.session_ttl.is_zero() {
             bail!("SESSION_TTL_HOURS must be greater than zero");
