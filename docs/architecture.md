@@ -209,6 +209,13 @@ sequenceDiagram
   same lines again (#11). `prisma-mock-2` closes candidates after 15 s
   (`MOCK_CANDIDATE_IDLE_SECS`) so e2e sees it happen. A crash of the back still leaves candidates open
   on the Prisma until the Prisma discards them (question 1.4 of `prisma-integration.md`).
+- **Stale base:** the box refuses a commit when the running configuration changed since the
+  candidate was opened. Its wording is not part of the contract, so on a `FAILED_PRECONDITION`
+  commit the back compares the candidate's base revision (kept from `OpenCandidate`) with the
+  running one and, when they differ and no commit confirmed is pending, answers `candidate_stale`
+  (409). The review offers to reopen: a new candidate on the current configuration, the same edits
+  applied again in order, and a new review of the new diff; nothing is committed on the way. A line
+  the new base refuses is shown like any edit refusal, with its lines back in the form (#10).
 - **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,
   `mtu` and `shutdown` lines. They are an assumption until the Prisma confirms them.
 
