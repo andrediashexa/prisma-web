@@ -16,6 +16,12 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.8.2 - Browser tests — 2026-10-02
+
+### Internal
+- Browser tests of the front end with Playwright (`scripts/ui-tests.sh`): gates keep Apply disabled, a VTY refusal shows its path and line, the pending-commit banner counts down and goes away, the Pools table is drawn, and the home page keeps its layout after a reload. Each test was shown to fail with its behaviour removed (#5).
+- Prisma 0.149.7 is recorded in the integration notes: contract and guide unchanged, and its new logging counters are not in the API yet (#30).
+
 ## 0.8.1 - Prisma 0.149.6 notes — 2026-10-01
 
 ### Fixed
