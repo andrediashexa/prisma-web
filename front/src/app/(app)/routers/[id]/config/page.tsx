@@ -60,8 +60,8 @@ export default function ConfigPage() {
   const [opening, setOpening] = useState(false)
   const [saving, setSaving] = useState(false)
   const [askSave, setAskSave] = useState(false)
-  /** Edits carried over from an expired candidate into its replacement (#11). */
-  const [carried, setCarried] = useState<AppliedEdit[]>([])
+  /** What carries over from an expired (#11) or stale (#10) candidate into its replacement. */
+  const [carried, setCarried] = useState<Carried>(NOTHING_CARRIED)
 
   // Don't leave an orphan candidate on Prisma when leaving the page.
   const open = useRef<string | null>(null)
@@ -91,21 +91,36 @@ export default function ConfigPage() {
     }
   }
 
-  /** Prisma closed an idle candidate: open a new one and apply the same lines again, in order. */
+  /**
+   * Opens a new candidate on the current running configuration and applies the
+   * same lines again, in order: after Prisma closed an idle candidate (#11), or
+   * when the configuration moved under it (#10). Nothing is committed: the new
+   * diff goes through a new review. A line refused on the way stops there and
+   * is shown like any edit refusal, with its lines back in the form.
+   */
   async function reopen(edits: AppliedEdit[]) {
     const c = await api.post<OpenCandidateResponse>(routerApi(id, "/config/candidates"), {})
     const redone: AppliedEdit[] = []
-    try {
-      for (const e of edits) {
+    let next: Carried = { ...NOTHING_CARRIED }
+    for (const e of edits) {
+      try {
         const r = await api.post<EditResponse>(routerApi(id, `/config/candidates/${c.candidate_id}/edit`), { path: e.path, lines: e.lines })
         redone.push({ ...e, diagnostics: r.diagnostics })
+      } catch (err) {
+        const left = edits.length - redone.length - 1
+        next = {
+          applied: [],
+          refusal: {
+            message: errorMessage(err) + (left > 0 ? ` (${left} later edit(s) not applied yet)` : ""),
+            items: err instanceof ApiError ? (err.diagnostics?.items ?? []) : [],
+          },
+          draft: { path: e.path.join(" / "), lines: e.lines.join("\n") },
+        }
+        break
       }
-      if (edits.length) toast.success(`New candidate opened and ${edits.length} edit(s) applied again.`)
-    } catch (err) {
-      // The running configuration may have moved on since: the rest is left for the user to redo.
-      toast.error(`Applied ${redone.length} of ${edits.length} edit(s) again: ${errorMessage(err)}`)
     }
-    setCarried(redone)
+    if (!next.refusal && edits.length) toast.success(`New candidate opened and ${edits.length} edit(s) applied again. Review the new diff.`)
+    setCarried({ ...next, applied: redone })
     setCandidate(c)
   }
 
@@ -127,12 +142,12 @@ export default function ConfigPage() {
         key={candidate.candidate_id}
         routerId={id}
         candidate={candidate}
-        initialApplied={carried}
+        carried={carried}
         onReopen={reopen}
         onDone={async (committed) => {
           if (!committed) await discardCandidate(id, candidate.candidate_id)
           setCandidate(null)
-          setCarried([])
+          setCarried(NOTHING_CARRIED)
           await mutateRunning()
         }}
       />
@@ -228,6 +243,17 @@ export default function ConfigPage() {
   )
 }
 
+type Refusal = { message: string; items: Diagnostic[] }
+
+interface Carried {
+  applied: AppliedEdit[]
+  refusal: Refusal | null
+  /** The edit refused while applying again, back in the form to fix. */
+  draft: { path: string; lines: string } | null
+}
+
+const NOTHING_CARRIED: Carried = { applied: [], refusal: null, draft: null }
+
 function isExpired(err: unknown) {
   return err instanceof ApiError && err.code === "candidate_expired"
 }
@@ -235,26 +261,26 @@ function isExpired(err: unknown) {
 function CandidateEditor({
   routerId,
   candidate,
-  initialApplied,
+  carried,
   onReopen,
   onDone,
 }: {
   routerId: string
   candidate: OpenCandidateResponse
-  initialApplied: AppliedEdit[]
+  carried: Carried
   onReopen: (edits: AppliedEdit[]) => Promise<void>
   onDone: (committed: boolean) => Promise<void>
 }) {
   const base = routerApi(routerId, `/config/candidates/${candidate.candidate_id}`)
   const { data: text, mutate, error: textError } = useSWR<{ text: string }>(base, fetcher, { fallbackData: { text: candidate.text } })
-  const [path, setPath] = useState("")
-  const [lines, setLines] = useState("")
+  const [path, setPath] = useState(carried.draft?.path ?? "")
+  const [lines, setLines] = useState(carried.draft?.lines ?? "")
   const [applying, setApplying] = useState(false)
-  const [applied, setApplied] = useState<AppliedEdit[]>(initialApplied)
+  const [applied, setApplied] = useState<AppliedEdit[]>(carried.applied)
   const [expiredNow, setExpiredNow] = useState(false)
   const [reopening, setReopening] = useState(false)
   const expired = expiredNow || isExpired(textError)
-  const [refusal, setRefusal] = useState<{ message: string; items: Diagnostic[] } | null>(null)
+  const [refusal, setRefusal] = useState<Refusal | null>(carried.refusal)
   const [reviewing, setReviewing] = useState(false)
 
   async function apply(e: React.FormEvent) {
@@ -419,6 +445,17 @@ function CandidateEditor({
         keepCandidateOnCancel
         onClose={() => setReviewing(false)}
         onCommitted={() => void onDone(true)}
+        onStale={async () => {
+          setReviewing(false)
+          setReopening(true)
+          try {
+            await discardCandidate(routerId, candidate.candidate_id)
+            await onReopen(applied)
+          } catch (err) {
+            toast.error(errorMessage(err))
+            setReopening(false)
+          }
+        }}
       />
     </>
   )

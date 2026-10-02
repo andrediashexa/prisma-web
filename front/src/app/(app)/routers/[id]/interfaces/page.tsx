@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Loader2Icon, PencilIcon, PowerIcon, PowerOffIcon } from "lucide-react"
 
 import { AddressList } from "@/components/address-list"
-import { ChangeReview, prepareCandidate } from "@/components/config/change-review"
+import { ChangeReview, discardCandidate, prepareCandidate } from "@/components/config/change-review"
 import { InterfaceIcon } from "@/components/interface-icon"
 import { LinkBadge } from "@/components/link-badge"
 import { LinkUsage } from "@/components/link-usage"
@@ -26,7 +26,7 @@ import { formatBytes, formatNumber } from "@/lib/format"
 import { hasRole, MTU_MAX, MTU_MIN, routerApi, type RouterInterface } from "@/lib/types"
 import { interfaceEdit, type EditBlock } from "@/lib/vty"
 
-type Review = { cid: string; title: string; comment: string }
+type Review = { cid: string; name: string; edit: EditBlock; title: string; comment: string }
 
 export default function InterfacesPage() {
   const { id } = useParams<{ id: string }>()
@@ -44,7 +44,7 @@ export default function InterfacesPage() {
     setPreparing(name)
     try {
       const cid = await prepareCandidate(id, [edit])
-      setReview({ cid, title, comment })
+      setReview({ cid, name, edit, title, comment })
       return true
     } catch (err) {
       toast.error(errorMessage(err))
@@ -192,6 +192,14 @@ export default function InterfacesPage() {
         title={review?.title ?? ""}
         defaultComment={review?.comment}
         onClose={() => setReview(null)}
+        onStale={async () => {
+          // The configuration moved: the same edit on a new candidate, and a new review of its diff (#10).
+          const r = review
+          if (!r) return
+          setReview(null)
+          await discardCandidate(id, r.cid)
+          await propose(r.name, r.edit, r.title, r.comment)
+        }}
       />
     </>
   )

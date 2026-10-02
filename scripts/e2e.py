@@ -471,6 +471,33 @@ def main():
         check(len(revs4["revisions"]) == len(revs3["revisions"]), "nothing was committed")
         admin.delete(C3)
 
+        # --- stale base: reopen and apply again (#10) ---------------------------------
+        st, ca = admin.post(f"{R}/config/candidates")
+        CA = f"{R}/config/candidates/{ca['candidate_id']}"
+        admin.post(f"{CA}/edit", {"path": ["interface lan0"], "lines": ["description e2e mine"]})
+        st, cb = admin.post(f"{R}/config/candidates")
+        CB = f"{R}/config/candidates/{cb['candidate_id']}"
+        admin.post(f"{CB}/edit", {"path": ["interface wg0"], "lines": ["description e2e theirs"]})
+        st, b = admin.post(f"{CB}/commit", {"comment": "e2e: someone else"})
+        check(st == 200, "another change lands first", b)
+        st, b = admin.post(f"{CA}/commit", {"comment": "e2e: mine"})
+        check(st == 409 and b["error"]["code"] == "candidate_stale" and "reopen" in b["error"]["message"],
+              "a commit on a moved base answers candidate_stale and says to reopen", b)
+        admin.delete(CA)
+        st, cc = admin.post(f"{R}/config/candidates")
+        CC = f"{R}/config/candidates/{cc['candidate_id']}"
+        st, b = admin.post(f"{CC}/edit", {"path": ["interface lan0"], "lines": ["description e2e mine"]})
+        st, cmp = admin.get(f"{CC}/compare")
+        diff = cmp.get("diff", "")
+        added = [l for l in diff.splitlines() if l.startswith("+")]
+        removed = [l for l in diff.splitlines() if l.startswith("-")]
+        check(st == 200 and any("description e2e mine" in l for l in added) and not any("e2e theirs" in l for l in removed),
+              "re-applied on the new base, the diff adds my line and does not revert theirs", diff)
+        admin.delete(CC)
+        st, b = admin.post(f"{R}/config/candidates", {"from_revision": 1})
+        st, b = admin.post(f"{R}/config/candidates/{b['candidate_id']}/commit", {"comment": "e2e: undo theirs"})
+        check(st == 200, "the other change is undone", b)
+
         # --- console ---------------------------------------------------------------
         st, b = admin.post(f"{R}/show", {"command": "show bgp summary"})
         check(st == 200 and "Neighbor" in b["text"], "console runs show", b)

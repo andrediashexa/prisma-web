@@ -19,6 +19,9 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     Conflict(String),
+    /// The running configuration moved since the candidate was opened (#10).
+    #[error("{0}")]
+    Stale(String),
     /// The candidate sat idle until Prisma closed it (#11).
     #[error("{0}")]
     Expired(String),
@@ -51,6 +54,7 @@ impl AppError {
             Self::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Self::ReadOnly(_) => (StatusCode::FORBIDDEN, "router_read_only"),
             Self::Expired(_) => (StatusCode::GONE, "candidate_expired"),
+            Self::Stale(_) => (StatusCode::CONFLICT, "candidate_stale"),
             Self::TooManyAttempts(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             // VTY refusals go back to the user with the VTY's own report.
             Self::Prisma(s) => match s.code() {
