@@ -183,10 +183,10 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.7 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.7 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.8 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.8 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
 
-Read up to 0.149.7 in `clients.md` and already handled:
+Read up to 0.149.8 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -201,3 +201,9 @@ Read up to 0.149.7 in `clients.md` and already handled:
 - 0.149.7 (CGNAT log export no longer endangers the dataplane) changes nothing a client reads: its
   logging drop counters are only in `show cgnat logging` until the export moves to its own
   container (prismarouting #550), which `clients.md` announces before it ships.
+- 0.149.8 fixes a dataplane stop: before it, committing `logging syslog disable` on a box whose
+  syslog was never enabled closes the dataplane's stdin and the next operation stops it until a
+  reboot, with no client-side recovery. prisma-web MUST NOT send that commit: on a box older than
+  0.149.8 whose running configuration has no `logging syslog <collector>`, the back end refuses it
+  (409) with the reason (#31). Only a diff carrying the line costs the extra `GetVersion` and
+  `GetRunning`.

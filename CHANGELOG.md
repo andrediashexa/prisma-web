@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.8.3 - Syslog disable guard — 2026-10-02
+
+### Fixed
+- On a Prisma older than 0.149.8, a commit that disables a syslog that was never enabled is refused with the reason: on those boxes it stops the dataplane until a reboot (prismarouting #551). It goes through on 0.149.8 or newer, or when a syslog collector is configured (#31).
+
+### Internal
+- Prisma 0.149.8 is recorded in the integration notes; contract and guide unchanged (#31).
+
 ## 0.8.2 - Browser tests — 2026-10-02
 
 ### Internal

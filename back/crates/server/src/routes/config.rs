@@ -82,6 +82,32 @@ impl Candidates {
     }
 }
 
+/// The release that stops `logging syslog disable` on a never-enabled syslog
+/// from stopping the dataplane (docs/clients.md, 0.149.8).
+const SYSLOG_DISABLE_FIXED: (u32, u32, u32) = (0, 149, 8);
+
+fn adds_syslog_disable(diff: &str) -> bool {
+    diff.lines().any(|l| l.strip_prefix('+').is_some_and(|l| l.trim() == "logging syslog disable"))
+}
+
+/// The change disables syslog, the running configuration has no syslog
+/// collector to disable, and the box predates the fix (#31). Before 0.149.8
+/// that closes the dataplane's stdin and the next operation stops it.
+fn syslog_disable_hazard(release: &str, running: &str, diff: &str) -> bool {
+    let enabled = running.lines().any(|l| {
+        let l = l.trim();
+        l.starts_with("logging syslog ") && l != "logging syslog disable"
+    });
+    adds_syslog_disable(diff) && !enabled && release_triplet(release).is_some_and(|v| v < SYSLOG_DISABLE_FIXED)
+}
+
+/// `0.149.4`, `0.149.0-mock` → (0, 149, 4); anything else is unknown and not refused.
+fn release_triplet(release: &str) -> Option<(u32, u32, u32)> {
+    let core = release.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
+    let mut it = core.split('.').map(|n| n.parse::<u32>().ok());
+    Some((it.next()??, it.next()??, it.next()??))
+}
+
 /// Prisma answers NOT_FOUND for a candidate it closed (idle, or restarted):
 /// the user gets the reason instead of "not found" (#11).
 fn gone<'a>(st: &'a AppState, cid: &'a str) -> impl FnOnce(tonic::Status) -> AppError + 'a {
@@ -283,6 +309,17 @@ pub async fn commit(
 
     // The diff goes to the log: it records what this change changed.
     let diff = r.config().compare(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner().diff;
+    if adds_syslog_disable(&diff) {
+        let release = r.ops().get_version(req(GetVersionRequest {})).await?.into_inner().release;
+        let running = r.config().get_running(req(GetRunningRequest {})).await?.into_inner().text;
+        if syslog_disable_hazard(&release, &running, &diff) {
+            return Err(AppError::Conflict(format!(
+                "refused: on Prisma {release} (before 0.149.8), disabling a syslog that was never enabled stops \
+                 the dataplane until the box is rebooted (prismarouting #551). Remove `logging syslog disable` \
+                 from this change, or upgrade the box to 0.149.8 or newer"
+            )));
+        }
+    }
     // Every web user shares the same Prisma account; the comment carries
     // the user into the box's own audit trail.
     let box_comment = if comment.is_empty() {
@@ -455,6 +492,22 @@ mod tests {
         assert!(matches!(c.check(Uuid::new_v4(), "c1", &user(owner)), Err(AppError::NotFound(_))));
         c.forget("c1");
         assert!(matches!(c.check(router, "c1", &user(owner)), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn syslog_disable_is_refused_only_where_it_stops_the_dataplane() {
+        let diff = " nat\n  cgnat\n+  logging syslog disable\n  exit\n";
+        let never = "nat\n cgnat\n  pool P\n  exit\n exit\n";
+        let enabled = "nat\n cgnat\n  logging syslog 192.0.2.10 enterprise 1\n  exit\n exit\n";
+        assert!(syslog_disable_hazard("0.149.4", never, diff));
+        assert!(syslog_disable_hazard("0.149.0-mock", never, diff), "a suffix does not hide the version");
+        assert!(!syslog_disable_hazard("0.149.8", never, diff), "fixed in 0.149.8");
+        assert!(!syslog_disable_hazard("0.150.0", never, diff));
+        assert!(!syslog_disable_hazard("0.149.4", enabled, diff), "a configured collector can be disabled");
+        assert!(!syslog_disable_hazard("0.149.4", never, "+  logging syslog 192.0.2.10 enterprise 1\n"));
+        assert!(!syslog_disable_hazard("0.149.4", never, "-  logging syslog disable\n"), "removing the line is not disabling");
+        assert!(!syslog_disable_hazard("unknown", never, diff), "an unreadable version is not refused");
+        assert_eq!(release_triplet("v0.149.7"), Some((0, 149, 7)));
     }
 
     #[test]
