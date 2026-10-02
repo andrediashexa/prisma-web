@@ -73,7 +73,9 @@ every 5 s, with a 4 s limit, and the interface reads that cache. Alongside them 
 standard health check (`grpc.health.v1`) for `prisma.v1.OperationalService`: a box that answers
 `NOT_SERVING` is shown as *not serving* with the reason (its dataplane's statistics do not
 answer), not as *offline*. A box without the health service reports no health and is judged by
-the reads alone (#29). The mock's `Show "mock stats-segment down|up"` simulates it for e2e. The first query of a newly
+the reads alone (#29). It also asks `prisma.v1.LogExport` (Prisma 0.149.15): `NOT_SERVING` there
+means a configured CGNAT log stream is stalled and is shown as *log export stalled*, separately
+from the router's own state (#34). The mock's `Show "mock stats-segment down|up"` simulates it for e2e. The first query of a newly
 registered router happens in the request itself.
 
 Measurement from version 0.2.0, still valid: with one router down, the status dropped from about
@@ -88,14 +90,14 @@ sequenceDiagram
     B->>P: GetHistory(since = newest sample held, counters, CGNAT)
     P-->>B: HistorySample × n (one a minute, oldest first)
     Note over B: rates between consecutive minutes,<br/>appended after what each series holds
-    B->>P: Subscribe(interval 5000 ms, counters, CGNAT, events)
+    B->>P: Subscribe(interval 5000 ms, counters, CGNAT, events, logging_events)
     loop every 5 s
         P-->>B: InterfaceBatch (absolute counters)
         Note over B: rate = Δbytes × 8 / Δt<br/>counter lower than the previous one: drop the sample
         P-->>B: CgnatTotals
     end
     P-->>B: Event (commit, confirm-pending, confirmed, rolled-back, saved)
-    Note over B: becomes box.* in the change log<br/>(the echo of the web's own action is suppressed)
+    Note over B: becomes box.* in the change log<br/>(the echo of the web's own action is suppressed)<br/>log-* events: kept per router, not logged
     B--xP: stream drops
     Note over B: reconnects after 2 s, doubling up to 30 s,<br/>forgets the last sample and backfills the outage
 ```

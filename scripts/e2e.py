@@ -135,6 +135,7 @@ def tls_checks(admin, args):
         check(st == 200 and sysinfo.get("boot_time") and sysinfo.get("dataplane_restarted") is True,
               "mock with a restarted dataplane reports dataplane_restarted", sysinfo)
         candidate_expiry_checks(admin, f"/routers/{r['id']}")
+        log_export_checks(admin, r["id"])
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
@@ -155,6 +156,31 @@ def candidate_expiry_checks(admin, R):
           "a candidate Prisma closed for idleness answers candidate_expired with the reason, not 'not found'", b)
     st, b = admin.get(f"{C}/compare")
     check(st == 404, "the expired candidate is forgotten by the back", b)
+
+
+def log_export_checks(admin, router_id):
+    """CGNAT log export (Prisma 0.149.15, #34) on prisma-mock-2, which has all three streams."""
+    R = f"/routers/{router_id}"
+    st, lg = admin.get(f"{R}/logging")
+    kinds = [s["kind"] for s in (lg or {}).get("streams", [])]
+    check(st == 200 and kinds == ["syslog", "ipfix-tcp", "ipfix-udp"] and all(s["configured"] and s["delivering"] for s in lg["streams"]),
+          "GetLogging lists the three streams, configured and delivering", lg)
+    status = lambda: next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+    wait_for(lambda: (lambda s: (s.get("log_export") == "serving", s))(status()), "fleet status carries the log export's health (SERVING)")
+    st, b = admin.post(f"{R}/show", {"command": "mock log-export stall"})
+    check(st == 200, "mock: the syslog collector stops taking anything", b)
+    try:
+        s = wait_for(lambda: (lambda s: (s.get("log_export") == "not-serving", s))(status()), "a stalled log export shows in the fleet status", timeout=20)
+        check(s["online"] and s.get("health") == "serving", "a stalled log export does not make the router offline or not serving", s)
+        lg = wait_for(lambda: (lambda b: (any(e["kind"] == "log-stalled" for e in b.get("events", [])), b))(admin.get(f"{R}/logging")[1]),
+                      "the log-stalled event reaches the router's log events", timeout=20)
+        sy = lg["streams"][0]
+        check(not sy["delivering"] and sy["stalled_reason"] and sy["connection"] == "disconnected", "the syslog stream reads stalled, with the reason", sy)
+        st, audit = admin.get(f"/audit?router_id={router_id}&action=box.log&limit=5")
+        check(st == 200 and not audit["items"], "log export events stay out of the change log", audit)
+    finally:
+        admin.post(f"{R}/show", {"command": "mock log-export deliver"})
+    wait_for(lambda: (lambda s: (s.get("log_export") == "serving", s))(status()), "SERVING again once the collector takes the backlog", timeout=20)
 
 
 def health_checks(admin, router_id):
@@ -323,6 +349,12 @@ def lab(admin, args):
             "real Prisma online in the fleet status",
         )[0]
         check(st_lab.get("health") == "serving", f"health check of the real Prisma: {st_lab.get('health')}", st_lab)
+        st, lg = admin.get(R + "/logging")
+        if st == 501:
+            check(True, "GetLogging not on this box (before 0.149.15)")
+        else:
+            check(st == 200 and [s["kind"] for s in lg["streams"]] == ["syslog", "ipfix-tcp", "ipfix-udp"],
+                  f"GetLogging of the real Prisma ({sum(s['configured'] for s in lg['streams'])} of 3 streams configured, log export {st_lab.get('log_export')})", lg)
         check(st_lab["version"]["hostname"] and st_lab["system"]["hostname"], f"real Prisma hostname filled in ({st_lab['version']['hostname']})", st_lab)
         for path, key in [("/interfaces", "interfaces"), ("/pools", "pools"), ("/bgp", "neighbors")]:
             st, b = admin.get(R + path)
@@ -364,7 +396,12 @@ def lab(admin, args):
             "live telemetry from the real Prisma",
             timeout=40,
         ) if (b_if := next((i["name"] for i in admin.get(R + "/interfaces")[1]["interfaces"] if i["link_up"]), None)) else check(False, "no interface with link to measure")
-        check_backfill(admin, R, b_if, registered_at)
+        uptime = admin.get(R + "/system")[1].get("uptime_seconds") or 0
+        if uptime < 600:
+            # GetHistory does not survive a reboot: a box just up has no past to give.
+            check(True, f"history check skipped: the box booted {uptime} s ago")
+        else:
+            check_backfill(admin, R, b_if, registered_at)
     finally:
         admin.delete(R)
 
@@ -418,6 +455,9 @@ def main():
         f = fleet[0]
         check(f["version"] and f["system"] and f["sessions"] is not None, "status carries GetVersion, GetSystem and GetSessionsSummary", f)
         health_checks(admin, router_id)
+        st, lg = admin.get(f"{R}/logging")
+        check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
+              "a box with no log export lists three unconfigured streams", lg)
 
         # --- telemetry ---------------------------------------------------------
         series = wait_for(

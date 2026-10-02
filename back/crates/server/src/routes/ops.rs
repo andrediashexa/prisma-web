@@ -52,6 +52,21 @@ pub async fn interfaces(
 
 passthrough!(policies, list_policies, ListPoliciesRequest {}, ListPoliciesResponse);
 
+#[derive(serde::Serialize)]
+pub struct Logging {
+    #[serde(flatten)]
+    state: LoggingState,
+    /// The box's recent `log-*` events, newest first, as the telemetry stream got them.
+    events: Vec<crate::telemetry::LogEvent>,
+}
+
+/// The CGNAT log export (Prisma 0.149.15, #34): GetLogging and the recent log events.
+pub async fn logging(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<Logging>> {
+    let r = st.routers.get(id).await?;
+    let state = r.ops().get_logging(req(GetLoggingRequest {})).await?.into_inner();
+    Ok(Json(Logging { state, events: st.routers.telemetry.log_events(id) }))
+}
+
 #[derive(Deserialize)]
 pub struct CountersQuery {
     /// One policy; absent or empty is every policy.

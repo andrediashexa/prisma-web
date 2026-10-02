@@ -123,6 +123,8 @@ services:
       MOCK_DATAPLANE_RESTARTED: "1"
       # Closes a candidate idle for 15 s instead of the box's 30 min, so e2e sees one expire (#11).
       MOCK_CANDIDATE_IDLE_SECS: "15"
+      # All three CGNAT log streams configured (Prisma 0.149.15, #34); prisma-mock has none, like the lab box.
+      MOCK_LOG_EXPORT: "1"
       MOCK_TLS_DIR: /run/tls
     volumes:
       - ./dev-certs/mock-server:/run/tls:ro

@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Prisma 0.149.2 (#23).
         "prisma.v1.GetHistoryRequest.since",
         "prisma.v1.HistorySample.at",
-        "prisma.v1.ListRoutesResponse.snapshot_at",
+        "prisma.v1.ListRoutesResponse.snapshot_at", "prisma.v1.LogStream.last_progress", "prisma.v1.LoggingState.at",
     ] {
         cfg = cfg.field_attribute(ts, "#[serde(serialize_with = \"crate::ser::timestamp\")]");
     }

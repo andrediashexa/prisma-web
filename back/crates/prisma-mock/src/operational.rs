@@ -457,11 +457,27 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         Ok(Response::new(crate::policy::test(&req.into_inner())?))
     }
 
+    async fn get_logging(&self, _: Request<GetLoggingRequest>) -> R<LoggingState> {
+        Ok(Response::new(self.shared.state.lock().unwrap().logs.state(chrono::Utc::now())))
+    }
+
     async fn show(&self, req: Request<ShowRequest>) -> R<ShowResponse> {
         let _turno = self.shared.ops.lock().await;
         let command = req.into_inner().command;
         // Test hook of the mock only: what the box reports while the
         // dataplane's statistics segment does not answer (#29).
+        if let Some(state) = command.trim().strip_prefix("mock log-export ") {
+            let stalled = match state {
+                "stall" => true,
+                "deliver" => false,
+                _ => return Err(Status::invalid_argument("mock log-export stall|deliver")),
+            };
+            if !self.shared.state.lock().unwrap().logs.configured {
+                return Err(Status::failed_precondition("no log export configured (MOCK_LOG_EXPORT)"));
+            }
+            self.shared.set_log_stalled(stalled).await;
+            return Ok(Response::new(ShowResponse { text: format!("log export {state}\n"), ..Default::default() }));
+        }
         if let Some(state) = command.trim().strip_prefix("mock stats-segment ") {
             let up = match state {
                 "up" => true,
