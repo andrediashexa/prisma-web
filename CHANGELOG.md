@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.9.2 - Prisma 0.149.13 notes — 2026-10-02
+
+### Internal
+- Prisma 0.149.11 to 0.149.13 are recorded in the integration notes: contract and guide unchanged, nothing to change in prisma-web. The read-only lab checks pass against the lab box on 0.149.13 (#33).
+
 ## 0.9.1 - Prisma 0.149.10 notes — 2026-10-02
 
 ### Internal
