@@ -19,25 +19,24 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useInterfaceRates } from "@/hooks/use-interface-rates"
-import { useMe } from "@/hooks/use-me"
-import { useRouterAccess } from "@/hooks/use-routers"
+import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { errorMessage, fetcher } from "@/lib/api"
 import { formatBytes, formatNumber } from "@/lib/format"
-import { hasRole, MTU_MAX, MTU_MIN, routerApi, type RouterInterface } from "@/lib/types"
+import { roleAtLeast, MTU_MAX, MTU_MIN, routerApi, type RouterInterface } from "@/lib/types"
 import { interfaceEdit, type EditBlock } from "@/lib/vty"
 
 type Review = { cid: string; name: string; edit: EditBlock; title: string; comment: string }
 
 export default function InterfacesPage() {
   const { id } = useParams<{ id: string }>()
-  const { data: me } = useMe()
   const { data } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(id, "/interfaces"), fetcher, { refreshInterval: 10_000 })
   const { data: rates } = useInterfaceRates(id, data?.interfaces)
   const [editing, setEditing] = useState<RouterInterface | null>(null)
   const [preparing, setPreparing] = useState<string | null>(null)
   const [review, setReview] = useState<Review | null>(null)
   const { readOnly } = useRouterAccess(id)
-  const canEdit = hasRole(me, "operator") && !readOnly
+  const myRole = useRouterRole(id)
+  const canEdit = roleAtLeast(myRole, "operator") && !readOnly
 
   /** Opens a candidate with the lines and shows the review before commit. */
   async function propose(name: string, edit: EditBlock, title: string, comment: string) {

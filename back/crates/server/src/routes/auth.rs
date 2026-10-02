@@ -90,6 +90,7 @@ pub async fn login(
         id: user.id,
         username: user.username,
         role: user.role,
+        global_role: user.role,
         must_change_password: user.must_change_password,
         session_id: Uuid::nil(),
     };

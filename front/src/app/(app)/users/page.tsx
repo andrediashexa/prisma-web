@@ -3,7 +3,7 @@
 import { useState } from "react"
 import useSWR from "swr"
 import { toast } from "sonner"
-import { KeyRoundIcon, Loader2Icon, MoreHorizontalIcon, PlusIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
+import { KeyRoundIcon, Loader2Icon, MoreHorizontalIcon, PlusIcon, ServerCogIcon, Trash2Icon, UserCheckIcon, UserXIcon } from "lucide-react"
 
 import { PageHeader } from "@/components/page-header"
 import {
@@ -46,7 +46,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useMe } from "@/hooks/use-me"
 import { api, errorMessage, fetcher } from "@/lib/api"
 import { formatRelative } from "@/lib/format"
-import { PASSWORD_MIN_LEN, ROLE_LABEL, type Role, type UserView } from "@/lib/types"
+import { PASSWORD_MIN_LEN, ROLE_LABEL, type Role, type RouterAccess, type UserView } from "@/lib/types"
 
 const ROLES: Role[] = ["admin", "operator", "viewer"]
 const ROLE_HINT: Record<Role, string> = {
@@ -59,6 +59,7 @@ type Dialogs =
   | { kind: "create" }
   | { kind: "password"; user: UserView }
   | { kind: "delete"; user: UserView }
+  | { kind: "access"; user: UserView }
   | null
 
 export default function UsersPage() {
@@ -149,6 +150,9 @@ export default function UsersPage() {
                           <DropdownMenuItem onSelect={() => setDialog({ kind: "password", user: u })}>
                             <KeyRoundIcon /> Reset password
                           </DropdownMenuItem>
+                          <DropdownMenuItem disabled={u.role === "admin"} onSelect={() => setDialog({ kind: "access", user: u })}>
+                            <ServerCogIcon /> Router access
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={self}
                             onSelect={() => patch(u, { disabled: !u.disabled }, `${u.username} ${u.disabled ? "re-enabled" : "disabled"}`)}
@@ -173,6 +177,7 @@ export default function UsersPage() {
 
       <CreateUserDialog open={dialog?.kind === "create"} onClose={() => setDialog(null)} onCreated={() => mutate()} />
       <ResetPasswordDialog user={dialog?.kind === "password" ? dialog.user : null} onClose={() => setDialog(null)} onDone={() => mutate()} />
+      <RouterAccessDialog user={dialog?.kind === "access" ? dialog.user : null} onClose={() => setDialog(null)} />
       <AlertDialog open={dialog?.kind === "delete"} onOpenChange={(o) => !o && setDialog(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -324,6 +329,83 @@ function ResetPasswordDialog({ user, onClose, onDone }: { user: UserView | null;
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const DEFAULT_ACCESS = "default"
+const ACCESS_CHOICES: { value: string; label: string }[] = [
+  { value: "none", label: "No access" },
+  { value: "viewer", label: ROLE_LABEL.viewer },
+  { value: "operator", label: ROLE_LABEL.operator },
+  { value: "admin", label: ROLE_LABEL.admin },
+]
+
+/**
+ * A user's access router by router (#6): the global role applies unless
+ * overridden here, up or down; "No access" hides the router from them.
+ */
+function RouterAccessDialog({ user, onClose }: { user: UserView | null; onClose: () => void }) {
+  const key = user ? `/users/${user.id}/access` : null
+  const { data, mutate } = useSWR<RouterAccess[]>(key, fetcher)
+  const [saving, setSaving] = useState<string | null>(null)
+
+  async function set(a: RouterAccess, value: string) {
+    if (!user) return
+    const role = value === DEFAULT_ACCESS ? null : value
+    setSaving(a.router_id)
+    try {
+      await api.put(`/users/${user.id}/access/${a.router_id}`, { role })
+      const label = role === null ? `the global role (${ROLE_LABEL[user.role]})` : (ACCESS_CHOICES.find((c) => c.value === role)?.label ?? role)
+      toast.success(`${user.username} on ${a.router_name}: ${label}`)
+      await mutate()
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Router access: {user?.username}</DialogTitle>
+          <DialogDescription>
+            {user && `${ROLE_LABEL[user.role]} on every router unless changed here.`} A router with no access disappears for this user,
+            change log included. Router registration stays with administrators.
+          </DialogDescription>
+        </DialogHeader>
+        {!data ? (
+          <Skeleton className="h-24 w-full" />
+        ) : data.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No routers registered.</p>
+        ) : (
+          <div className="divide-y rounded-lg border">
+            {data.map((a) => (
+              <div key={a.router_id} className="flex items-center justify-between gap-3 px-3 py-2">
+                <span className="truncate text-sm font-medium">{a.router_name}</span>
+                <div className="flex items-center gap-2">
+                  {saving === a.router_id && <Loader2Icon className="size-4 animate-spin" />}
+                  <Select value={a.role ?? DEFAULT_ACCESS} onValueChange={(v) => set(a, v)} disabled={saving !== null}>
+                    <SelectTrigger className="w-44" aria-label={`Access to ${a.router_name}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={DEFAULT_ACCESS}>Global role{user ? ` (${ROLE_LABEL[user.role]})` : ""}</SelectItem>
+                      {ACCESS_CHOICES.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>
+                          {c.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

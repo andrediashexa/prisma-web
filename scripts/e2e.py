@@ -54,6 +54,9 @@ class Client:
     def post(self, p, b=None):
         return self.call("POST", p, {} if b is None else b)
 
+    def put(self, p, b):
+        return self.call("PUT", p, b)
+
     def patch(self, p, b):
         return self.call("PATCH", p, b)
 
@@ -166,6 +169,63 @@ def health_checks(admin, router_id):
     finally:
         admin.post(f"/routers/{router_id}/show", {"command": "mock stats-segment up"})
     wait_for(lambda: (lambda s: (s.get("health") == "serving" and s["online"], s))(status()), "SERVING again once the statistics answer", timeout=20)
+
+
+def access_checks(admin, args):
+    """Per-router access (#6): two routers, a viewer raised on one and hidden from the other."""
+    sfx = uuid.uuid4().hex[:6]
+    made_routers, made_user = [], None
+    try:
+        for n in ("a", "b"):
+            st, r = admin.post("/routers", {"name": f"e2e-acc-{n}-{sfx}", "api_url": args.mock})
+            check(st == 201, f"router {n} for the access checks", r)
+            made_routers.append(r["id"])
+        ra, rb = made_routers
+        name, pw = f"e2e-acc-{sfx}", uuid.uuid4().hex
+        st, u = admin.post("/users", {"username": name, "password": pw, "role": "viewer"})
+        check(st == 201, "a viewer for the access checks", u)
+        made_user = u["id"]
+        v = Client(args.base)
+        v.post("/auth/login", {"username": name, "password": pw})
+
+        st, b = v.post(f"/routers/{ra}/config/candidates")
+        check(st == 403, "with no grant the global role applies: a viewer cannot open a change", b)
+        st, b = admin.put(f"/users/{made_user}/access/{ra}", {"role": "operator"})
+        check(st == 204, "admin raises the viewer to operator on router a", b)
+        st, b = admin.put(f"/users/{made_user}/access/{rb}", {"role": "none"})
+        check(st == 204, "admin hides router b from the viewer", b)
+
+        listed = {r["id"]: r for r in v.get("/routers")[1]}
+        check(ra in listed and rb not in listed and listed[ra]["my_role"] == "operator",
+              "the router list shows a with the raised role and leaves b out", list(listed.values()))
+        status_ids = {r["id"] for r in v.get("/routers/status")[1]}
+        check(ra in status_ids and rb not in status_ids, "the fleet status leaves the hidden router out")
+        st, b = v.get(f"/routers/{rb}/system")
+        check(st == 404, "a hidden router answers as if it did not exist", b)
+        st, c = v.post(f"/routers/{ra}/config/candidates")
+        check(st == 200, "raised to operator on router a, the viewer opens a change there", c)
+        v.delete(f"/routers/{ra}/config/candidates/{c['candidate_id']}")
+        st, b = v.patch(f"/routers/{ra}", {"description": "nope"})
+        check(st == 403, "a per-router grant never gives the router's registration", b)
+
+        st, acc = admin.get(f"/users/{made_user}/access")
+        roles = {x["router_id"]: x["role"] for x in acc}
+        check(roles.get(ra) == "operator" and roles.get(rb) == "none", "the user's access is listed per router", acc)
+        st, b = admin.put(f"/users/{made_user}/access/{ra}", {"role": None})
+        check(st == 204, "admin revokes the grant on router a", b)
+        st, b = v.post(f"/routers/{ra}/config/candidates")
+        check(st == 403, "after the revoke the global role applies again", b)
+        st, log = admin.get(f"/audit?action=user.access&limit=10")
+        mine = [e for e in log["items"] if e["target"] == name]
+        check({"user.access.grant", "user.access.revoke"} <= {e["action"] for e in mine},
+              "the change log records granting and revoking access", mine)
+        st, b = admin.put(f"/users/{admin.get('/auth/me')[1]['id']}/access/{ra}", {"role": "none"})
+        check(st == 422, "a global administrator cannot be limited per router", b)
+    finally:
+        if made_user:
+            admin.delete(f"/users/{made_user}")
+        for rid in made_routers:
+            admin.delete(f"/routers/{rid}")
 
 
 def read_only_checks(admin, args):
@@ -332,6 +392,7 @@ def main():
         return
 
     tls_checks(admin, args)
+    access_checks(admin, args)
 
     suffix = uuid.uuid4().hex[:6]
     router_id = op_id = None

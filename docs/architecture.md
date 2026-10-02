@@ -251,10 +251,18 @@ cited:
   `Show`. The mock reproduces the 0.148.5 lock. Using a separate account for the console (a second
   certificate and a second account on each device) was rejected, and so was serializing everything
   in the back (it would slow the screens down needlessly on 0.148.6).
-- The web role applies to all routers. Each router also has the box's own role for prisma-web's
+- **Per-router access (#6):** a user's web role applies to every router unless `router_access`
+  overrides it for one router, up or down; `none` hides that router. The user extractor resolves
+  the role whenever the path names a router (`/routers/<id>/…`), so every per-router check uses
+  the role on that router, and a hidden router answers 404 as if it did not exist. The router list,
+  the fleet status and the change log leave hidden routers out. A global administrator always has
+  every router and cannot be limited, and router registration (edit, remove) stays with global
+  administrators whatever the grants. Granting and revoking go to the change log
+  (`user.access.grant`, `user.access.revoke`).
+- Each router also has the box's own role for prisma-web's
   account (`WhoAmI`, refreshed every minute by the fleet monitor). A read-only login disables the
   change actions on that router and the back refuses its changes with `router_read_only` before
   calling the box. A box older than 0.149.2 answers `UNIMPLEMENTED`: the role is unknown and
   nothing is disabled (#28).
-- The front has no automated tests beyond lint and build. The `scripts/e2e.py` script covers the
-  behaviour through the API.
+- The front has browser tests (`scripts/ui-tests.sh`, #5) for the screen rules the API cannot
+  see; `scripts/e2e.py` covers the behaviour through the API.

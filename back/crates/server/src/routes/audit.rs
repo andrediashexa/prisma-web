@@ -59,6 +59,9 @@ pub async fn list(
             AND ($2::text IS NULL OR action LIKE $2 || '%')
             AND ($3::text IS NULL OR lower(username) = lower($3))
             AND ($4::uuid IS NULL OR router_id = $4)
+            -- Entries of a router hidden from the user are hidden too (#6).
+            AND ($6::boolean OR router_id IS NULL OR router_id NOT IN
+                 (SELECT router_id FROM router_access WHERE user_id = $7 AND role = 'none'))
           ORDER BY id DESC
           LIMIT $5",
     )
@@ -67,6 +70,8 @@ pub async fn list(
     .bind(q.username.filter(|u| !u.is_empty()))
     .bind(q.router_id)
     .bind(limit)
+    .bind(user.global_role == Role::Admin)
+    .bind(user.id)
     .fetch_all(&st.db)
     .await?;
 

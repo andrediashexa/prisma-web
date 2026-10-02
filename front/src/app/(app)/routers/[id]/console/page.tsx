@@ -6,10 +6,10 @@ import { CornerDownLeftIcon, Loader2Icon, TerminalIcon, Trash2Icon } from "lucid
 
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useMe } from "@/hooks/use-me"
 import { useRouters } from "@/hooks/use-routers"
+import { useRouterRole } from "@/hooks/use-routers"
 import { api, errorMessage } from "@/lib/api"
-import { hasRole, routerApi } from "@/lib/types"
+import { roleAtLeast, routerApi } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const SUGGESTIONS = ["show version", "show bgp summary", "show ip route", "show ipv6 route", "show interfaces", "ping 2001:db8:100::1"]
@@ -23,7 +23,7 @@ interface Entry {
 /** Operational console: `show`/`ping` commands as at the prompt. Prisma rejects configuration commands. */
 export default function ConsolePage() {
   const { id } = useParams<{ id: string }>()
-  const { data: me } = useMe()
+  const myRole = useRouterRole(id)
   const { data: routers } = useRouters()
   const name = routers?.find((r) => r.id === id)?.name ?? "prisma"
   const [entries, setEntries] = useState<Entry[]>([])
@@ -34,7 +34,7 @@ export default function ConsolePage() {
 
   useEffect(() => bottom.current?.scrollIntoView({ block: "end" }), [entries, running])
 
-  if (!hasRole(me, "operator")) {
+  if (!roleAtLeast(myRole, "operator")) {
     return <p className="text-muted-foreground text-sm">The console is available to operators and administrators.</p>
   }
 

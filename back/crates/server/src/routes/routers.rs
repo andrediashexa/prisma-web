@@ -14,6 +14,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::audit::{self, Entry};
+use crate::access;
 use crate::auth::{ClientMeta, CurrentUser, Role};
 use crate::config::Config;
 use crate::error::{AppError, AppResult};
@@ -36,6 +37,9 @@ pub struct RouterView {
     /// CN of the profile certificate: the account Prisma sees. Filled in outside SQL.
     #[sqlx(skip)]
     tls_account: Option<String>,
+    /// The requester's role on this router (#6). Filled in outside SQL.
+    #[sqlx(skip)]
+    my_role: Option<Role>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -53,15 +57,26 @@ fn with_account(st: &AppState, mut v: RouterView) -> RouterView {
     v
 }
 
-pub async fn list(State(st): State<AppState>, _: CurrentUser) -> AppResult<Json<Vec<RouterView>>> {
+pub async fn list(State(st): State<AppState>, user: CurrentUser) -> AppResult<Json<Vec<RouterView>>> {
     let rows = sqlx::query_as::<_, RouterView>(&format!("{SELECT_ROUTERS} ORDER BY lower(name)"))
         .fetch_all(&st.db)
         .await?;
-    Ok(Json(rows.into_iter().map(|r| with_account(&st, r)).collect()))
+    let grants = access::grants(&st.db, user.id).await?;
+    // A router the user has no access to is not listed (#6).
+    Ok(Json(
+        rows.into_iter()
+            .filter_map(|mut r| {
+                r.my_role = Some(access::resolve(user.global_role, grants.get(&r.id).map(String::as_str))?);
+                Some(with_account(&st, r))
+            })
+            .collect(),
+    ))
 }
 
-pub async fn get(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<RouterView>> {
-    Ok(Json(with_account(&st, fetch(&st.db, id).await?)))
+pub async fn get(State(st): State<AppState>, user: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<RouterView>> {
+    let mut r = fetch(&st.db, id).await?;
+    r.my_role = Some(user.role);
+    Ok(Json(with_account(&st, r)))
 }
 
 /// TLS profiles available in the mounted directory (never exposing the key).
@@ -109,8 +124,11 @@ impl Connection {
     }
 }
 
-pub async fn status(State(st): State<AppState>, _: CurrentUser) -> AppResult<Json<Vec<RouterStatus>>> {
-    Ok(Json(st.routers.fleet_status().await?))
+pub async fn status(State(st): State<AppState>, user: CurrentUser) -> AppResult<Json<Vec<RouterStatus>>> {
+    let grants = access::grants(&st.db, user.id).await?;
+    let mut fleet = st.routers.fleet_status().await?;
+    fleet.retain(|r| access::resolve(user.global_role, grants.get(&r.id).map(String::as_str)).is_some());
+    Ok(Json(fleet))
 }
 
 #[derive(Deserialize)]
@@ -222,7 +240,7 @@ pub async fn update(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateRouter>,
 ) -> AppResult<Json<RouterView>> {
-    user.require(Role::Admin)?;
+    user.require_global(Role::Admin)?;
     let before = fetch(&st.db, id).await?;
     let mut changes = Map::new();
 
@@ -295,7 +313,7 @@ pub async fn delete(
     meta: ClientMeta,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    user.require(Role::Admin)?;
+    user.require_global(Role::Admin)?;
     let before = fetch(&st.db, id).await?;
     sqlx::query("DELETE FROM routers WHERE id = $1").bind(id).execute(&st.db).await?;
     st.routers.invalidate(id);
