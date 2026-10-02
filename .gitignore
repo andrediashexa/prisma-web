@@ -7,3 +7,4 @@ front/next-env.d.ts
 *.log
 .DS_Store
 dev-certs/
+.claude/
