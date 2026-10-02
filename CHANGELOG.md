@@ -16,6 +16,18 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.12.0 - Plaintext opt-in — 2026-10-02
+
+### Changed
+- Plain `http://` (gRPC without TLS) is accepted only with `PRISMA_ALLOW_PLAINTEXT=true`, which `.env.example` sets for the simulated Prismas. A real Prisma only speaks mTLS. With it off, an `http://` address is refused with what to do instead, and an `http://` router already registered is shown offline with the reason. **Upgrading an install that uses the mocks:** add `PRISMA_ALLOW_PLAINTEXT=true` to `.env` (#35).
+
+### Fixed
+- A router that cannot be dialled (plaintext refused, a TLS profile gone) no longer makes the whole fleet status fail; it is listed with the reason (#35).
+- The README gave `http://` for the second simulated Prisma; it is `https://` with the `dev/mock` profile (#35).
+
+### Internal
+- Prisma 0.149.16 is recorded in the integration notes: contract and guide unchanged; `monitor cgnat logging` is VTY only (#35).
+
 ## 0.11.0 - CGNAT log export — 2026-10-02
 
 ### New
