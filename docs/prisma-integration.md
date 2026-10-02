@@ -183,10 +183,10 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.8 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.8 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.10 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.10 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
 
-Read up to 0.149.8 in `clients.md` and already handled:
+Read up to 0.149.10 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -207,3 +207,10 @@ Read up to 0.149.8 in `clients.md` and already handled:
   0.149.8 whose running configuration has no `logging syslog <collector>`, the back end refuses it
   (409) with the reason (#31). Only a diff carrying the line costs the extra `GetVersion` and
   `GetRunning`.
+- 0.149.9 starts the dataplane again after a clean exit nobody asked for (up to five times a boot),
+  like a crash since 0.149.5: the same `NOT_SERVING` window and counters from zero, already shown
+  and handled.
+- 0.149.10 refuses, at commit, a `cgnat identity file|dhcp-leases <path>` of 256 characters or more
+  with `FAILED_PRECONDITION` naming the 255 limit. prisma-web has no form for it (the editor is free
+  text), so the box's message reaches the user as a refusal. If the base also moved, the stale-base
+  check (#10) answers first; the reopened change then gets the box's own refusal.
