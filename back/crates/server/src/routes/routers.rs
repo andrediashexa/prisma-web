@@ -86,7 +86,7 @@ pub async fn tls_profiles(State(st): State<AppState>, user: CurrentUser) -> AppR
 }
 
 /// Address and TLS validated together: `https://` requires a profile and a server name;
-/// `http://` (mocks only) accepts no profile.
+/// `http://` (mocks only, with PRISMA_ALLOW_PLAINTEXT) accepts no profile.
 struct Connection {
     url: String,
     tls: Option<(String, String)>,
@@ -114,7 +114,12 @@ impl Connection {
             (false, Some(_)) => {
                 return Err(AppError::BadRequest("a TLS profile only applies to https://".into()));
             }
-            (false, None) => None,
+            (false, None) => {
+                if let Some(why) = crate::registry::plaintext_refused(&url, st.routers.allow_plaintext) {
+                    return Err(AppError::BadRequest(why));
+                }
+                None
+            }
         };
         Ok(Self { url, tls })
     }
@@ -336,6 +341,10 @@ pub async fn seed_from_env(db: &PgPool, cfg: &Config) -> anyhow::Result<()> {
         return Ok(());
     }
     let url = validate_api_url(raw_url).map_err(|e| anyhow::anyhow!("PRISMA_API_URL: {e}"))?;
+    if !cfg.allow_plaintext {
+        tracing::warn!(%url, "PRISMA_API_URL ignored: plain http:// needs PRISMA_ALLOW_PLAINTEXT=true (mocks only)");
+        return Ok(());
+    }
     if url.starts_with("https://") {
         anyhow::bail!("PRISMA_API_URL only accepts http:// (mocks); register a Prisma with mTLS through the UI");
     }

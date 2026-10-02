@@ -36,6 +36,8 @@ services:
       BIND_ADDR: "[::]:8000"
       # Optional: registers this Prisma (gRPC address) on first start. Add the others through the UI.
       PRISMA_API_URL: ${PRISMA_API_URL:-}
+      # Plain http:// (gRPC without TLS) is for the simulated Prismas only; a real Prisma speaks mTLS (#35).
+      PRISMA_ALLOW_PLAINTEXT: ${PRISMA_ALLOW_PLAINTEXT:-false}
       # TLS profiles (mTLS with the Prismas): each subdirectory holds ca.crt and the client pair.
       PRISMA_TLS_DIR: /run/prisma-tls
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}

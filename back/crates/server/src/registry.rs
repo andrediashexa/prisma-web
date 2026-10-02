@@ -46,6 +46,9 @@ pub struct RouterHandle {
     pub name: String,
     pub api_url: String,
     channel: Channel,
+    /// Why this router cannot be dialled (plaintext not allowed, a TLS profile
+    /// gone); it stays listed with the reason instead of failing the fleet.
+    unusable: Option<String>,
 }
 
 impl RouterHandle {
@@ -101,6 +104,8 @@ pub struct Registry {
     db: PgPool,
     /// Root of the TLS profiles mounted in the container (`PRISMA_TLS_DIR`).
     pub tls_root: PathBuf,
+    /// `PRISMA_ALLOW_PLAINTEXT` (#35).
+    pub allow_plaintext: bool,
     pub telemetry: Telemetry,
     cache: RwLock<HashMap<Uuid, Arc<RouterHandle>>>,
     status: RwLock<HashMap<Uuid, RouterStatus>>,
@@ -144,8 +149,9 @@ pub struct TlsTarget<'a> {
 }
 
 impl Registry {
-    pub fn new(db: PgPool, tls_root: PathBuf) -> Self {
+    pub fn new(db: PgPool, tls_root: PathBuf, allow_plaintext: bool) -> Self {
         Self {
+            allow_plaintext,
             telemetry: Telemetry::new(db.clone()),
             tls_root,
             db,
@@ -157,7 +163,16 @@ impl Registry {
         }
     }
 
+    /// The router's handle, for calls to it; refused when it cannot be dialled.
     pub async fn get(&self, id: Uuid) -> AppResult<Arc<RouterHandle>> {
+        let h = self.load(id).await?;
+        match &h.unusable {
+            Some(why) => Err(AppError::BadRequest(why.clone())),
+            None => Ok(h),
+        }
+    }
+
+    async fn load(&self, id: Uuid) -> AppResult<Arc<RouterHandle>> {
         if let Some(h) = self.cache.read().unwrap().get(&id) {
             return Ok(h.clone());
         }
@@ -173,12 +188,12 @@ impl Registry {
             .as_deref()
             .zip(row.tls_server_name.as_deref())
             .map(|(profile, server_name)| TlsTarget { profile, server_name });
-        let handle = Arc::new(RouterHandle {
-            channel: self.channel(&row.api_url, tls)?,
-            id: row.id,
-            name: row.name,
-            api_url: row.api_url,
-        });
+        let (channel, unusable) = match self.channel(&row.api_url, tls) {
+            Ok(c) => (c, None),
+            // Still a channel, never dialled: the handle carries the reason.
+            Err(e) => (Endpoint::from_static("http://[::1]:9").connect_lazy(), Some(e.to_string())),
+        };
+        let handle = Arc::new(RouterHandle { channel, unusable, id: row.id, name: row.name, api_url: row.api_url });
         self.cache.write().unwrap().insert(id, handle.clone());
         Ok(handle)
     }
@@ -190,7 +205,7 @@ impl Registry {
             .await?;
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
-            out.push(self.get(id).await?);
+            out.push(self.load(id).await?);
         }
         Ok(out)
     }
@@ -241,6 +256,24 @@ impl Registry {
             let hostnames = self.hostnames.clone();
             let access = self.access.clone();
             set.spawn(async move {
+                if let Some(why) = &h.unusable {
+                    // Not dialled at all: offline, with the reason (#35).
+                    return RouterStatus {
+                        id: h.id,
+                        name: h.name.clone(),
+                        online: false,
+                        version: None,
+                        system: None,
+                        sessions: None,
+                        error: Some(why.clone()),
+                        latency_ms: None,
+                        checked_at: chrono::Utc::now(),
+                        busy: false,
+                        access: None,
+                        health: None,
+                        log_export: None,
+                    };
+                }
                 let started = Instant::now();
                 let (health, log_export, res) = tokio::join!(
                     health(&h, "prisma.v1.OperationalService"),
@@ -327,7 +360,7 @@ impl Registry {
             match self.all().await {
                 Ok(handles) => {
                     let ids: Vec<Uuid> = handles.iter().map(|h| h.id).collect();
-                    for h in &handles {
+                    for h in handles.iter().filter(|h| h.unusable.is_none()) {
                         self.telemetry.ensure(h.clone());
                     }
                     self.telemetry.retain(&ids);
@@ -344,6 +377,9 @@ impl Registry {
     /// Lazy gRPC channel: connects on the first call and reconnects by itself.
     /// With `tls`, does mTLS with the profile and checks the server name.
     pub fn channel(&self, url: &str, tls: Option<TlsTarget>) -> AppResult<Channel> {
+        if let Some(why) = plaintext_refused(url, self.allow_plaintext) {
+            return Err(AppError::BadRequest(why));
+        }
         let mut endpoint = Endpoint::from_shared(url.to_string())
             .map_err(|e| AppError::BadRequest(format!("invalid address: {e}")))?
             .connect_timeout(Duration::from_secs(3))
@@ -393,6 +429,15 @@ fn health_word(status: i32) -> Option<&'static str> {
         // UNKNOWN or SERVICE_UNKNOWN: the box cannot tell.
         _ => None,
     }
+}
+
+/// `http://` while plaintext is not allowed (#35): the reason, for the user.
+pub fn plaintext_refused(url: &str, allow: bool) -> Option<String> {
+    (url.starts_with("http://") && !allow).then(|| {
+        "a real Prisma only speaks mTLS: use https:// with a TLS profile. Plain http:// is for the \
+         simulated Prismas and needs PRISMA_ALLOW_PLAINTEXT=true"
+            .to_string()
+    })
 }
 
 /// `WhoAmI`, at most every minute per router. A box without the rpc is
@@ -498,6 +543,18 @@ mod tests {
         ] {
             assert!(v(bad).is_err(), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod plaintext_tests {
+    use super::plaintext_refused;
+
+    #[test]
+    fn plaintext_only_when_allowed() {
+        assert!(plaintext_refused("http://192.0.2.198:50051", false).is_some_and(|m| m.contains("https://")));
+        assert_eq!(plaintext_refused("http://prisma-mock:50051", true), None);
+        assert_eq!(plaintext_refused("https://192.0.2.166:50051", false), None);
     }
 }
 

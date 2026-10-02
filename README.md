@@ -50,7 +50,12 @@ Open `http://<ipv4>/` or `http://[<ipv6>]/`. A password change is required at th
 
 With `COMPOSE_PROFILES=mock` (the default in `.env.example`), the first mock is registered
 automatically. The second one is registered under **Routers** with the address
-`http://prisma-mock-2:50051`.
+`https://prisma-mock-2:50051`, the TLS profile `dev/mock` and the server name `prisma-api`.
+
+Plain `http://` (gRPC without TLS) is accepted only with `PRISMA_ALLOW_PLAINTEXT=true`, which
+`.env.example` sets for the simulated Prismas. A real Prisma only speaks mTLS: on an install with
+real routers only, leave it unset (`false`). With it off, an `http://` router already registered
+is shown offline with the reason and is never dialled (#35).
 
 ## Registering a real Prisma
 
