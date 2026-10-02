@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.9.0 - Reopen on a moved base — 2026-10-02
+
+### New
+- When a commit is refused because the router's configuration changed since the change was opened (another operator, someone at the prompt), the review offers **Reopen and apply again**: a new change on the current configuration with the same edits applied again, and a new review of the new diff. Nothing is committed on the way, and a line the new configuration refuses is shown like any refusal, with its lines back in the form. The interfaces page does the same for its edits (#10).
+
+### Changed
+- Such a commit answers 409 `candidate_stale` instead of the box's generic refusal (#10).
+
+### Fixed
+- The review dialog starts clean for every change instead of keeping the previous one's error and acknowledgements (#10).
+
 ## 0.8.3 - Syslog disable guard — 2026-10-02
 
 ### Fixed
