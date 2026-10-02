@@ -16,6 +16,18 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.10.0 - Per-router access — 2026-10-02
+
+### New
+- **Router access** on the Users screen: an administrator can change a user's role on one router, up or down, or hide that router from them. With no change, the global role applies everywhere, as before. A hidden router disappears for that user from the fleet, the menus, its pages and the change log. Granting and revoking are logged (#6).
+
+### Changed
+- Editing or removing a router's registration requires the global administrator role; a per-router grant never gives it (#6).
+- The router screens (configuration, interfaces, console, policy test) follow the user's role on that router (#6).
+
+### Internal
+- Migration `0005_router_access`. `scripts/e2e.py` has 121 checks and the browser tests 8. Prisma 0.149.14 is recorded in the integration notes (#6).
+
 ## 0.9.2 - Prisma 0.149.13 notes — 2026-10-02
 
 ### Internal
