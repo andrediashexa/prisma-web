@@ -16,6 +16,15 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.11.0 - CGNAT log export — 2026-10-02
+
+### New
+- **Log export** card on the CGNAT tab (Prisma 0.149.15 or newer): syslog and IPFIX over TCP and UDP, who carries each stream, its collector and connection, whether it is delivering and why not, records and their rate, what was sent, the backlog and spill against its cap, drops, the box-wide counters and the recent log export events (#34).
+- A stalled log export is flagged in the fleet and on the router page, apart from the router's own state (#34).
+
+### Internal
+- Client regenerated from the Prisma 0.149.15 contract (additions only). The simulated Prisma implements the log export, with a stall hook. Log export events are kept per router and do not go to the change log. `--lab` no longer fails its history check right after the box reboots (#34).
+
 ## 0.10.0 - Per-router access — 2026-10-02
 
 ### New
