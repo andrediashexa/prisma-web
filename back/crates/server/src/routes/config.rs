@@ -508,7 +508,7 @@ mod tests {
     use crate::auth::Role;
 
     fn user(id: Uuid) -> CurrentUser {
-        CurrentUser { id, username: "u".into(), role: Role::Operator, must_change_password: false, session_id: Uuid::nil() }
+        CurrentUser { id, username: "u".into(), role: Role::Operator, global_role: Role::Operator, must_change_password: false, session_id: Uuid::nil() }
     }
 
     #[test]

@@ -102,7 +102,12 @@ until the next reboot.
 | `operator` | Change the configuration, use the console and see the log. |
 | `viewer` | Only view. |
 
-These are the web roles. Each Prisma also gives prisma-web's account its own role (shown next to
+These are the web roles, and they apply to every router. An administrator can change a user's
+role on one router, up or down, or hide that router from them (**Users → Router access**). A
+hidden router disappears for that user, change log included; administrators always see every
+router, and only they register routers.
+
+Each Prisma also gives prisma-web's account its own role (shown next to
 the router); when that role is read-only, nobody can change that router through prisma-web.
 
 - **Sessions:** an `HttpOnly` cookie with `SameSite=Strict`, and the database stores only the

@@ -289,6 +289,18 @@ export function hasRole(user: CurrentUser | undefined, role: Role) {
   return !!user && ROLE_RANK[user.role] >= ROLE_RANK[role]
 }
 
+/** For screens of one router: the role there may differ from the global one (#6). */
+export function roleAtLeast(role: Role | undefined, min: Role) {
+  return !!role && ROLE_RANK[role] >= ROLE_RANK[min]
+}
+
+/** A user's override on one router; null: the global role applies. */
+export interface RouterAccess {
+  router_id: string
+  router_name: string
+  role: "none" | Role | null
+}
+
 export interface RouterView {
   id: string
   name: string
@@ -299,6 +311,8 @@ export interface RouterView {
   tls_server_name: string | null
   /** CN of the profile's certificate: the account Prisma sees. */
   tls_account: string | null
+  /** The signed-in user's role on this router: the global one, or its override there (#6). */
+  my_role: Role
   created_at: string
   updated_at: string
 }

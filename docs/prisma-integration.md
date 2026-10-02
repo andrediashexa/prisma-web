@@ -183,10 +183,10 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.13 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.13 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.14 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.14 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
 
-Read up to 0.149.13 in `clients.md` and already handled:
+Read up to 0.149.14 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -221,6 +221,8 @@ Read up to 0.149.13 in `clients.md` and already handled:
   (prismarouting #550 announces them in `clients.md` first).
 - 0.149.13 roots PRISMA-ROUTING-MIB at `.1.3.6.1.4.1.67033`, NetConfig's IANA Private Enterprise
   Number; prisma-web does not use SNMP.
+- 0.149.14 sends the UDP IPFIX export from the log container too; again only the `show cgnat
+  logging` text changes.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

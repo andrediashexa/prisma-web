@@ -3,7 +3,7 @@
 import useSWR from "swr"
 
 import { fetcher } from "@/lib/api"
-import { isReadOnly, type RouterStatus, type RouterView } from "@/lib/types"
+import { isReadOnly, type Role, type RouterStatus, type RouterView } from "@/lib/types"
 
 export function useRouters() {
   return useSWR<RouterView[]>("/routers", fetcher)
@@ -21,4 +21,10 @@ export function useRouterAccess(id: string) {
   const readOnly = isReadOnly(access)
   const reason = readOnly && access ? `The account ${access.account} on this router is ${access.role}: changes are disabled.` : null
   return { access, readOnly, reason }
+}
+
+/** The signed-in user's role on this router (#6). */
+export function useRouterRole(id: string): Role | undefined {
+  const { data } = useRouters()
+  return data?.find((r) => r.id === id)?.my_role
 }

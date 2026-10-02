@@ -24,10 +24,11 @@ use crate::AppState;
 pub const SESSION_COOKIE: &str = "pw_session";
 pub const PASSWORD_MIN_LEN: usize = 10;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 pub enum Role {
+    #[default]
     Viewer,
     Operator,
     Admin,
@@ -37,7 +38,13 @@ pub enum Role {
 pub struct CurrentUser {
     pub id: Uuid,
     pub username: String,
+    /// Role for this request: on a route that names a router, the role on that
+    /// router (#6); elsewhere the global one.
     pub role: Role,
+    /// The role given in Users, whatever router the request names.
+    #[serde(skip)]
+    #[sqlx(skip)]
+    pub global_role: Role,
     pub must_change_password: bool,
     #[serde(skip)]
     pub session_id: Uuid,
@@ -46,6 +53,11 @@ pub struct CurrentUser {
 impl CurrentUser {
     pub fn require(&self, role: Role) -> AppResult<()> {
         if self.role >= role { Ok(()) } else { Err(AppError::Forbidden) }
+    }
+
+    /// For what no per-router grant can give: users, router registration.
+    pub fn require_global(&self, role: Role) -> AppResult<()> {
+        if self.global_role >= role { Ok(()) } else { Err(AppError::Forbidden) }
     }
 }
 
@@ -66,6 +78,14 @@ impl FromRequestParts<AppState> for CurrentUser {
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::Unauthorized)?;
+        let mut user = user;
+        user.global_role = user.role;
+        if let Some(router) = crate::access::router_in_path(parts.uri.path()) {
+            // A router the user has no access to does not exist for them.
+            user.role = crate::access::effective(&state.db, user.id, user.global_role, router)
+                .await?
+                .ok_or_else(|| AppError::NotFound("router not found".into()))?;
+        }
         Ok(user)
     }
 }

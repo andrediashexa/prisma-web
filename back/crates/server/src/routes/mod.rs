@@ -8,7 +8,7 @@ pub mod routers;
 mod users;
 
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, patch, post};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
@@ -24,6 +24,8 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/password", post(auth::change_password))
         .route("/users", get(users::list).post(users::create))
         .route("/users/{id}", patch(users::update).delete(users::delete))
+        .route("/users/{id}/access", get(users::access))
+        .route("/users/{id}/access/{router_id}", put(users::set_access))
         .route("/audit", get(audit::list))
         .route("/dashboard", get(dashboard::get).put(dashboard::put).delete(dashboard::reset))
         .route("/routers", get(routers::list).post(routers::create))

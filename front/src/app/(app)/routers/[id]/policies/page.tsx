@@ -15,10 +15,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useMe } from "@/hooks/use-me"
+import { useRouterRole } from "@/hooks/use-routers"
 import { api, errorMessage, fetcher } from "@/lib/api"
 import { formatNumber } from "@/lib/format"
-import { hasRole, routerApi, type Policy, type PolicyUseCounters, type TestPolicyResponse } from "@/lib/types"
+import { roleAtLeast, routerApi, type Policy, type PolicyUseCounters, type TestPolicyResponse } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /** Attach points `test policy ... at` takes; the box refuses others with INVALID_ARGUMENT. */
@@ -42,7 +42,7 @@ function ThenBadge({ then }: { then: string }) {
 /** Routing policies of a Prisma (0.148.12, #21): definitions, per-term counters and a simulator. */
 export default function PoliciesPage() {
   const { id } = useParams<{ id: string }>()
-  const { data: me } = useMe()
+  const myRole = useRouterRole(id)
   const { data, error } = useSWR<{ policies: Policy[] }>(routerApi(id, "/policies"), fetcher)
   const { data: counters } = useSWR<{ uses: PolicyUseCounters[] }>(routerApi(id, "/policies/counters"), fetcher, {
     refreshInterval: 15_000,
@@ -111,7 +111,7 @@ export default function PoliciesPage() {
       </Card>
 
       <CountersCard uses={counters?.uses} />
-      {hasRole(me, "operator") && <TestCard routerId={id} policies={data.policies} />}
+      {roleAtLeast(myRole, "operator") && <TestCard routerId={id} policies={data.policies} />}
     </>
   )
 }
