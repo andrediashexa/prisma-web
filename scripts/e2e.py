@@ -458,6 +458,19 @@ def main():
         st, revs2 = admin.get(f"{R}/config/revisions")
         check(len(revs2["revisions"]) == n_revs0 + 2, "two new revisions (commit and rollback)")
 
+        # --- syslog disable guard (Prisma before 0.149.8, #31) ----------------------
+        st, revs3 = admin.get(f"{R}/config/revisions")
+        st, c3 = admin.post(f"{R}/config/candidates")
+        C3 = f"{R}/config/candidates/{c3['candidate_id']}"
+        st, b = admin.post(f"{C3}/edit", {"path": ["nat", "cgnat"], "lines": ["logging syslog disable"]})
+        check(st == 200, "logging syslog disable applied to a candidate", b)
+        st, b = admin.post(f"{C3}/commit", {"comment": "e2e: syslog disable"})
+        check(st == 409 and "0.149.8" in b["error"]["message"] and "never enabled" in b["error"]["message"],
+              "disabling a never-enabled syslog on a box before 0.149.8 is refused with the reason", b)
+        st, revs4 = admin.get(f"{R}/config/revisions")
+        check(len(revs4["revisions"]) == len(revs3["revisions"]), "nothing was committed")
+        admin.delete(C3)
+
         # --- console ---------------------------------------------------------------
         st, b = admin.post(f"{R}/show", {"command": "show bgp summary"})
         check(st == 200 and "Neighbor" in b["text"], "console runs show", b)
