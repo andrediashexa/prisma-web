@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { useSWRConfig } from "swr"
 import { toast } from "sonner"
-import { CheckCircle2Icon, Loader2Icon, ShieldAlertIcon, XCircleIcon } from "lucide-react"
+import { CheckCircle2Icon, Loader2Icon, RotateCcwIcon, ShieldAlertIcon, XCircleIcon } from "lucide-react"
 
 import { DiagnosticsList } from "@/components/config/diagnostics"
 import { DiffView } from "@/components/config/diff-view"
@@ -63,6 +63,7 @@ export function ChangeReview({
   defaultComment = "",
   onClose,
   onCommitted,
+  onStale,
   keepCandidateOnCancel = false,
 }: {
   routerId: string
@@ -73,6 +74,8 @@ export function ChangeReview({
   onCommitted?: (r: CommitResponse) => void
   /** The configuration editor keeps the candidate open when going back. */
   keepCandidateOnCancel?: boolean
+  /** The running configuration moved since the candidate was opened: reopen and apply the same lines again (#10). */
+  onStale?: () => void
 }) {
   const { mutate } = useSWRConfig()
   const [compare, setCompare] = useState<CompareResponse | null>(null)
@@ -84,6 +87,17 @@ export function ChangeReview({
   const [minutes, setMinutes] = useState("5")
   const [committing, setCommitting] = useState(false)
   const [commitError, setCommitError] = useState<ApiError | Error | null>(null)
+  // A new candidate is a new review: nothing carries over from the previous one
+  // (adjusted while rendering, as React recommends for state derived from a prop).
+  const [reviewed, setReviewed] = useState(candidateId)
+  if (candidateId !== reviewed) {
+    setReviewed(candidateId)
+    setCompare(null)
+    setCheck(null)
+    setLoadError(null)
+    setCommitError(null)
+    setAcks({ remap: false, cutoff: false, diverge: false })
+  }
 
   useEffect(() => {
     if (!candidateId) return
@@ -237,6 +251,11 @@ export function ChangeReview({
               <p className="text-destructive text-sm font-medium">{commitError.message}</p>
               {commitError instanceof ApiError && commitError.diagnostics?.items && (
                 <DiagnosticsList items={commitError.diagnostics.items} />
+              )}
+              {commitError instanceof ApiError && commitError.code === "candidate_stale" && onStale && (
+                <Button size="sm" onClick={onStale}>
+                  <RotateCcwIcon /> Reopen and apply again
+                </Button>
               )}
             </div>
           )}

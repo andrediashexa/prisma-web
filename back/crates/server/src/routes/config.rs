@@ -37,6 +37,8 @@ struct Owner {
     user_id: Uuid,
     /// Last call that named the candidate: idleness counts from here, not from opening.
     last_used: Instant,
+    /// Revision of the running configuration the candidate was opened from.
+    base_revision: String,
 }
 
 #[derive(Default)]
@@ -63,6 +65,10 @@ impl Candidates {
         }
     }
 
+    fn base_revision(&self, cid: &str) -> Option<String> {
+        self.0.lock().unwrap().get(cid).map(|o| o.base_revision.clone())
+    }
+
     fn forget(&self, cid: &str) {
         self.0.lock().unwrap().remove(cid);
     }
@@ -79,6 +85,18 @@ impl Candidates {
             map.remove(cid);
         }
         old
+    }
+}
+
+const STALE: &str = "the running configuration changed since this change was opened; reopen it and apply the same lines again on top of the new configuration, then review the new diff";
+
+/// A FAILED_PRECONDITION commit whose candidate was opened from a revision
+/// that is no longer the running one, with no commit confirmed pending (that
+/// refusal has its own reason): the base moved under the change (#10).
+fn is_stale(base: Option<&str>, running: Option<&str>, pending: bool) -> bool {
+    match (base, running) {
+        (Some(b), Some(r)) => !pending && !b.is_empty() && !r.is_empty() && b != r,
+        _ => false,
     }
 }
 
@@ -185,7 +203,7 @@ pub async fn open(
     let resp = r.config().open_candidate(req(OpenCandidateRequest { from_revision, ..Default::default() })).await?.into_inner();
     st.candidates.0.lock().unwrap().insert(
         resp.candidate_id.clone(),
-        Owner { router_id: id, user_id: user.id, last_used: Instant::now() },
+        Owner { router_id: id, user_id: user.id, last_used: Instant::now(), base_revision: resp.base_revision.clone() },
     );
     Ok(Json(resp))
 }
@@ -381,7 +399,19 @@ pub async fn commit(
             if let Some(d) = prisma_proto::diagnostics(&status) {
                 details["diagnostics"] = json!(d.items);
             }
+            // The box's wording is not part of the contract: compare revisions instead.
+            let stale = if status.code() == tonic::Code::FailedPrecondition {
+                let running = r.config().get_running(req(GetRunningRequest {})).await.ok().map(|r| r.into_inner().revision);
+                let base = st.candidates.base_revision(&cid);
+                is_stale(base.as_deref(), running.as_deref(), st.routers.telemetry.pending(id).is_some())
+            } else {
+                false
+            };
+            details["stale"] = json!(stale);
             audit::record(&st.db, entry.failed().details(details)).await;
+            if stale {
+                return Err(AppError::Stale(STALE.into()));
+            }
             Err(status.into())
         }
     }
@@ -485,13 +515,23 @@ mod tests {
     fn candidate_belongs_to_whoever_opened_it() {
         let c = Candidates::default();
         let (router, owner, other) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        c.0.lock().unwrap().insert("c1".into(), Owner { router_id: router, user_id: owner, last_used: Instant::now() });
+        c.0.lock().unwrap().insert("c1".into(), Owner { router_id: router, user_id: owner, last_used: Instant::now(), base_revision: String::new() });
         assert!(c.check(router, "c1", &user(owner)).is_ok());
         assert!(matches!(c.check(router, "c1", &user(other)), Err(AppError::Conflict(_))));
         // The same id on another router does not count.
         assert!(matches!(c.check(Uuid::new_v4(), "c1", &user(owner)), Err(AppError::NotFound(_))));
         c.forget("c1");
         assert!(matches!(c.check(router, "c1", &user(owner)), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn a_moved_base_is_stale_and_nothing_else_is() {
+        assert!(is_stale(Some("r3"), Some("r4"), false));
+        assert!(!is_stale(Some("r4"), Some("r4"), false), "same base: another precondition (a gate)");
+        assert!(!is_stale(Some("r3"), Some("r4"), true), "a pending commit confirmed is its own refusal");
+        assert!(!is_stale(Some(""), Some("r4"), false), "unknown base");
+        assert!(!is_stale(None, Some("r4"), false));
+        assert!(!is_stale(Some("r3"), None, false), "running revision not read");
     }
 
     #[test]
@@ -516,14 +556,14 @@ mod tests {
         let (router, owner) = (Uuid::new_v4(), Uuid::new_v4());
         let ago = |m: u64| Instant::now() - Duration::from_secs(m * 60);
         // Opened 40 minutes ago but used 20 minutes ago: alive, and the check counts as a use.
-        c.0.lock().unwrap().insert("busy".into(), Owner { router_id: router, user_id: owner, last_used: ago(20) });
+        c.0.lock().unwrap().insert("busy".into(), Owner { router_id: router, user_id: owner, last_used: ago(20), base_revision: String::new() });
         assert!(c.check(router, "busy", &user(owner)).is_ok());
         assert!(c.0.lock().unwrap()["busy"].last_used.elapsed() < Duration::from_secs(5));
         // Idle for 26 minutes: expired with the reason, and forgotten.
-        c.0.lock().unwrap().insert("idle".into(), Owner { router_id: router, user_id: owner, last_used: ago(26) });
+        c.0.lock().unwrap().insert("idle".into(), Owner { router_id: router, user_id: owner, last_used: ago(26), base_revision: String::new() });
         assert!(matches!(c.check(router, "idle", &user(owner)), Err(AppError::Expired(_))));
         assert!(matches!(c.check(router, "idle", &user(owner)), Err(AppError::NotFound(_))));
-        c.0.lock().unwrap().insert("idle2".into(), Owner { router_id: router, user_id: owner, last_used: ago(26) });
+        c.0.lock().unwrap().insert("idle2".into(), Owner { router_id: router, user_id: owner, last_used: ago(26), base_revision: String::new() });
         assert_eq!(c.expired(), vec![(router, "idle2".to_string())]);
     }
 
