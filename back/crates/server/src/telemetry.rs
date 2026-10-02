@@ -55,6 +55,18 @@ pub struct Series<T> {
     pub live: bool,
 }
 
+/// One of the box's CGNAT log export events (`log-*`, Prisma 0.149.15). They
+/// are operational, not configuration changes: kept here, not in the change log.
+#[derive(Clone, Serialize)]
+pub struct LogEvent {
+    pub at: DateTime<Utc>,
+    pub kind: String,
+    pub text: String,
+}
+
+/// How many log events are kept per router.
+const LOG_EVENTS: usize = 50;
+
 /// A `commit confirmed` awaiting `Confirm`.
 #[derive(Clone, Serialize)]
 pub struct PendingConfirm {
@@ -77,6 +89,7 @@ struct RouterData {
     /// Revisions prisma-web committed itself, newest last: their `commit`
     /// events are the echo (Event.revision, Prisma 0.149.2, #30).
     own_revisions: VecDeque<String>,
+    log_events: VecDeque<LogEvent>,
 }
 
 /// How many of its own revisions are remembered per router.
@@ -167,6 +180,11 @@ impl Telemetry {
         self.shared.routers.lock().unwrap().entry(id).or_default().web_action_at = Some(Instant::now());
     }
 
+    /// Recent log export events, newest first.
+    pub fn log_events(&self, id: Uuid) -> Vec<LogEvent> {
+        self.shared.routers.lock().unwrap().get(&id).map(|d| d.log_events.iter().rev().cloned().collect()).unwrap_or_default()
+    }
+
     /// Records a revision committed through the web UI, so its `commit` event is not logged twice.
     pub fn own_commit(&self, id: Uuid, revision: &str) {
         let mut routers = self.shared.routers.lock().unwrap();
@@ -230,6 +248,8 @@ async fn run(h: Arc<RouterHandle>, shared: Arc<Shared>) {
             interfaces: vec![],
             cgnat_totals: true,
             events: true,
+            // An older box ignores the field it does not know.
+            logging_events: true,
             ..Default::default()
         };
         backfill(&h, &shared).await;
@@ -385,6 +405,10 @@ async fn handle(shared: &Arc<Shared>, h: &RouterHandle, u: TelemetryUpdate) {
             });
             trim(&mut d.cgnat, at);
         }
+        Some(Update::Event(e)) if e.kind.starts_with("log-") => {
+            let mut routers = shared.routers.lock().unwrap();
+            push_log_event(routers.entry(h.id).or_default(), LogEvent { at, kind: e.kind, text: e.text });
+        }
         Some(Update::Event(e)) => on_event(shared, h, e).await,
         None => {}
     }
@@ -401,6 +425,13 @@ fn apply_counters(d: &mut RouterData, at: DateTime<Utc>, samples: Vec<prisma_pro
                 trim(q, at);
             }
         }
+    }
+}
+
+fn push_log_event(d: &mut RouterData, e: LogEvent) {
+    d.log_events.push_back(e);
+    while d.log_events.len() > LOG_EVENTS {
+        d.log_events.pop_front();
     }
 }
 
@@ -530,6 +561,16 @@ mod tests {
 
     fn rates(n: i64, every: i64, end: i64) -> Vec<RateSample> {
         (0..n).map(|i| RateSample { timestamp: at(end - (n - 1 - i) * every), rx_bps: 1, tx_bps: 1 }).collect()
+    }
+
+    #[test]
+    fn log_events_are_kept_apart_and_capped() {
+        let mut d = RouterData::default();
+        for i in 0..(LOG_EVENTS + 5) {
+            push_log_event(&mut d, LogEvent { at: Utc::now(), kind: "log-spill".into(), text: format!("{i}") });
+        }
+        assert_eq!(d.log_events.len(), LOG_EVENTS);
+        assert_eq!(d.log_events.back().unwrap().text, format!("{}", LOG_EVENTS + 4), "the newest kept");
     }
 
     #[test]

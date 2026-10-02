@@ -128,3 +128,13 @@ export function workerFill(busyRatio: number) {
 export function formatCompact(n: number) {
   return new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n)
 }
+
+/**
+ * Per-second rate of a counter between two readings; null when there is no
+ * previous reading or the counter went down (a reset, e.g. a carrier change),
+ * never a negative rate.
+ */
+export function counterRate(prev: number | undefined, cur: number, seconds: number): number | null {
+  if (prev === undefined || seconds <= 0 || cur < prev) return null
+  return (cur - prev) / seconds
+}

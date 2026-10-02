@@ -58,6 +58,8 @@ pub struct State {
     pub refusals: u64,
     /// One sample a minute for the last 24 hours, oldest first (GetHistory).
     pub history: VecDeque<HistorySample>,
+    /// The CGNAT log export (GetLogging, Prisma 0.149.15).
+    pub logs: crate::log_export::LogSim,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -125,6 +127,7 @@ impl State {
             subscribers: 5_500.0 * scale,
             refusals: 0,
             history: VecDeque::new(),
+            logs: crate::log_export::LogSim::new(std::env::var("MOCK_LOG_EXPORT").is_ok_and(|v| v == "1")),
         }
     }
 
@@ -244,6 +247,9 @@ impl State {
         if rng.gen_ratio(1, 50) {
             self.refusals += 1;
         }
+        // About one block event a second per 50 subscribers.
+        let events = (self.subscribers / 50.0) as u64 * secs;
+        self.logs.step(at, events);
     }
 }
 
@@ -256,12 +262,29 @@ impl Shared {
     /// box's state while the dataplane's statistics do not answer.
     pub async fn set_health(&self, stats_segment: bool) {
         use tonic_health::ServingStatus::{NotServing, Serving};
-        for s in ["prisma.v1.ConfigService", "prisma.v1.RouteService", "prisma.v1.SessionService"] {
+        for s in ["prisma.v1.ConfigService", "prisma.v1.RouteService", "prisma.v1.SessionService", "prisma.v1.LogExport"] {
             self.health.set_service_status(s, Serving).await;
         }
         for s in STATS_SERVICES {
             self.health.set_service_status(s, if stats_segment { Serving } else { NotServing }).await;
         }
+    }
+
+    /// The log export stalls or delivers again (test hook): health and event as the box gives them.
+    pub async fn set_log_stalled(&self, stalled: bool) {
+        use tonic_health::ServingStatus::{NotServing, Serving};
+        {
+            let mut st = self.state.lock().unwrap();
+            st.logs.stalled = stalled;
+            st.logs.stalled_since = stalled.then(std::time::Instant::now);
+        }
+        self.health.set_service_status("prisma.v1.LogExport", if stalled { NotServing } else { Serving }).await;
+        let (kind, text) = if stalled {
+            ("log-stalled", "syslog 192.0.2.50:601: bytes waiting and nothing sent for 60 s")
+        } else {
+            ("log-delivering", "syslog 192.0.2.50:601: delivering again")
+        };
+        self.emit(kind, text);
     }
 
     pub fn emit(&self, kind: &str, text: impl Into<String>) {

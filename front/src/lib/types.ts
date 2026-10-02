@@ -332,6 +332,8 @@ export interface RouterStatus {
   access: WhoAmI | null
   /** grpc.health.v1: "not-serving" while the dataplane's statistics do not answer; null when the box cannot tell. */
   health: "serving" | "not-serving" | null
+  /** grpc.health.v1 of prisma.v1.LogExport (Prisma 0.149.15): "not-serving" while a configured CGNAT log stream is stalled. */
+  log_export: "serving" | "not-serving" | null
 }
 
 /** SessionService.WhoAmI (Prisma 0.149.2). */
@@ -471,4 +473,49 @@ export interface RouteCount {
 
 export interface RouteSummary {
   counts: RouteCount[]
+}
+
+/** One CGNAT log export stream (GetLogging, Prisma 0.149.15). Counters count from the dataplane's start; a decrease is a reset. */
+export interface LogStream {
+  kind: "syslog" | "ipfix-tcp" | "ipfix-udp"
+  configured: boolean
+  collector: string
+  source: string
+  carrier: string
+  carrier_reason: string
+  connection: string
+  records: number
+  bytes_sent: number
+  packets_sent: number
+  pending_bytes: number
+  spill_bytes: number
+  spill_cap_bytes: number
+  dropped_over_cap: number
+  send_failures: number
+  dropped: number
+  delivering: boolean
+  stalled_reason: string
+  last_progress: string | null
+}
+
+export interface LogEvent {
+  at: string
+  kind: string
+  text: string
+}
+
+export interface LoggingState {
+  at: string | null
+  streams: LogStream[]
+  carrier: string
+  logger_pid: number
+  export_ring_dropped: number
+  worker_queue_dropped: number
+  exhaustion_repeats_not_reported: number
+  transmit_failed: number
+  transmit_interface: string
+  rings_shared: boolean
+  text: string
+  /** Recent log-* events, newest first (kept by prisma-web, not in the change log). */
+  events: LogEvent[]
 }

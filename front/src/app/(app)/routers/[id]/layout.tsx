@@ -94,6 +94,14 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
           <EyeIcon className="size-4 shrink-0" /> {reason}
         </div>
       )}
+      {status?.log_export === "not-serving" && (
+        <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
+          The CGNAT log export is stalled: a collector has had records to take and got nothing for a minute.{" "}
+          <Link href={`${base}/cgnat`} className="font-medium underline underline-offset-4">
+            See the log export
+          </Link>
+        </div>
+      )}
       {status?.health === "not-serving" && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
           The router&apos;s API answers but reports <span className="font-mono">NOT_SERVING</span>: the dataplane&apos;s statistics do not answer, so counters and telemetry may be stale or missing.

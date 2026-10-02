@@ -52,8 +52,14 @@ impl TelemetryService for TelemetrySvc {
                             out.push(update(Update::Cgnat(st.cgnat_totals())));
                         }
                     }
-                    ev = events.recv(), if req.events => match ev {
-                        Ok(e) => out.push(update(Update::Event(e))),
+                    ev = events.recv(), if req.events || req.logging_events => match ev {
+                        // Log export events only with logging_events, the others only with events (#555).
+                        Ok(e) => {
+                            let log = e.kind.starts_with("log-");
+                            if (log && req.logging_events) || (!log && req.events) {
+                                out.push(update(Update::Event(e)));
+                            }
+                        }
                         Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => break,
                     },

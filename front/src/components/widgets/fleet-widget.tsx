@@ -80,6 +80,11 @@ export function FleetWidget() {
                     {r.version && (
                       <div className="text-muted-foreground col-span-3 truncate">
                         Prisma {r.version.release}
+                        {r.log_export === "not-serving" && (
+                          <span className="text-destructive" title="A configured CGNAT log stream has had something to send and got nothing out for a minute.">
+                            {" "}· log export stalled
+                          </span>
+                        )}
                         {s.dataplane_restarted && (
                           <span className="text-destructive" title="The dataplane started well after the box: it restarted by itself and dropped every session it carried.">
                             {" "}· dataplane restarted

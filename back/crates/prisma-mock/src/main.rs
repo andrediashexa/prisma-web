@@ -4,6 +4,7 @@
 
 mod config;
 mod config_service;
+mod log_export;
 mod operational;
 mod policy;
 mod session;

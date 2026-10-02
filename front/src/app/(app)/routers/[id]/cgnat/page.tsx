@@ -5,6 +5,7 @@ import { useState } from "react"
 import useSWR from "swr"
 import { Loader2Icon, SearchIcon } from "lucide-react"
 
+import { LogExportCard } from "@/components/log-export-card"
 import { CgnatWidget } from "@/components/widgets/cgnat-widget"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -24,6 +25,7 @@ export default function CgnatPage() {
   return (
     <>
       <CgnatWidget routerId={id} title="Sessions and subscribers" />
+      <LogExportCard routerId={id} />
 
       <Card className="py-0">
         <CardHeader className="pt-6">

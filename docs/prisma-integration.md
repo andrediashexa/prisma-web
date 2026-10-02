@@ -169,6 +169,7 @@ statistics segment does not answer) shows as *not serving*, with the reason, ins
 | `GetRunning`, `ListRevisions`, `Rollback`, `Save` | Configuration screen |
 | `GetHistory` | Fills the charts on every connection of the telemetry stream (#26) |
 | `grpc.health.v1.Health/Check` | Fleet status: *not serving* when `OperationalService` is `NOT_SERVING` (#29) |
+| `GetLogging`, `Subscribe` with `logging_events`, Health `prisma.v1.LogExport` | Log export card on the CGNAT tab; *log export stalled* in the fleet and on the router (#34) |
 | `WhoAmI` | Account and role in the connection test, router list and router page; read-only enforcement (#28) |
 
 ## 4. Keeping the proto up to date
@@ -183,10 +184,10 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.14 | `269fb5c94a754c7c44719c6983a58860e69fbbc9bcff8abce58f26aaace3106f` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.14 | `4a30bfdc49379463d72f5c58467a7de78226e08afcdca827d932704120b1a857` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.15 | `b08a5a089ff29ecc6c4d44f4cad3f51864d225d3ed210726953eee7a480c3e7a` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.15 | `315984bd9b9cd3a44087e294739eec7937a9118dc5f11f3d5504300c0905ea72` |
 
-Read up to 0.149.14 in `clients.md` and already handled:
+Read up to 0.149.15 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -223,6 +224,12 @@ Read up to 0.149.14 in `clients.md` and already handled:
   Number; prisma-web does not use SNMP.
 - 0.149.14 sends the UDP IPFIX export from the log container too; again only the `show cgnat
   logging` text changes.
+- 0.149.15 puts the CGNAT log export in the API (additions only): `GetLogging`, `log-*` events on
+  `Subscribe` (`logging_events`) and the health name `prisma.v1.LogExport`. prisma-web shows it on
+  the CGNAT tab, flags a stalled export in the fleet and on the router (without calling the router
+  offline), and keeps the last 50 log events per router in memory, out of the change log: they are
+  operational, not configuration changes (#34). A box before 0.149.15 answers `UNIMPLEMENTED` and
+  the card is hidden; checked on the lab box on 0.149.14.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
