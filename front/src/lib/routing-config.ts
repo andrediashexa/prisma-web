@@ -275,7 +275,9 @@ function readOspf(instances: Instance[], version: OspfVersion): OspfConfig {
   for (const { text } of inst?.lines ?? []) {
     const w = words(text)
     if (w[0] === version && w[1] === "router-id") c.routerId = w[2]
-    else if (w[0] === "area" && w.length === 2) c.areas.push({ area: w[1], line: text })
+    // An area's own statement: bare before 0.149.24's grammar, with its type since (#47).
+    else if (w[0] === "area" && (w.length === 2 || (["stub", "nssa"].includes(w[2]) && (w.length === 3 || (w.length === 4 && w[3] === "no-summary")))))
+      c.areas.push({ area: w[1], line: text })
     else if (w[0] === "network" && w[2] === "area") c.networks.push({ prefix: w[1], area: w[3], line: text })
     else if (w[0] === "passive-interface" && w[1]) routerPassive.set(w[1], text)
     else if (w[0] === "redistribute" && (OSPF_REDISTRIBUTE as readonly string[]).includes(w[1])) {
