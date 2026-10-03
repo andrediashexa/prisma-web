@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { invalid } from "@/lib/config-model"
 import {
   addLineEdits,
+  areaLine,
   invalidArea,
   invalidInt,
   OSPF_REDISTRIBUTE,
@@ -64,6 +65,8 @@ export function OspfPanel({ ospf, ospf6, editable, stage }: { ospf: OspfConfig; 
 function OspfVersionPanel({ c, editable, stage }: { c: OspfConfig; editable: boolean; stage: Stage }) {
   const [routerId, setRouterId] = useState<string | null>(null)
   const [area, setArea] = useState("")
+  const [areaType, setAreaType] = useState<"stub" | "nssa">("stub")
+  const [noSummary, setNoSummary] = useState(false)
   const [net, setNet] = useState({ prefix: "", area: "" })
   const [iface, setIface] = useState<OspfInterface | null>(null)
   const id = routerId ?? c.routerId ?? ""
@@ -105,13 +108,26 @@ function OspfVersionPanel({ c, editable, stage }: { c: OspfConfig; editable: boo
         ))}
         {editable && (
           <div className="flex items-end gap-2">
-            <TextField label="Area" value={area} onChange={setArea} placeholder="0 or 0.0.0.0" error={invalidArea(area)} />
+            <TextField label="Area" value={area} onChange={setArea} placeholder="0.0.0.1" error={invalidArea(area)} />
+            <div className="grid gap-1">
+              <Label className="text-xs">Area type</Label>
+              <Select value={areaType} onValueChange={(t) => setAreaType(t as "stub" | "nssa")}>
+                <SelectTrigger className="h-8 w-28" aria-label={`Area type in ${c.version}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stub">stub</SelectItem>
+                  <SelectItem value="nssa">nssa</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <SwitchField label="No summary" checked={noSummary} onChange={setNoSummary} />
             <Button
               variant="outline"
               size="sm"
               disabled={!!invalidArea(area)}
               onClick={() => {
-                stage(...addLineEdits(c.path, `area ${area.trim()}`))
+                stage(...addLineEdits(c.path, areaLine(area, areaType, noSummary)))
                 setArea("")
               }}
             >

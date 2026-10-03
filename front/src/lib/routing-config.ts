@@ -557,6 +557,17 @@ export function invalidArea(v: string): string | null {
   return /^\d+$/.test(v) && Number(v) <= 4294967295 ? null : invalid({ k: "ipv4" }, v) ? "a number or A.B.C.D" : null
 }
 
+/** A neighbor's route map or prefix list in a family: the name, then the direction (FRR's `<name> in|out`, #47). */
+export function invalidDirected(v: string): string | null {
+  if (!v.trim()) return null
+  return /^\S+ (in|out)$/.test(v.trim().replace(/\s+/g, " ")) ? null : "the name, then in or out"
+}
+
+/** An area's own statement: FRR declares an area only with a type (`area 0.0.0.1 stub`), #47. */
+export function areaLine(area: string, type: "stub" | "nssa", noSummary: boolean): string {
+  return [`area ${area.trim()}`, type, noSummary && "no-summary"].filter(Boolean).join(" ")
+}
+
 export function invalidInt(v: string, min: number, max: number): string | null {
   return invalid({ k: "int", min, max }, v)
 }
