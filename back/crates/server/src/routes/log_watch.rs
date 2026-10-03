@@ -107,7 +107,7 @@ pub async fn watch(
             Err(s) => Event::default().event("error").data(crate::grpc::describe(&s)),
         })
     });
-    let end = tokio_stream::once(Ok(Event::default().event("end").data("")));
+    let end = tokio_stream::once(Ok(Event::default().event("end").data("done")));
     Ok(Sse::new(events.chain(end)).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 

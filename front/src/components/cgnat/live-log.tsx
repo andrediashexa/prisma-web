@@ -121,7 +121,7 @@ export function LiveLog({ routerId, pools }: { routerId: string; pools: string[]
           }}
         >
           <Field label="Subscriber">
-            <Input aria-label="Subscriber" value={filters.subscriber} onChange={(e) => set({ subscriber: e.target.value })} placeholder="100.64.1.23" className="w-36 font-mono" />
+            <Input aria-label="Subscriber" value={filters.subscriber} onChange={(e) => set({ subscriber: e.target.value })} placeholder="100.64.0.1" className="w-36 font-mono" />
           </Field>
           <Field label="Public address">
             <Input aria-label="Public address" value={filters.public_address} onChange={(e) => set({ public_address: e.target.value })} placeholder="203.0.113.7" className="w-36 font-mono" />
@@ -158,11 +158,12 @@ export function LiveLog({ routerId, pools }: { routerId: string; pools: string[]
             </Select>
           </Field>
           {watching ? (
-            <Button type="button" variant="outline" onClick={stop}>
+            // Keyed apart: the click on Stop must not land on Watch's submit once it re-renders.
+            <Button key="stop" type="button" variant="outline" onClick={stop}>
               {state === "starting" ? <Loader2Icon className="animate-spin" /> : <SquareIcon />} Stop
             </Button>
           ) : (
-            <Button type="submit">
+            <Button key="watch" type="submit">
               <PlayIcon /> Watch
             </Button>
           )}
