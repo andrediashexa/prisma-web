@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.21.0 - Clears — 2026-10-03
+
+### Added
+- On a router with Prisma 0.149.25 or newer, the VTY's `clear` lines are a button where the object is shown: the interface counters (Interfaces), a BGP session soft, soft in, soft out or hard, the OSPF process, an OSPF neighbor and an IS-IS adjacency (Routing), and a subscriber's sessions (CGNAT lookup). Each asks for a confirmation that says what it disrupts, is offered to operators and above, and is recorded in the change log, refused or not; a refusal is shown in the router's words. Older routers are offered none (#48).
+
+### Internal
+- Client regenerated from the Prisma 0.149.25 contract; integration notes read up to 0.149.25. The fleet status carries the health of the router's `SystemService`. The simulated Prisma answers `Clear`; `WatchLogging` and `SystemService` answer *unimplemented* until their own issues (#48).
+
 ## 0.20.0 - Schema positions — 2026-10-03
 
 ### Changed
