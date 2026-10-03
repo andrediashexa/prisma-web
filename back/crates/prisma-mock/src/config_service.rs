@@ -78,15 +78,39 @@ fn gates(running: &Config, candidate: &Config, subscribers: u64) -> Gates {
         ));
     }
 
-    let (old_bs, new_bs) = (running.pool_block_size(), candidate.pool_block_size());
-    if old_bs != new_bs {
-        g.remap.push(format!("pool RFC6598: {subscribers} subscribers would move"));
-        g.diagnostics.push(diag(
-            Severity::Warning,
-            format!("block-size {old_bs} -> {new_bs} remaps every subscriber of pool RFC6598"),
-            &config::POOL_PATH.map(String::from),
-            &format!("block-size {new_bs}"),
-        ));
+    // A pool whose block size or prefixes change, or that goes away, moves its subscribers (#41).
+    for name in running.pool_names() {
+        let moved = if name == config::SEED_POOL { subscribers } else { 0 };
+        let pool_path = ["nat".to_string(), "cgnat".to_string(), format!("pool {name}")];
+        if !candidate.pool_names().contains(&name) {
+            g.remap.push(format!("pool {name}: {moved} subscribers would move"));
+            g.diagnostics.push(diag(
+                Severity::Warning,
+                format!("removing pool {name} remaps every subscriber of it"),
+                &config::CGNAT_PATH.map(String::from),
+                &format!("no pool {name}"),
+            ));
+            continue;
+        }
+        let (old_bs, new_bs) = (running.pool_block_size(&name), candidate.pool_block_size(&name));
+        let prefixes = |c: &Config| (c.pool_prefixes(&name, "prefix-inside "), c.pool_prefixes(&name, "prefix-outside "));
+        if old_bs != new_bs {
+            g.remap.push(format!("pool {name}: {moved} subscribers would move"));
+            g.diagnostics.push(diag(
+                Severity::Warning,
+                format!("block-size {old_bs} -> {new_bs} remaps every subscriber of pool {name}"),
+                &pool_path,
+                &format!("block-size {new_bs}"),
+            ));
+        } else if prefixes(running) != prefixes(candidate) {
+            g.remap.push(format!("pool {name}: {moved} subscribers would move"));
+            g.diagnostics.push(diag(
+                Severity::Warning,
+                format!("changing the prefixes of pool {name} remaps its subscribers"),
+                &pool_path,
+                "prefix-inside",
+            ));
+        }
     }
 
     let removed: Vec<_> = running
@@ -147,7 +171,18 @@ impl ConfigService for ConfigSvc {
     }
 
     async fn edit(&self, req: Request<EditRequest>) -> R<EditResponse> {
+        // Like the box: a cgnat-operator changes `nat > cgnat` and nothing else (#41).
+        let who = crate::session::identity(&crate::session::account_of(&req));
         let req = req.into_inner();
+        if !who.can_configure && req.path.first().map(String::as_str) != Some("nat") {
+            let at = if req.path.is_empty() { "the top level".to_string() } else { req.path.join(" > ") };
+            return Err(refused(
+                tonic::Code::PermissionDenied,
+                format!("account {} is {}: it cannot change {at}", who.account, who.role),
+                vec![],
+                Reason::Permission,
+            ));
+        }
         let mut st = self.0.state.lock().unwrap();
         let cand = cand(&mut st, &req.candidate_id)?;
         match cand.config.edit(&req.path, &req.lines) {

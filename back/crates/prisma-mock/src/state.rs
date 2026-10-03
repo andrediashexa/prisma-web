@@ -94,7 +94,11 @@ impl State {
     }
 
     fn empty(hostname: &str, scale: f64) -> Self {
-        let running = Config::seed(hostname);
+        let mut running = Config::seed(hostname);
+        if std::env::var("MOCK_LOG_EXPORT").is_ok_and(|v| v == "1") {
+            let path = crate::config::CGNAT_PATH.map(String::from);
+            running.edit(&path, &crate::config::SEED_LOGGING.map(String::from)).ok().expect("seed logging lines");
+        }
         let sim = |name: &str, mac: Option<&str>, peak: f64| {
             let peak = peak * scale;
             // Counters start as if the box had been up for 3 days.
@@ -137,7 +141,7 @@ impl State {
             subscribers: 5_500.0 * scale,
             refusals: 0,
             history: VecDeque::new(),
-            logs: crate::log_export::LogSim::new(std::env::var("MOCK_LOG_EXPORT").is_ok_and(|v| v == "1")),
+            logs: crate::log_export::LogSim::new(),
         }
     }
 
@@ -260,7 +264,8 @@ impl State {
         }
         // About one block event a second per 50 subscribers.
         let events = (self.subscribers / 50.0) as u64 * secs;
-        self.logs.step(at, events);
+        let collectors = self.running.log_collectors();
+        self.logs.step(at, events, &collectors);
     }
 }
 
@@ -290,12 +295,13 @@ impl Shared {
             st.logs.stalled_since = stalled.then(std::time::Instant::now);
         }
         self.health.set_service_status("prisma.v1.LogExport", if stalled { NotServing } else { Serving }).await;
+        let collector = self.state.lock().unwrap().running.log_collectors().syslog.map(|c| c.endpoint()).unwrap_or_default();
         let (kind, text) = if stalled {
-            ("log-stalled", "syslog 192.0.2.50:601: bytes waiting and nothing sent for 60 s")
+            ("log-stalled", format!("syslog {collector}: bytes waiting and nothing sent for 60 s"))
         } else {
-            ("log-delivering", "syslog 192.0.2.50:601: delivering again")
+            ("log-delivering", format!("syslog {collector}: delivering again"))
         };
-        self.emit(kind, text);
+        self.emit(kind, &text);
     }
 
     pub fn emit(&self, kind: &str, text: impl Into<String>) {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useSWRConfig } from "swr"
 import { toast } from "sonner"
 import { CheckCircle2Icon, Loader2Icon, RotateCcwIcon, ShieldAlertIcon, XCircleIcon } from "lucide-react"
@@ -87,6 +87,11 @@ export function ChangeReview({
   const [minutes, setMinutes] = useState("5")
   const [committing, setCommitting] = useState(false)
   const [commitError, setCommitError] = useState<ApiError | Error | null>(null)
+  // A refused commit (a gate, the syslog-disable guard of #31) is shown where the user looks.
+  const errorRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (commitError) errorRef.current?.scrollIntoView({ block: "nearest" })
+  }, [commitError])
   // A new candidate is a new review: nothing carries over from the previous one
   // (adjusted while rendering, as React recommends for state derived from a prop).
   const [reviewed, setReviewed] = useState(candidateId)
@@ -247,7 +252,7 @@ export function ChangeReview({
           )}
 
           {commitError && (
-            <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-3">
+            <div ref={errorRef} role="alert" className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-3">
               <p className="text-destructive text-sm font-medium">{commitError.message}</p>
               {commitError instanceof ApiError && commitError.diagnostics?.items && (
                 <DiagnosticsList items={commitError.diagnostics.items} />

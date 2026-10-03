@@ -139,6 +139,7 @@ def tls_checks(admin, args):
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
+    cgnat_operator_checks(admin, args)
     st, b = tls_test(admin, m, "../etc", args.server_name)
     check(st == 422 and "invalid TLS profile" in b["error"]["message"], "profile with ../ is refused", b)
 
@@ -329,6 +330,90 @@ def read_only_checks(admin, args):
               "the back refuses a candidate for a read-only account before asking the box", b)
     finally:
         admin.delete(f"/routers/{r['id']}")
+
+
+def cgnat_operator_checks(admin, args):
+    """A certificate the box maps to a cgnat-operator (#41): it changes nat > cgnat and nothing else."""
+    st, r = admin.post("/routers", {"name": f"e2e-cg-{uuid.uuid4().hex[:6]}", "api_url": args.tls_mock, "tls_profile": "dev/cgnat", "tls_server_name": args.server_name})
+    check(st == 201, "router registered with a cgnat-operator certificate", r)
+    try:
+        f = wait_for(
+            lambda: (lambda s: (bool(s) and s[0]["online"] and s[0].get("access") is not None, s))(
+                [x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]
+            ),
+            "fleet status carries the cgnat-operator's role",
+        )[0]
+        a = f["access"]
+        check(a["role"] == "cgnat-operator" and not a["can_configure"] and a["can_configure_cgnat"], f"role of the CGNAT certificate ({a['account']}: {a['role']})", a)
+        R = f"/routers/{r['id']}/config/candidates"
+        st, c = admin.post(R)
+        check(st == 200, "a cgnat-operator opens a candidate", c)
+        C = f"{R}/{c['candidate_id']}"
+        st, b = admin.post(f"{C}/edit", {"path": ["nat", "cgnat", "pool RFC6598"], "lines": ["max-blocks 4"]})
+        check(st == 200, "a cgnat-operator changes a pool", b)
+        st, b = admin.post(f"{C}/edit", {"path": ["interface lan0"], "lines": ["mtu 9000"]})
+        check(st == 403 and b["error"]["code"] == "router_forbidden" and "cgnat-operator" in b["error"]["message"],
+              "the box refuses a cgnat-operator's change outside nat > cgnat", b)
+        admin.delete(C)
+    finally:
+        admin.delete(f"/routers/{r['id']}")
+
+
+def commit_lines(admin, R, edits, comment, **acks):
+    """One candidate with the edits, checked and committed; returns the check and the commit's answer."""
+    st, c = admin.post(f"{R}/config/candidates")
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    for path, lines in edits:
+        st, b = admin.post(f"{C}/edit", {"path": path, "lines": lines})
+        check(st == 200, f"edit {' > '.join(path)}: {' ; '.join(lines)}", b)
+    st, chk = admin.post(f"{C}/check")
+    st, b = admin.post(f"{C}/commit", {"comment": comment, **acks})
+    if st != 200:
+        admin.delete(C)
+    return chk, st, b
+
+
+def cgnat_forms_checks(admin, R):
+    """CGNAT forms (#41): a pool created, changed and removed; a collector set, reflected by GetLogging, disabled."""
+    revisions = lambda: len(admin.get(f"{R}/config/revisions")[1]["revisions"])
+    before = revisions()
+    try:
+        pools = lambda: [p["name"] for p in admin.get(f"{R}/pools")[1]["pools"]]
+        tcp = lambda: admin.get(f"{R}/logging")[1]["streams"][1]
+        pool = ["nat", "cgnat", "pool E2E41"]
+        chk, st, b = commit_lines(admin, R, [
+            (pool, ["prefix-inside 10.41.0.0/16", "prefix-outside 198.51.100.0/28", "block-size 512", "max-blocks 4", "alg sip off"]),
+            (["nat", "cgnat"], ["logging tcp 192.0.2.61 port 4740"]),
+        ], "e2e: new pool and collector")
+        check(st == 200 and not chk["remap"], "a new pool and an IPFIX collector commit without a gate", [chk, b])
+        check(pools() == ["RFC6598", "E2E41"], "ListPools reports the new pool", pools())
+        t = tcp()
+        check(t["kind"] == "ipfix-tcp" and t["configured"] and t["collector"] == "192.0.2.61:4740",
+              "GetLogging reflects the collector the configuration set", t)
+        st, tree = admin.get(f"{R}/config/tree")
+        inst = next((i for i in tree["instances"] if i["path"] == pool), None)
+        check(inst and all(l["statement"] for l in inst["lines"]), "the new pool reads back as its statements", inst)
+
+        chk, st, b = commit_lines(admin, R, [(pool, ["block-size 1024"])], "e2e: block size")
+        check(st == 409 and any("E2E41" in x for x in chk["remap"]), "a new block size on the pool needs the remap acknowledged", [chk, b])
+        chk, st, b = commit_lines(admin, R, [(pool, ["block-size 1024", "no prefix-outside 198.51.100.0/28", "prefix-outside 198.51.100.16/28"])],
+                                  "e2e: block size", acknowledge_remap=True)
+        check(st == 200, "acknowledged, the block size and prefixes change", b)
+        p = next(x for x in admin.get(f"{R}/pools")[1]["pools"] if x["name"] == "E2E41")
+        check(p["block_size"] == 1024 and p["prefixes_outside"] == ["198.51.100.16/28"], "the pool reports its new block size and prefix", p)
+
+        chk, st, b = commit_lines(admin, R, [(["nat", "cgnat"], ["no pool E2E41", "logging tcp disable"])], "e2e: remove", acknowledge_remap=True)
+        check(st == 200 and any("E2E41" in x for x in chk["remap"]), "removing the pool is gated as a remap and commits once acknowledged", [chk, b])
+        check(pools() == ["RFC6598"], "the pool is gone", pools())
+        check(not tcp()["configured"], "a disabled collector reads not configured", tcp())
+    finally:
+        # Back to the configuration before these commits, even when a check failed.
+        made = revisions() - before
+        if made:
+            st, c = admin.post(f"{R}/config/candidates", {"from_revision": made})
+            admin.post(f"{R}/config/candidates/{c['candidate_id']}/commit", {"comment": "e2e: undo CGNAT forms", "acknowledge_remap": True})
+    st, running = admin.get(f"{R}/config/running")
+    check(st == 200 and "logging tcp" not in running["text"] and "E2E41" not in running["text"], "configuration back to before the CGNAT checks", running)
 
 
 def route_key(r):
@@ -641,6 +726,8 @@ def main():
         st, revs4 = admin.get(f"{R}/config/revisions")
         check(len(revs4["revisions"]) == len(revs3["revisions"]), "nothing was committed")
         admin.delete(C3)
+
+        cgnat_forms_checks(admin, R)
 
         # --- stale base: reopen and apply again (#10) ---------------------------------
         st, ca = admin.post(f"{R}/config/candidates")

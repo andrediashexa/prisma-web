@@ -1,6 +1,6 @@
 "use client"
 
-import { Loader2Icon, PlayIcon, Undo2Icon } from "lucide-react"
+import { Loader2Icon, PlayIcon, TriangleAlertIcon, Undo2Icon } from "lucide-react"
 
 import { DiagnosticsList } from "@/components/config/diagnostics"
 import { Button } from "@/components/ui/button"
@@ -19,15 +19,20 @@ export function StagedChanges({ cc }: { cc: ReturnType<typeof useConfigChanges> 
       </CardHeader>
       <CardContent className="space-y-2">
         {cc.changes.map((e, n) => (
-          <div
-            key={n}
-            className={cn("flex items-center gap-2 rounded-md border px-3 py-2 text-sm", cc.refusal?.change === e && "border-destructive")}
-          >
-            <span className="text-muted-foreground shrink-0 font-mono text-xs">{e.path.length ? e.path.join(" › ") : "top"}</span>
-            <span className="min-w-0 font-mono break-words">{e.lines.join(" ; ")}</span>
-            <Button size="icon" variant="ghost" className="ml-auto size-7 shrink-0" aria-label="Drop this change" onClick={() => cc.unstage(n)}>
-              <Undo2Icon />
-            </Button>
+          <div key={n} className={cn("space-y-1 rounded-md border px-3 py-2 text-sm", cc.refusal?.change === e && "border-destructive")}>
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground shrink-0 font-mono text-xs">{e.path.length ? e.path.join(" › ") : "top"}</span>
+              <span className="min-w-0 font-mono break-words">{e.lines.join(" ; ")}</span>
+              <Button size="icon" variant="ghost" className="ml-auto size-7 shrink-0" aria-label="Drop this change" onClick={() => cc.unstage(n)}>
+                <Undo2Icon />
+              </Button>
+            </div>
+            {e.warning && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-200">
+                <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+                {e.warning}
+              </p>
+            )}
           </div>
         ))}
         {cc.refusal && (

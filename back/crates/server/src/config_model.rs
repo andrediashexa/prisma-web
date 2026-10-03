@@ -166,6 +166,9 @@ impl Parser {
                 } else {
                     out.push(Tok::Opt { items: self.alts(inner) });
                 }
+            } else if let Some(words) = part.strip_prefix('<').and_then(|p| p.strip_suffix('>')).filter(|p| p.contains('|')) {
+                // `<on|off>`: a choice of keywords written as a value (#41).
+                out.push(Tok::Alt { options: words.split('|').map(|w| vec![Tok::Word { w: w.to_string() }]).collect() });
             } else if part.contains('|') {
                 out.push(Tok::Alt { options: part.split('|').map(|o| vec![self.atom(o)]).collect() });
             } else {
@@ -467,6 +470,8 @@ mod tests {
         for ok in ["identity file /x", "identity dhcp-leases /y", "identity radius secret s port 1812", "identity none"] {
             assert!(match_line(&t, &w(ok)).is_some(), "{ok}");
         }
+        let t = parse_syntax("alg ftp <on|off>");
+        assert!(match_line(&t, &w("alg ftp off")).is_some() && match_line(&t, &w("alg ftp maybe")).is_none());
         let t = parse_syntax("logging udp <collector> src <source> [port <n>] | disable");
         assert!(match_line(&t, &w("logging udp 192.0.2.52 src 203.0.113.10 port 4739")).is_some());
         assert!(match_line(&t, &w("logging udp disable")).is_some());

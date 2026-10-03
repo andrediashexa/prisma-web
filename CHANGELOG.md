@@ -16,6 +16,18 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.16.0 - CGNAT forms — 2026-10-03
+
+### New
+- **CGNAT settings:** timeouts, block hold-down, inside and outside interfaces, subscriber identity, session table and memory, from one form (#41).
+- **Pools:** add, change and remove a pool from a form: inside and outside prefixes, block size, mode, policy, limits, ports, alarms, filtering, TCP MSS and the ALGs. A change that remaps subscribers (a new block size, a prefix change, a removal) is announced in the form before the review (#41).
+- **Log collectors:** syslog, IPFIX over TCP and IPFIX over UDP set or disabled from a form next to the log export card; disabling a syslog that was never enabled is warned about first (#41).
+- Forms are offered to a box account that is an administrator or a CGNAT operator (#41).
+
+### Fixed
+- In the structured editor, values written `<on|off>` were read as two words, so no ALG setting matched its statement (#41).
+- A refusal in the review is scrolled into view (#41).
+
 ## 0.15.0 - Interface forms — 2026-10-03
 
 ### New

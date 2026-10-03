@@ -91,7 +91,7 @@ services:
       - sh
       - -c
       - >-
-        test -d dev-certs/profiles/readonly && exit 0;
+        test -d dev-certs/profiles/cgnat && exit 0;
         apk add -q --no-cache openssl && sh scripts/dev-certs.sh &&
         chown -R ${PRISMA_TLS_GID:-1000}:${PRISMA_TLS_GID:-1000} dev-certs
 
