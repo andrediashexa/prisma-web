@@ -3,6 +3,8 @@
  * serves it (config_model.rs), and how a statement's form becomes its line.
  */
 
+import type { WhoAmI } from "@/lib/types"
+
 export type Kind =
   | { k: "text" }
   | { k: "int"; min: number; max: number }
@@ -177,4 +179,10 @@ export function head(tokens: Tok[]): string {
 export function isNamed(m: Mode): boolean {
   const last = m.path_tokens.at(-1)
   return !!last?.some((t) => t.t === "param" || t.t === "alt")
+}
+
+/** Whether the box account may change a mode with these roles (#28, #39): CGNAT modes are open to a cgnat-operator. */
+export function boxAllows(access: WhoAmI | null, roles: string[]) {
+  if (!access) return true
+  return access.can_configure || (access.can_configure_cgnat && roles.includes("cgnat-operator"))
 }

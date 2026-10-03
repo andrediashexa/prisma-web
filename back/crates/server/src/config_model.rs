@@ -134,6 +134,9 @@ struct Parser {
     /// The statement names `ipv6`: the coverage map labels its prefixes
     /// `<A.B.C.D/M>` too, so they are taken as IPv6 (#39).
     ipv6: bool,
+    /// The statement belongs to `address-family <afi> <safi>`, which serves both families:
+    /// its `<A.B.C.D/M>` takes an IPv6 prefix too (#42).
+    any_family: bool,
 }
 
 impl Parser {
@@ -143,6 +146,7 @@ impl Parser {
             let id = self.next_id;
             self.next_id += 1;
             let kind = match (kind_of(&label), self.ipv6) {
+                (Kind::Ipv4Prefix, _) if self.any_family => Kind::Prefix,
                 (Kind::Ipv4Prefix, true) => Kind::Ipv6Prefix,
                 (Kind::Ipv4, true) => Kind::Ipv6,
                 (k, _) => k,
@@ -203,7 +207,13 @@ impl Parser {
 }
 
 pub fn parse_syntax(s: &str) -> Vec<Tok> {
-    Parser { next_id: 0, ipv6: s.split_whitespace().any(|w| w == "ipv6") }.alts(s)
+    Parser { next_id: 0, ipv6: s.split_whitespace().any(|w| w == "ipv6"), any_family: false }.alts(s)
+}
+
+/// A statement of a mode: in an address family, a prefix may be of either family.
+fn parse_statement(path: &[String], s: &str) -> Vec<Tok> {
+    let any_family = path.last().is_some_and(|e| e.starts_with("address-family <afi>"));
+    Parser { next_id: 0, ipv6: s.split_whitespace().any(|w| w == "ipv6"), any_family }.alts(s)
 }
 
 /// The values a line gives a statement's parameters, by id; `None` when the
@@ -290,7 +300,7 @@ pub static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
             statements: a
                 .statements
                 .into_iter()
-                .map(|s| Statement { tokens: parse_syntax(&s.syntax), syntax: s.syntax, class: s.class })
+                .map(|s| Statement { tokens: parse_statement(&a.path, &s.syntax), syntax: s.syntax, class: s.class })
                 .collect(),
         };
         match modes.iter_mut().find(|m| m.path == a.path) {
@@ -503,6 +513,17 @@ mod tests {
         let bgp = find("router bgp <asn>");
         assert!(bgp.lines[0].statement.is_some(), "a neighbor line is a bgp neighbor statement");
         assert!(find("config").lines.iter().any(|l| l.text == "hostname h"));
+    }
+
+    #[test]
+    fn an_address_family_takes_prefixes_of_both_families() {
+        let af = MODES.iter().find(|m| m.key == "router bgp <asn> > address-family <afi> <safi>").unwrap();
+        let network = af.groups.iter().flat_map(|g| &g.statements).find(|s| s.syntax.starts_with("network ")).unwrap();
+        assert!(match_line(&network.tokens, &w("network 2001:db8:1::/48")).is_some());
+        assert!(match_line(&network.tokens, &w("network 192.0.2.0/24 policy P")).is_some());
+        let bgp = MODES.iter().find(|m| m.key == "router bgp <asn>").unwrap();
+        let top = bgp.groups.iter().flat_map(|g| &g.statements).find(|s| s.syntax.starts_with("network ")).unwrap();
+        assert!(match_line(&top.tokens, &w("network 2001:db8:1::/48")).is_none(), "router bgp itself is IPv4");
     }
 
     #[test]

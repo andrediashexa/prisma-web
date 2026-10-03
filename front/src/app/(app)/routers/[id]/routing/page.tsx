@@ -5,7 +5,10 @@ import { useMemo, useState } from "react"
 import useSWR from "swr"
 import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
 
-import { BgpStateBadge } from "@/components/widgets/bgp-widget"
+import { StagedChanges } from "@/components/config/staged-changes"
+import { BgpPanel } from "@/components/routing/bgp-config"
+import { OspfPanel } from "@/components/routing/ospf-config"
+import { StaticRoutesPanel } from "@/components/routing/static-routes"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,9 +19,14 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useConfigChanges } from "@/hooks/use-config-changes"
+import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
+import { boxAllows, type Grammar, type Instance } from "@/lib/config-model"
 import { formatDateTime, formatNumber, formatUptime } from "@/lib/format"
+import { readRouting } from "@/lib/routing-config"
 import {
+  roleAtLeast,
   routerApi,
   type BgpNeighbor,
   type Bundle,
@@ -44,48 +52,29 @@ function useShow(routerId: string, command: string) {
 export default function RoutingPage() {
   const { id } = useParams<{ id: string }>()
   const opts = { refreshInterval: 15_000 }
-  const { data: bgp } = useSWR<{ neighbors: BgpNeighbor[] }>(routerApi(id, "/bgp"), fetcher, opts)
+  const { data: bgp, mutate: mutateBgp } = useSWR<{ neighbors: BgpNeighbor[] }>(routerApi(id, "/bgp"), fetcher, opts)
   const { data: ospf } = useSWR<{ neighbors: OspfNeighbor[] }>(routerApi(id, "/ospf"), fetcher, opts)
   const { data: isis } = useSWR<{ adjacencies: IsisAdjacency[] }>(routerApi(id, "/isis"), fetcher, opts)
   const { data: vrrp } = useSWR<{ routers: VrrpRouter[] }>(routerApi(id, "/vrrp"), fetcher, opts)
   const { data: bundles } = useSWR<{ bundles: Bundle[] }>(routerApi(id, "/bundles"), fetcher, opts)
 
+  // The routing configuration (#42, #43), read from the running configuration's tree.
+  const { data: tree, mutate: mutateTree } = useSWR<{ revision: string; instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
+  const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
+  const routing = useMemo(() => (tree ? readRouting(tree.instances) : undefined), [tree])
+  const changes = useConfigChanges(id)
+  const myRole = useRouterRole(id)
+  const { access, readOnly } = useRouterAccess(id)
+  // The routing modes' roles come from the grammar (administrator today).
+  const roles = grammar?.modes.find((m) => m.key === "router bgp <asn>")?.roles ?? ["administrator"]
+  const editable = !!routing && roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, roles)
+
   return (
     <>
-      <Section title="BGP" description="Neighbors and received prefixes" loading={!bgp} empty={bgp?.neighbors.length === 0}>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="pl-6">Neighbor</TableHead>
-              <TableHead>Remote AS</TableHead>
-              <TableHead>VRF</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead className="text-right">Uptime</TableHead>
-              <TableHead className="pr-6 text-right">Prefixes</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {bgp?.neighbors.map((n) => (
-              <TableRow key={`${n.vrf}-${n.peer}`}>
-                <TableCell className="pl-6">
-                  <div className="font-mono text-sm">{n.peer}</div>
-                  {n.description && <div className="text-muted-foreground text-xs">{n.description}</div>}
-                </TableCell>
-                <TableCell className="font-mono">{n.remote_as}</TableCell>
-                <TableCell>{n.vrf}</TableCell>
-                <TableCell>
-                  <BgpStateBadge state={n.state} />
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{n.uptime_seconds ? formatUptime(n.uptime_seconds) : "—"}</TableCell>
-                <TableCell className="pr-6 text-right tabular-nums">{formatNumber(n.prefixes_received)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Section>
+      <BgpPanel bgp={routing ? routing.bgp : undefined} live={bgp?.neighbors} editable={editable} stage={changes.stage} />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Section title="OSPF / OSPFv3" loading={!ospf} empty={ospf?.neighbors.length === 0}>
+        <Section title="OSPF / OSPFv3 neighbors" loading={!ospf} empty={ospf?.neighbors.length === 0}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -194,7 +183,23 @@ export default function RoutingPage() {
         </Section>
       </div>
 
+      {routing && <OspfPanel ospf={routing.ospf} ospf6={routing.ospf6} editable={editable} stage={changes.stage} />}
+      {routing && <StaticRoutesPanel routes={routing.statics} interfaces={routing.interfaces} editable={editable} stage={changes.stage} />}
+
       <Routes routerId={id} />
+
+      {/* Kept in sight while scrolling: the forms above and below stage into it. */}
+      <div className="sticky bottom-4 z-20 shadow-lg empty:hidden">
+        <StagedChanges
+          routerId={id}
+          changes={changes}
+          title="Apply routing changes"
+          onCommitted={() => {
+            void mutateTree()
+            void mutateBgp()
+          }}
+        />
+      </div>
     </>
   )
 }
