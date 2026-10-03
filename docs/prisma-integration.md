@@ -33,7 +33,7 @@ Inside `interface <name>` the valid lines are `description <text>`, `no descript
 `shutdown`, `no shutdown` and **`ipv4 address <cidr>`** (not `ip address`). Blocks close with
 `exit`. The `no` forms were confirmed with `commit check` on the device, without applying anything,
 and produce the expected diff in `compare` (Prisma). The mock follows this format since issue #9,
-and the mapping lives in `front/src/lib/vty.ts`.
+and the mapping lives in `front/src/lib/interface-config.ts` (#40).
 
 ### ✅ 1.2 Access to the device — answered
 - **The API exists from 0.148.4 onwards** and ships disabled; `api enabled yes` turns it on. The
