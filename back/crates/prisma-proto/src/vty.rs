@@ -35,7 +35,7 @@ pub enum Kind {
     Interface,
 }
 
-fn kind_of(label: &str) -> Kind {
+pub fn kind_of(label: &str) -> Kind {
     if let Some((lo, hi)) = label.split_once('-') {
         if let (Ok(min), Ok(max)) = (lo.parse(), hi.parse()) {
             return Kind::Int { min, max };
