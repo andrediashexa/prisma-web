@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.12.1 - Prisma API coverage — 2026-10-03
+
+### Internal
+- Prisma 0.149.17 is followed: the guide is re-vendored and the Prisma's API coverage map (which VTY command the API reaches, and how) is vendored as `docs/prisma-api-coverage.md`. The contract is unchanged (#36).
+
 ## 0.12.0 - Plaintext opt-in — 2026-10-02
 
 ### Changed
