@@ -206,11 +206,16 @@ export interface OpenCandidateResponse {
   candidate_id: string
   base_revision: string
   text: string
+  /** When the box closes it if nobody uses it (Prisma 0.149.18); null on an older box. */
+  expires_at?: string | null
+  idle_seconds?: number
 }
 
 export interface EditResponse {
   diagnostics: Diagnostic[]
   output: string
+  /** The box's new expiry after this edit (Prisma 0.149.18). */
+  expires_at?: string | null
 }
 
 export interface CompareResponse {
@@ -225,6 +230,8 @@ export interface CheckResponse {
   cutoff: string[]
   diverge: string[]
   output: string
+  /** What a commit would be refused for, by name (Prisma 0.149.18); "unspecified" when it would pass. */
+  reason?: string
 }
 
 export interface CommitResponse {
@@ -245,6 +252,11 @@ export interface PendingConfirm {
   by: string
   revision: string | null
   can_confirm: boolean
+  /** The deadline passed and the box is still on the unconfirmed configuration (Prisma 0.149.18). */
+  overdue?: boolean
+  revert_attempts?: number
+  /** "box": read with GetPendingConfirm; "memory": kept by prisma-web for an older box. */
+  source?: "box" | "memory"
 }
 
 export interface Series<T> {

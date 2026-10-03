@@ -23,6 +23,7 @@ pub struct Revision {
 pub struct Candidate {
     pub base_revision: u64,
     pub config: Config,
+    pub created: DateTime<Utc>,
     /// Last call that named it: the box closes a candidate idle for 30 minutes.
     pub touched: Instant,
 }
@@ -32,6 +33,12 @@ pub struct Pending {
     pub token: u64,
     pub deadline: DateTime<Utc>,
     pub previous: Config,
+    /// What GetPendingConfirm reports (Prisma 0.149.18).
+    pub revision: String,
+    pub account: String,
+    pub comment: String,
+    pub committed_at: DateTime<Utc>,
+    pub minutes: u32,
 }
 
 pub struct IfaceSim {
@@ -50,6 +57,8 @@ pub struct State {
     /// Revisions in commit order; the last one is the current one.
     pub revisions: Vec<Revision>,
     pub candidates: HashMap<String, Candidate>,
+    /// Candidates closed for idleness, so a later call says so (REASON_CANDIDATE_EXPIRED).
+    pub expired: std::collections::HashSet<String>,
     pub pending: Option<Pending>,
     pub next_token: u64,
     pub sims: Vec<IfaceSim>,
@@ -114,6 +123,7 @@ impl State {
             }],
             running,
             candidates: HashMap::new(),
+            expired: std::collections::HashSet::new(),
             pending: None,
             next_token: 1,
             sims: vec![
@@ -196,6 +206,7 @@ impl State {
         let idle = candidate_idle();
         if self.candidates.get(id).is_some_and(|c| c.touched.elapsed() > idle) {
             self.candidates.remove(id);
+            self.expired.insert(id.to_string());
         }
         let c = self.candidates.get_mut(id)?;
         c.touched = Instant::now();

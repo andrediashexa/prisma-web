@@ -28,6 +28,11 @@ mod ser {
             _ => "unspecified",
         })
     }
+
+    /// `REASON_STALE_BASE` → `"stale_base"`; unknown or unset → `"unspecified"` (#558).
+    pub fn reason<S: Serializer>(v: &i32, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&super::reason_name(*v))
+    }
 }
 
 /// Response metadata carrying the VTY's report on a rejected call.
@@ -66,4 +71,11 @@ mod tests {
         assert_eq!(v["boot_time"], "2026-09-21T14:13:20+00:00");
         assert_eq!(v["dataplane_restarted"], false);
     }
+}
+
+/// A refusal reason (Prisma 0.149.18) by name, lowercase, as the web API shows it.
+pub fn reason_name(v: i32) -> String {
+    v1::diagnostics::Reason::try_from(v)
+        .map(|r| r.as_str_name().trim_start_matches("REASON_").to_ascii_lowercase())
+        .unwrap_or_else(|_| "unspecified".into())
 }

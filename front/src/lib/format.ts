@@ -138,3 +138,8 @@ export function counterRate(prev: number | undefined, cur: number, seconds: numb
   if (prev === undefined || seconds <= 0 || cur < prev) return null
   return (cur - prev) / seconds
 }
+
+/** Time of day only, en-US (e.g. 10:42 PM). */
+export function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+}

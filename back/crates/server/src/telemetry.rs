@@ -76,6 +76,14 @@ pub struct PendingConfirm {
     #[serde(skip)]
     pub user_id: Option<Uuid>,
     pub revision: Option<String>,
+    /// The deadline passed and the window is still there (Prisma 0.149.18).
+    #[serde(default)]
+    pub overdue: bool,
+    /// Reverts the box tried and failed (Prisma 0.149.18).
+    #[serde(default)]
+    pub revert_attempts: u32,
+    /// `box` when read with GetPendingConfirm, `memory` when kept by prisma-web (#37).
+    pub source: &'static str,
 }
 
 #[derive(Default)]
@@ -482,7 +490,7 @@ async fn on_event(shared: &Arc<Shared>, h: &RouterHandle, e: Event) {
         match e.kind.as_str() {
             "confirmed" | "rolled-back" => d.pending = None,
             "confirm-pending" if d.pending.is_none() => {
-                d.pending = Some(PendingConfirm { deadline: None, by: e.account.clone(), user_id: None, revision: None })
+                d.pending = Some(PendingConfirm { deadline: None, by: e.account.clone(), user_id: None, revision: None, overdue: false, revert_attempts: 0, source: "memory" })
             }
             _ => {}
         }
