@@ -106,8 +106,10 @@ pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
 }
 
 fn statement_from_schema(s: &prisma_proto::v1::SchemaStatement) -> Statement {
-    let mut next_id = 0usize;
-    let mut tokens: Vec<Tok> = s.words.iter().map(|w| Tok::Word { w: w.clone() }).collect();
+    // The box's `words` can carry placeholders ("<prefix>", "neighbor <address>"):
+    // read them with the syntax parser, so they become values (#45).
+    let mut tokens = parse_syntax(&s.words.join(" "));
+    let mut next_id = count_params(&tokens);
     let mut forms: Vec<Vec<Tok>> = s.forms.iter().map(|f| form_tokens(&f.arguments, &mut next_id)).collect();
     forms.retain(|f| !f.is_empty() || s.forms.len() > 1);
     match forms.len() {
@@ -117,6 +119,17 @@ fn statement_from_schema(s: &prisma_proto::v1::SchemaStatement) -> Statement {
     }
     let syntax = prisma_proto::vty::describe(&tokens);
     Statement { syntax, class: if s.typed { "typed".into() } else { "text".into() }, tokens }
+}
+
+fn count_params(toks: &[Tok]) -> usize {
+    toks.iter()
+        .map(|t| match t {
+            Tok::Param { .. } => 1,
+            Tok::Opt { items } => count_params(items),
+            Tok::Alt { options } => options.iter().map(|o| count_params(o)).sum(),
+            Tok::Word { .. } => 0,
+        })
+        .sum()
 }
 
 /// A form's arguments as tokens. An optional keyword takes the optional
@@ -154,7 +167,27 @@ fn arg_token(a: &prisma_proto::v1::SchemaArgument, next_id: &mut usize, last: bo
     let label = a.name.trim_start_matches('<').trim_end_matches('>').to_string();
     let kind = match a.kind.as_str() {
         "keyword" => return Tok::Word { w: a.name.clone() },
-        "choice" => return Tok::Alt { options: a.choices.iter().map(|c| vec![Tok::Word { w: c.clone() }]).collect() },
+        "choice" => {
+            return Tok::Alt {
+                options: a
+                    .choices
+                    .iter()
+                    .map(|c| {
+                        // A choice that is a value (`<1-4294967295>`, even split as `1-4294967295>`)
+                        // is a typed value, not a keyword (#45).
+                        let label = c.trim_start_matches('<').trim_end_matches('>');
+                        let value = c.starts_with('<') || c.ends_with('>') || matches!(prisma_proto::vty::kind_of(label), Kind::Int { .. });
+                        if value {
+                            let id = *next_id;
+                            *next_id += 1;
+                            vec![Tok::Param { id, label: label.to_string(), kind: prisma_proto::vty::kind_of(label), prefix: String::new(), rest: false }]
+                        } else {
+                            vec![Tok::Word { w: c.clone() }]
+                        }
+                    })
+                    .collect(),
+            }
+        }
         "integer" if a.min == 0 && a.max == 0 => Kind::Int { min: 0, max: u32::MAX as u64 },
         "integer" => Kind::Int { min: a.min.max(0) as u64, max: a.max.max(0) as u64 },
         "ipv4_prefix" => Kind::Ipv4Prefix,
@@ -238,6 +271,67 @@ fn words(s: &str) -> Vec<&str> {
     s.split_whitespace().collect()
 }
 
+/// The keywords that start a part of a statement (`enterprise <n>`, `[port <n>]`)
+/// after its first value, in the grammar's order.
+fn part_keywords(toks: &[Tok]) -> Vec<String> {
+    let mut out = vec![];
+    collect_parts(toks, &mut false, &mut out);
+    out
+}
+
+fn collect_parts(toks: &[Tok], seen_value: &mut bool, out: &mut Vec<String>) {
+    for (i, t) in toks.iter().enumerate() {
+        match t {
+            // A choice between forms (`<collector> enterprise <n> … | disable`): their parts too.
+            Tok::Alt { options } if options.iter().any(|o| o.len() > 1) => {
+                for o in options {
+                    let mut seen = *seen_value;
+                    collect_parts(o, &mut seen, out);
+                }
+                *seen_value = true;
+            }
+            Tok::Param { .. } | Tok::Alt { .. } => *seen_value = true,
+            Tok::Word { w } if *seen_value && matches!(toks.get(i + 1), Some(Tok::Param { .. })) => {
+                if !out.contains(w) {
+                    out.push(w.clone())
+                }
+            }
+            Tok::Opt { items } => {
+                if let Some(Tok::Word { w }) = items.first() {
+                    if !out.contains(w) {
+                        out.push(w.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The line with its keyword parts put in the grammar's order; `None` when it
+/// has none to move.
+fn reordered(toks: &[Tok], words: &[&str]) -> Option<Vec<String>> {
+    let keys = part_keywords(toks);
+    let first = words.iter().position(|w| keys.iter().any(|k| k == w))?;
+    let mut parts: Vec<Vec<String>> = vec![];
+    for w in &words[first..] {
+        if keys.iter().any(|k| k == w) || parts.is_empty() {
+            parts.push(vec![w.to_string()]);
+        } else {
+            parts.last_mut().unwrap().push(w.to_string());
+        }
+    }
+    let rank = |p: &Vec<String>| keys.iter().position(|k| *k == p[0]).unwrap_or(usize::MAX);
+    let mut sorted = parts.clone();
+    sorted.sort_by_key(rank);
+    if sorted == parts {
+        return None;
+    }
+    let mut out: Vec<String> = words[..first].iter().map(|w| w.to_string()).collect();
+    out.extend(sorted.into_iter().flatten());
+    Some(out)
+}
+
 /// How specific a path element is: the literal characters it pins.
 fn specificity(toks: &[Tok]) -> usize {
     toks.iter()
@@ -293,6 +387,15 @@ fn classify(mode: &Mode, line: &str) -> Line {
     for (gi, g) in mode.groups.iter().enumerate() {
         for (si, s) in g.statements.iter().enumerate() {
             if let Some(values) = match_line(&s.tokens, &w) {
+                return Line { text: line.to_string(), owned: None, statement: Some((gi, si)), values };
+            }
+        }
+    }
+    // The running configuration may write a statement's keyword parts in another
+    // order than its grammar (`port 1601 enterprise 67033`): try them in the grammar's (#45).
+    for (gi, g) in mode.groups.iter().enumerate() {
+        for (si, s) in g.statements.iter().enumerate() {
+            if let Some(values) = reordered(&s.tokens, &w).and_then(|r| match_line(&s.tokens, &r.iter().map(String::as_str).collect::<Vec<_>>())) {
                 return Line { text: line.to_string(), owned: None, statement: Some((gi, si)), values };
             }
         }
@@ -422,6 +525,48 @@ mod tests {
         let bgp = MODES.iter().find(|m| m.key == "router bgp <asn>").unwrap();
         let top = bgp.groups.iter().flat_map(|g| &g.statements).find(|s| s.syntax.starts_with("network ")).unwrap();
         assert!(match_line(&top.tokens, &w("network 2001:db8:1::/48")).is_none(), "router bgp itself is IPv4");
+    }
+
+    #[test]
+    fn a_real_boxs_schema_shapes_are_read() {
+        use prisma_proto::v1::{SchemaArgument, SchemaForm, SchemaStatement};
+        let arg = |name: &str, kind: &str, optional: bool| SchemaArgument { name: name.into(), kind: kind.into(), optional, ..Default::default() };
+        // Placeholders in `words` (192.0.2.198, Prisma 0.149.22).
+        let st = statement_from_schema(&SchemaStatement {
+            words: vec!["<prefix>".into()],
+            forms: vec![SchemaForm { arguments: vec![arg("next-hop", "keyword", false), arg("<next-hop>", "address", false)] }],
+            ..Default::default()
+        });
+        assert!(match_line(&st.tokens, &w("0.0.0.0/0 next-hop 192.0.2.10")).is_some());
+        // A range choice split as `1-4294967295>`.
+        let st = statement_from_schema(&SchemaStatement {
+            words: vec!["neighbor <address>".into(), "remote-as".into()],
+            forms: vec![SchemaForm {
+                arguments: vec![SchemaArgument { name: "x".into(), kind: "choice".into(), choices: vec!["1-4294967295>".into(), "internal".into(), "external".into()], ..Default::default() }],
+            }],
+            ..Default::default()
+        });
+        assert!(match_line(&st.tokens, &w("neighbor 192.0.2.10 remote-as 65000")).is_some());
+        assert!(match_line(&st.tokens, &w("neighbor 192.0.2.10 remote-as internal")).is_some());
+        // Keyword parts written in another order than the grammar's.
+        let mode = Mode {
+            key: "nat > cgnat".into(),
+            title: "cgnat".into(),
+            path: vec![],
+            path_tokens: vec![],
+            roles: vec![],
+            groups: vec![Group {
+                title: "cgnat".into(),
+                statements: vec![Statement {
+                    syntax: String::new(),
+                    class: "text".into(),
+                    tokens: parse_syntax("logging syslog <collector> enterprise <n> [port <n>] [facility <0-23>] [severity <0-7>] | disable"),
+                }],
+            }],
+        };
+        let l = classify(&mode, "logging syslog 192.0.2.196 port 1601 enterprise 67033 facility 16 severity 6");
+        assert!(l.statement.is_some(), "port before enterprise");
+        assert!(classify(&mode, "logging syslog 192.0.2.196 enterprise 67033 bogus 1").statement.is_none());
     }
 
     #[test]

@@ -598,6 +598,12 @@ def lab(admin, args):
         check(st == 200 and g["source"], f"the real Prisma's grammar source: {g['source']}", g.get("source"))
         st, t = admin.get(R + "/config/tree")
         lines = [l for i in (t or {}).get("instances", []) for l in i["lines"]]
+        if g["source"].startswith("box"):
+            # With the box's own grammar every operator line is a statement; only the box's lines stay read only (#45).
+            mine = [l for l in lines if not l.get("owned")]
+            check(all(l["statement"] for l in mine),
+                  f"every operator line of the real Prisma matches its GetSchema ({len(mine)} lines, {len(lines) - len(mine)} box-owned)",
+                  [l["text"] for l in mine if not l["statement"]])
         known = sum(1 for l in lines if l["statement"])
         check(st == 200 and lines and known / len(lines) >= 0.8,
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",

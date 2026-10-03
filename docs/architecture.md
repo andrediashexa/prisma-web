@@ -252,7 +252,11 @@ sequenceDiagram
   box's own lines are marked from `TypedConfig.box_owned`, with the box's reason, and a setting can
   be checked by the VTY itself (`ValidateLines`, nothing staged) before it joins the changes (#44).
   The syntax parser lives in `prisma_proto::vty`, shared with the mock, whose `GetSchema` is built
-  from the same grammar.
+  from the same grammar. A real box's schema puts placeholders in a statement's words (`<prefix>`,
+  `neighbor <address>`) and once splits a range choice (`1-4294967295>`), and its running
+  configuration writes keyword parts in its own order (`port … enterprise …`); prisma-web parses the
+  words with the syntax parser, takes a choice that is a value as a value, and accepts a statement's
+  keyword parts in any order. On 192.0.2.198 every operator line matches its statement (#45).
 - **Interface forms (#40):** the **Interfaces** tab edits a port (`interface <name>`) or a bundle
   (`interface bond<n>`) in one form: description, MTU, admin state, IPv4 and IPv6 addresses (a
   list per family, dual stack), VRF, CGNAT side, uRPF, `ipv6 nd suppress-ra`, VLAN, Linux name and
