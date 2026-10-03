@@ -8,6 +8,7 @@ import { Loader2Icon, PencilIcon, PlusIcon, SearchIcon, SettingsIcon, Trash2Icon
 import { ClearAction, useClears } from "@/components/clear-action"
 import { GlobalDialog } from "@/components/cgnat/global-dialog"
 import { LOG_KIND_LABEL, LoggingDialog } from "@/components/cgnat/logging-dialog"
+import { LiveLog } from "@/components/cgnat/live-log"
 import { PoolDialog } from "@/components/cgnat/pool-dialog"
 import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
@@ -20,7 +21,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useConfigChanges, type ConfigChange } from "@/hooks/use-config-changes"
-import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
+import { useHasSystemService, useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, errorMessage, fetcher } from "@/lib/api"
 import {
   CGNAT_PATH,
@@ -59,6 +60,7 @@ export default function CgnatPage() {
     [tree, typed.typed, typed.config],
   )
   const canChange = roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, CGNAT_ROLES)
+  const liveLog = useHasSystemService(id) && roleAtLeast(myRole, "operator")
   const staged = (key: string) => cc.changes.some((c) => c.key === key)
   // Each form stages at most one change, keyed so that editing it again replaces it.
   const stageAs = (key: string, list: ConfigChange[]) => cc.stage({ ...(list[0] ?? { path: CGNAT_PATH, lines: [], label: "" }), key })
@@ -211,6 +213,9 @@ export default function CgnatPage() {
       </Card>
 
       <SubscriberLookup routerId={id} />
+
+      {/* Who had which public address: an operator's, on a box with WatchLogging (#49). */}
+      {liveLog && <LiveLog routerId={id} pools={rows.map((r) => r.name)} />}
 
       {config && (
         <>

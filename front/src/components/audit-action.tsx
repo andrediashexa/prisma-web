@@ -12,6 +12,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "router.interface.update": "updated interface",
   "router.command": "command",
   "router.clear": "clear",
+  "router.log_watch": "live log",
   "config.commit": "commit",
   "config.confirm": "confirmed commit",
   "config.save": "saved configuration",

@@ -23,6 +23,12 @@ export function useRouterAccess(id: string) {
   return { access, readOnly, reason }
 }
 
+/** Whether the router has Prisma 0.149.25's calls (Clear, WatchLogging): its SystemService answers health (#48). */
+export function useHasSystemService(id: string) {
+  const { data } = useFleetStatus()
+  return !!data?.find((r) => r.id === id)?.system_service
+}
+
 /** The signed-in user's role on this router (#6). */
 export function useRouterRole(id: string): Role | undefined {
   const { data } = useRouters()

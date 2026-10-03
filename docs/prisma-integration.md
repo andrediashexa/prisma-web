@@ -302,13 +302,22 @@ Read up to 0.149.25 in `clients.md` and already handled:
   that says what it disrupts, to operators and above; `POST /api/routers/{id}/clear` records each
   one (`router.clear`), refused or not. A box has them when its `prisma.v1.SystemService` answers
   health (it came in the same release; the fleet status carries it as `system_service`); an older
-  box is offered none. `TelemetryService.WatchLogging` and `SystemService` (reboot, shutdown,
+  box is offered none. `TelemetryService.WatchLogging` (below) and `SystemService` (reboot, shutdown,
   dataplane restart, upgrade) follow in their own issues; their calls are root's on the box, so
   prisma-web's `prisma-web` account gets `PERMISSION_DENIED` for them today. The mock simulates
   `Clear` (a hard BGP clear restarts the session; a name that is not one word is
   `INVALID_ARGUMENT`; an unknown neighbor or interface `FAILED_PRECONDITION`) and the line-only
   mock stands for a box before it. 192.0.2.198 is on 0.149.25 since 2026-10-03 (with a reboot);
   no clear is sent to a real box by the tests.
+- `TelemetryService.WatchLogging` (0.149.25) is followed (#49): the CGNAT screen's **Live log**
+  watches the box's `monitor cgnat logging` through `GET /api/routers/{id}/logging/watch`, which
+  relays the stream as Server-Sent Events (`log` with one `LogEvent` as JSON, the kind by name;
+  `error` when the stream breaks; `end`). Filters are the monitor's (subscriber, public address
+  with port, event, pool); a watch lasts at most 30 minutes (the box's `seconds`) and leaving the
+  page cancels it. It says who had which public address, so it is an operator's and each watch is
+  audited (`router.log_watch`) with its filters. `LOST` (events this reader missed) and `DELIVERY`
+  (what each log stream sent) are shown as such. The mock streams allocations and releases every
+  half second and a `DELIVERY` every 10 s; the line-only mock answers *unimplemented*.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
