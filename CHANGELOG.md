@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.18.1 - Real box grammar — 2026-10-03
+
+### Fixed
+- On a router whose grammar comes from its GetSchema, static routes, BGP neighbors and syslog collectors were read only in Settings: the box's schema writes them in shapes the editor did not read. Every operator line of the test box now matches its setting (#45).
+
 ## 0.18.0 - Grammar from the router — 2026-10-03
 
 ### New
