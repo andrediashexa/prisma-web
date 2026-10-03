@@ -16,6 +16,16 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.23.0 - System — 2026-10-03
+
+### Added
+- On a router with Prisma 0.149.25 or newer, administrators have a **System** tab: check for a release and upgrade to it, following each phase as it happens, and restart the dataplane, reboot or shut the router down. Each asks for the router's name; a refusal is shown in the router's words with what it means, and an unsaved configuration or a pending commit confirmed can be overridden. Every attempt is recorded in the audit log (#50).
+- The router shows as **in maintenance** from an upgrade's start until its API is back, and after a reboot or a shutdown until it answers again (#50).
+- These calls are root's on the router today, so the router may refuse them to prisma-web's account; the page says so.
+
+### Internal
+- `POST /api/routers/{id}/system/{reboot,shutdown,restart-dataplane}`, `GET`/`POST /api/routers/{id}/system/upgrade` (the run as Server-Sent Events); the fleet status carries `maintenance`. The simulated Prisma runs them (nothing really reboots) and the one with mTLS refuses them as the real router does. `--lab` reads the upgrade status and checks for a release only (#50).
+
 ## 0.22.0 - Live log — 2026-10-03
 
 ### Added

@@ -2,13 +2,14 @@
 
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
-import { EyeIcon, ServerOffIcon } from "lucide-react"
+import { EyeIcon, ServerOffIcon, WrenchIcon } from "lucide-react"
 
 import { PendingConfirmBanner } from "@/components/config/pending-confirm"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useFleetStatus, useRouterAccess, useRouters } from "@/hooks/use-routers"
+import { useFleetStatus, useRouterAccess, useRouterRole, useRouters } from "@/hooks/use-routers"
 import { Badge } from "@/components/ui/badge"
+import { roleAtLeast } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const TABS = [
@@ -20,6 +21,8 @@ const TABS = [
   { href: "/routing", label: "Routing" },
   { href: "/policies", label: "Policies" },
   { href: "/console", label: "Console" },
+  // An administrator's, on a box with SystemService (Prisma 0.149.25, #50).
+  { href: "/system", label: "System" },
 ]
 
 export default function RouterLayout({ children }: { children: React.ReactNode }) {
@@ -30,6 +33,8 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
   const router = routers?.find((r) => r.id === id)
   const status = fleet?.find((r) => r.id === id)
   const { access, reason } = useRouterAccess(id)
+  const myRole = useRouterRole(id)
+  const tabs = TABS.filter((t) => t.href !== "/system" || (!!status?.system_service && roleAtLeast(myRole, "admin")))
 
   if (!routers) return <Skeleton className="h-96 w-full rounded-xl" />
   if (!router) {
@@ -70,8 +75,8 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
             )}
           </p>
         </div>
-        <nav className="bg-muted text-muted-foreground inline-flex h-9 max-w-full items-center overflow-x-auto rounded-lg p-1">
-          {TABS.map((t) => {
+        <nav aria-label="Router sections" className="bg-muted text-muted-foreground inline-flex h-9 max-w-full items-center overflow-x-auto rounded-lg p-1">
+          {tabs.map((t) => {
             const href = base + t.href
             const active = t.href === "" ? pathname === base : pathname.startsWith(href)
             return (
@@ -90,6 +95,15 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
         </nav>
       </div>
       <PendingConfirmBanner routerId={id} />
+      {status?.maintenance && (
+        <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-800 dark:text-sky-200" data-maintenance>
+          <WrenchIcon className="size-4 shrink-0" />
+          In maintenance ({status.maintenance.what === "upgrade" ? "upgrading" : status.maintenance.what === "reboot" ? "rebooting" : "shut down"})
+          {status.maintenance.until
+            ? `: its API is back at about ${new Date(status.maintenance.until).toLocaleTimeString("en-US", { hour12: false })}.`
+            : ": until it answers again."}
+        </div>
+      )}
       {reason && (
         <div className="bg-muted text-muted-foreground flex items-center gap-2 rounded-lg border px-4 py-3 text-sm">
           <EyeIcon className="size-4 shrink-0" /> {reason}
@@ -108,7 +122,7 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
           The router&apos;s API answers but reports <span className="font-mono">NOT_SERVING</span>: the dataplane&apos;s statistics do not answer, so counters and telemetry may be stale or missing.
         </div>
       )}
-      {status && !status.online && status.health !== "not-serving" && (
+      {status && !status.online && status.health !== "not-serving" && !status.maintenance && (
         <div className="border-destructive/30 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
           Could not reach this router: {status.error}
         </div>

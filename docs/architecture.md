@@ -317,6 +317,11 @@ sequenceDiagram
   `text/event-stream` through as it comes. `front/src/components/cgnat/live-log.tsx` reads it with
   `fetch` (not `EventSource`, so a refusal's JSON and its status reach the page) and an
   `AbortController` that ends the stream when the panel stops or the page closes.
+- **System actions (#50):** `routes/system.rs` (administrators; the router's name typed in the
+  body as `confirm`) and the registry's maintenance window, overlaid on the fleet status when it
+  is read (`Registry::maintenance_begin`, `maintenance_until`, `maintenance_end`; it holds until
+  `until`, or with no `until` until the box answers again). The upgrade is the second
+  Server-Sent Events route; `front/src/lib/sse.ts` reads both streams.
 - **Forms on the typed configuration (#46):** on a box that answers `GetConfig` for their area
   (Prisma 0.149.20 for interfaces, pools and the log collectors; 0.149.22 for the routing areas),
   the Interfaces, CGNAT and Routing forms read typed and write with `SetConfig` / `DeleteConfig`;

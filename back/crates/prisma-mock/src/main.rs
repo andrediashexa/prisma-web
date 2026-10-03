@@ -11,6 +11,7 @@ mod schema;
 mod session;
 mod route_service;
 mod state;
+mod system;
 mod telemetry;
 mod typed;
 
@@ -109,13 +110,8 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
         .add_service(HealthServer::new(HealthService::from_health_reporter(shared.health.clone())))
         .add_service(RouteServiceServer::new(route_service::RouteSvc::default()))
         // 0.149.25 (#48): every call answers unimplemented until its own issue.
-        .add_optional_service((!typed::disabled()).then(|| SystemServiceServer::new(SystemSvc)))
+        .add_optional_service((!typed::disabled()).then(|| SystemServiceServer::new(system::SystemSvc(shared.clone()))))
 }
-
-struct SystemSvc;
-
-#[tonic::async_trait]
-impl prisma_proto::v1::system_service_server::SystemService for SystemSvc {}
 
 /// Advances the simulation every second.
 async fn ticker(shared: SharedRef) {
@@ -287,6 +283,32 @@ mod tests {
         assert!(kinds.contains(&Kind::Alloc) && !kinds.contains(&Kind::Release), "{kinds:?}");
         let e = t.watch_logging(WatchLoggingRequest { pool: "nope".into(), ..Default::default() }).await.unwrap_err();
         assert_eq!(e.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn system_answers_as_the_box() {
+        use prisma_proto::v1::system_service_client::SystemServiceClient;
+        use prisma_proto::v1::upgrade_progress::Phase;
+        let ch = start("prisma-test").await;
+        let mut sys = SystemServiceClient::new(ch.clone());
+        assert!(sys.reboot(SystemActionRequest { force: false }).await.is_ok(), "saved: the reboot goes");
+        // A commit leaves the running configuration unsaved.
+        let mut cfg = ConfigServiceClient::new(ch);
+        let c = cfg.open_candidate(OpenCandidateRequest::default()).await.unwrap().into_inner().candidate_id;
+        cfg.edit(EditRequest { candidate_id: c.clone(), path: vec![], lines: s(&["hostname prisma-unsaved"]), ..Default::default() }).await.unwrap();
+        cfg.commit(CommitRequest { candidate_id: c, ..Default::default() }).await.unwrap();
+        let e = sys.shutdown(SystemActionRequest { force: false }).await.unwrap_err();
+        assert_eq!(prisma_proto::diagnostics(&e).unwrap().reason, prisma_proto::v1::diagnostics::Reason::Unsaved as i32);
+        assert!(sys.shutdown(SystemActionRequest { force: true }).await.is_ok(), "force goes past it");
+        let checked: Vec<_> = sys.upgrade(UpgradeRequest { version: String::new() }).await.unwrap().into_inner().collect::<Vec<_>>().await;
+        assert_eq!(checked.len(), 1);
+        assert_eq!(checked[0].as_ref().unwrap().phase(), Phase::Checked);
+        let run: Vec<_> = sys.upgrade(UpgradeRequest { version: system::NEWEST.into() }).await.unwrap().into_inner().collect::<Vec<_>>().await;
+        let phases: Vec<Phase> = run.iter().map(|p| p.as_ref().unwrap().phase()).collect();
+        assert_eq!(phases.first(), Some(&Phase::Started));
+        assert_eq!(phases.last(), Some(&Phase::ApiRestart));
+        assert!(run.last().unwrap().as_ref().unwrap().api_away_seconds > 0);
+        assert_eq!(sys.get_upgrade_status(GetUpgradeStatusRequest {}).await.unwrap().into_inner().phase(), Phase::ApiRestart);
     }
 
     #[tokio::test]

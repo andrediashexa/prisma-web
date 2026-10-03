@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use prisma_proto::v1::{CgnatTotals, Event, HistorySample, InterfaceCounters, InterfaceSample};
+use prisma_proto::v1::{CgnatTotals, Event, HistorySample, InterfaceCounters, InterfaceSample, UpgradeProgress};
 use rand::Rng;
 use tokio::sync::broadcast;
 
@@ -71,6 +71,10 @@ pub struct State {
     pub logs: crate::log_export::LogSim,
     /// When (in uptime seconds) a BGP session restarted after a hard `Clear` (#48).
     pub bgp_reset: HashMap<String, u64>,
+    /// The revision `Save` last wrote: the next boot loads it (REASON_UNSAVED, #50).
+    pub saved_revision: u64,
+    /// The last upgrade run (GetUpgradeStatus, #50).
+    pub upgrade: Option<UpgradeProgress>,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -145,6 +149,8 @@ impl State {
             history: VecDeque::new(),
             logs: crate::log_export::LogSim::new(),
             bgp_reset: HashMap::new(),
+            saved_revision: 1,
+            upgrade: None,
         }
     }
 

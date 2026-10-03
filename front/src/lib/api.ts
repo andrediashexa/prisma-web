@@ -6,7 +6,7 @@ export class ApiError extends Error {
     public code: string,
     message: string,
     /** VTY report when Prisma rejected the call. */
-    public diagnostics?: { items: Diagnostic[]; output: string } | null,
+    public diagnostics?: { items: Diagnostic[]; output: string; reason?: string } | null,
   ) {
     super(message)
   }

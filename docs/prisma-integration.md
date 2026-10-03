@@ -302,8 +302,8 @@ Read up to 0.149.25 in `clients.md` and already handled:
   that says what it disrupts, to operators and above; `POST /api/routers/{id}/clear` records each
   one (`router.clear`), refused or not. A box has them when its `prisma.v1.SystemService` answers
   health (it came in the same release; the fleet status carries it as `system_service`); an older
-  box is offered none. `TelemetryService.WatchLogging` (below) and `SystemService` (reboot, shutdown,
-  dataplane restart, upgrade) follow in their own issues; their calls are root's on the box, so
+  box is offered none. `TelemetryService.WatchLogging` and `SystemService` (reboot, shutdown,
+  dataplane restart, upgrade) are followed below; their calls are root's on the box, so
   prisma-web's `prisma-web` account gets `PERMISSION_DENIED` for them today. The mock simulates
   `Clear` (a hard BGP clear restarts the session; a name that is not one word is
   `INVALID_ARGUMENT`; an unknown neighbor or interface `FAILED_PRECONDITION`) and the line-only
@@ -318,6 +318,26 @@ Read up to 0.149.25 in `clients.md` and already handled:
   audited (`router.log_watch`) with its filters. `LOST` (events this reader missed) and `DELIVERY`
   (what each log stream sent) are shown as such. The mock streams allocations and releases every
   half second and a `DELIVERY` every 10 s; the line-only mock answers *unimplemented*.
+- `SystemService` (0.149.25) is followed (#50): a **System** tab, an administrator's on a box that
+  has it, checks for and runs an upgrade (Server-Sent Events of `UpgradeProgress` through `POST
+  /api/routers/{id}/system/upgrade`, `GET` for `GetUpgradeStatus`) and sends a dataplane restart,
+  a reboot or a shutdown (`POST …/system/{restart-dataplane,reboot,shutdown}`). Each asks for the
+  router's name typed; an upgrade check (empty version) does not, as it changes nothing. A
+  refusal is shown in the box's words with what its reason means: `REASON_UNSAVED` and
+  `REASON_CONFIRM_PENDING` may then be forced (reboot, shutdown), `REASON_BUSY` says another run
+  is in progress, `REASON_PERMISSION` that the box gives these to root only. The fleet status
+  carries `maintenance` (what, since, until): from an upgrade's `STARTED` until
+  `api_away_seconds` after its `API_RESTART` (a `FAILED` ends it), and from a reboot or shutdown
+  until the box answers again a minute or more later. Every attempt is audited
+  (`router.system.*`). On the box these calls are root's today, so prisma-web's account is
+  refused there; granting them is the maintainer's and the user's decision. The mock without
+  `MOCK_SYSTEM_DENIED` lets them run (nothing really reboots; an upgrade to `0.149.26-mock` goes
+  through every phase, any other version fails with the run's output) and refuses a reboot while
+  a commit is not saved; prisma-mock-2 refuses them as the real box does. `--lab` sends only
+  `GetUpgradeStatus` and an upgrade check. On 2026-10-03 on 192.0.2.198 (0.149.25)
+  `GetUpgradeStatus` answered `NOT_FOUND` ("no upgrade was started through the API on this box",
+  read as no run), and the check was not refused to prisma-web's account: it came back `FAILED`,
+  "the newest release could not be read" (the box cannot read the releases).
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
