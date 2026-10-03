@@ -27,23 +27,25 @@ fn workers_floor(capacity: u64) -> u64 {
     capacity / 5 * 5 * 9 / 10
 }
 
-fn pool(st: &State) -> Pool {
+/// One pool of the running configuration; the simulated subscribers are on
+/// the seed's pool, the others are empty (#41).
+fn pool(st: &State, name: &str) -> Pool {
     let c = &st.running;
-    let block_size = c.pool_block_size().max(1);
-    let capacity = c.pool_outside_addresses() * u64::from(64_512 / block_size);
-    let subscribers = (st.subscribers as u64).min(capacity);
+    let block_size = c.pool_block_size(name).max(1);
+    let capacity = c.pool_outside_addresses(name) * u64::from(64_512 / block_size);
+    let subscribers = if name == config::SEED_POOL { (st.subscribers as u64).min(capacity) } else { 0 };
     Pool {
-        name: "RFC6598".into(),
-        mode: c.pool_line("mode ", "dynamic"),
-        policy: c.pool_line("policy ", "interleaved"),
+        name: name.into(),
+        mode: c.pool_line(name, "mode ", "dynamic"),
+        policy: c.pool_line(name, "policy ", "interleaved"),
         block_size,
-        prefixes_inside: c.pool_prefixes("prefix-inside "),
-        prefixes_outside: c.pool_prefixes("prefix-outside "),
+        prefixes_inside: c.pool_prefixes(name, "prefix-inside "),
+        prefixes_outside: c.pool_prefixes(name, "prefix-outside "),
         capacity,
         guaranteed: workers_floor(capacity),
         subscribers,
         ports_in_use: subscribers * 180,
-        refusals: st.refusals,
+        refusals: if name == config::SEED_POOL { st.refusals } else { 0 },
         sessions: subscribers * 35,
         ..Default::default()
     }
@@ -328,7 +330,8 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     async fn list_pools(&self, _: Request<ListPoolsRequest>) -> R<ListPoolsResponse> {
         let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
-        Ok(Response::new(ListPoolsResponse { pools: vec![pool(&st)], ..Default::default() }))
+        let pools = st.running.pool_names().iter().map(|n| pool(&st, n)).collect();
+        Ok(Response::new(ListPoolsResponse { pools, ..Default::default() }))
     }
 
     async fn get_subscriber(&self, req: Request<GetSubscriberRequest>) -> R<Subscriber> {
@@ -342,7 +345,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             return Err(Status::not_found(format!("no subscriber {address}")));
         };
         let st = self.shared.state.lock().unwrap();
-        let p = pool(&st);
+        let p = pool(&st, config::SEED_POOL);
         let h = u32::from(addr);
         let block_size = p.block_size.max(1);
         let block = |n: u32| {
@@ -362,7 +365,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     async fn get_sessions_summary(&self, _: Request<GetSessionsSummaryRequest>) -> R<SessionsSummary> {
         let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
-        let p = pool(&st);
+        let p = pool(&st, config::SEED_POOL);
         Ok(Response::new(SessionsSummary {
             sessions: p.sessions,
             sessions_fit: 4_000_000,
@@ -458,7 +461,8 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     async fn get_logging(&self, _: Request<GetLoggingRequest>) -> R<LoggingState> {
-        Ok(Response::new(self.shared.state.lock().unwrap().logs.state(chrono::Utc::now())))
+        let st = self.shared.state.lock().unwrap();
+        Ok(Response::new(st.logs.state(chrono::Utc::now(), &st.running.log_collectors())))
     }
 
     async fn show(&self, req: Request<ShowRequest>) -> R<ShowResponse> {
@@ -472,8 +476,8 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
                 "deliver" => false,
                 _ => return Err(Status::invalid_argument("mock log-export stall|deliver")),
             };
-            if !self.shared.state.lock().unwrap().logs.configured {
-                return Err(Status::failed_precondition("no log export configured (MOCK_LOG_EXPORT)"));
+            if self.shared.state.lock().unwrap().running.log_collectors().syslog.is_none() {
+                return Err(Status::failed_precondition("no syslog collector configured (MOCK_LOG_EXPORT, or logging syslog)"));
             }
             self.shared.set_log_stalled(stalled).await;
             return Ok(Response::new(ShowResponse { text: format!("log export {state}\n"), ..Default::default() }));

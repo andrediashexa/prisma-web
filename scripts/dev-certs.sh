@@ -6,6 +6,7 @@
 #   dev-certs/profiles/other-ca/  ca.crt of another CA                    -> the client MUST reject the server
 #   dev-certs/profiles/intruder/   right CA + client of another CA         -> the server MUST reject the client
 #   dev-certs/profiles/readonly/   ca.crt + noc.{crt,key}                  -> profile "dev/readonly": a read-only login (#28)
+#   dev-certs/profiles/cgnat/      ca.crt + cgnat-ops.{crt,key}            -> profile "dev/cgnat": a cgnat-operator login (#41)
 #
 # None of this is for a real Prisma: the box uses the operator's CA
 # (docs/prisma-api.md). dev-certs/ is ignored by git. Regenerates only with --force.
@@ -13,13 +14,13 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/dev-certs"
-if [ -d "$OUT/profiles/readonly" ] && [ "${1:-}" != "--force" ]; then
+if [ -d "$OUT/profiles/cgnat" ] && [ "${1:-}" != "--force" ]; then
   echo "dev-certs already exists (use --force to regenerate)"
   exit 0
 fi
 rm -rf "$OUT"
 umask 027
-mkdir -p "$OUT/ca" "$OUT/mock-server" "$OUT/profiles/mock" "$OUT/profiles/other-ca" "$OUT/profiles/intruder" "$OUT/profiles/readonly"
+mkdir -p "$OUT/ca" "$OUT/mock-server" "$OUT/profiles/mock" "$OUT/profiles/other-ca" "$OUT/profiles/intruder" "$OUT/profiles/readonly" "$OUT/profiles/cgnat"
 cd "$OUT/ca"
 
 ca() { # name, CN
@@ -40,6 +41,7 @@ sign dev-ca server prisma-api "subjectAltName=DNS:prisma-api,DNS:prisma-mock-2"
 sign dev-ca prisma-web-dev prisma-web-dev "extendedKeyUsage=clientAuth"
 sign other-ca intruder intruder "extendedKeyUsage=clientAuth"
 sign dev-ca noc noc "extendedKeyUsage=clientAuth"
+sign dev-ca cgnat-ops cgnat-ops "extendedKeyUsage=clientAuth"
 
 cp server.crt server.key "$OUT/mock-server/"
 cp dev-ca.crt "$OUT/mock-server/clients-ca.crt"
@@ -51,6 +53,8 @@ cp dev-ca.crt "$OUT/profiles/intruder/ca.crt"
 cp intruder.crt intruder.key "$OUT/profiles/intruder/"
 cp dev-ca.crt "$OUT/profiles/readonly/ca.crt"
 cp noc.crt noc.key "$OUT/profiles/readonly/"
+cp dev-ca.crt "$OUT/profiles/cgnat/ca.crt"
+cp cgnat-ops.crt cgnat-ops.key "$OUT/profiles/cgnat/"
 
 # openssl writes keys as 0600, ignoring the umask; the back end reads them through the group (0640, as on the real Prisma).
 chmod 0640 "$OUT"/mock-server/server.key "$OUT"/profiles/*/*.key

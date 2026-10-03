@@ -62,9 +62,10 @@ profile listing shows the account (CN), the CA and the validity, but never the c
 files.
 
 `prisma-mock-2` serves mTLS like the real Prisma. The `dev-certs` service generates a development
-CA and four profiles: `dev/mock` (valid), `dev/other-ca` (the client MUST refuse the server),
-`dev/intruder` (the server MUST refuse the client) and `dev/readonly` (CN `noc`, which the mock maps
-to a read-only login). `scripts/e2e.py` checks all four. The mock takes the account from the client
+CA and five profiles: `dev/mock` (valid), `dev/other-ca` (the client MUST refuse the server),
+`dev/intruder` (the server MUST refuse the client), `dev/readonly` (CN `noc`, which the mock maps
+to a read-only login) and `dev/cgnat` (CN `cgnat-ops`, a cgnat-operator, whose edits outside
+`nat > cgnat` the mock refuses like the box, #41). `scripts/e2e.py` checks all five. The mock takes the account from the client
 certificate's CN like the box, and its roles from `MOCK_ACCOUNTS`.
 
 ## Fleet status
@@ -240,6 +241,22 @@ sequenceDiagram
   A line no statement matches (FRR's own, the backplane VRF) is shown read-only. The box account's
   role decides what is editable (a cgnat-operator only the CGNAT modes). When the box answers
   `GetSchema` (Prisma 0.149.20) it replaces the coverage map as the source; the model stays.
+- **CGNAT forms (#41):** the **CGNAT** tab edits `nat > cgnat` without the generic editor: the
+  global settings (timeouts, block hold-down, inside and outside interfaces, subscriber identity,
+  session table and memory), the pools (create, edit, remove; prefixes, block size, mode, policy,
+  limits, filtering and ALGs, the rest of a pool through a link to Settings) and the log collectors
+  (syslog, IPFIX over TCP and UDP, each sent to a collector or disabled). `front/src/lib/cgnat-config.ts`
+  is the only place that reads those lines from the tree and writes them, so the typed GetConfig and
+  SetPool/SetLogging (Prisma 0.149.20) replace it alone. Changes are staged with
+  `useConfigChanges` (`front/src/hooks/use-config-changes.ts`, shared with Settings) and go
+  through ChangeReview, which keeps the gates. A form MUST say before the review what the gates
+  will ask: a new block size, a prefix change or a removed pool remaps subscribers, and disabling
+  a syslog that was never enabled is refused by the back before 0.149.8 (#31), whose reason the
+  review shows. A statement the VTY has no `no` form for (the global timeouts, a pool's block
+  size, mode and policy, a collector) can be changed, not cleared. A cgnat-operator gets these
+  forms and, outside `nat > cgnat`, nothing (Settings shows the rest read-only). The Log export
+  card reads GetLogging, which reports the collectors the configuration sets, so it follows a
+  commit; the mock derives its streams from its running configuration the same way.
 - **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,
   `mtu` and `shutdown` lines. They are an assumption until the Prisma confirms them.
 

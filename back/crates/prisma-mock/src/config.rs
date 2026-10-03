@@ -9,7 +9,16 @@ use std::net::IpAddr;
 use prisma_proto::v1::diagnostic::Severity;
 use prisma_proto::v1::Diagnostic;
 
+pub const CGNAT_PATH: [&str; 2] = ["nat", "cgnat"];
 pub const POOL_PATH: [&str; 3] = ["nat", "cgnat", "pool RFC6598"];
+/// The pool the seed configures; the simulated subscribers are on it.
+pub const SEED_POOL: &str = "RFC6598";
+/// The three CGNAT log collectors `MOCK_LOG_EXPORT=1` configures (#34, #41).
+pub const SEED_LOGGING: [&str; 3] = [
+    "logging syslog 192.0.2.50 enterprise 32473",
+    "logging tcp 192.0.2.51",
+    "logging udp 192.0.2.52 src 203.0.113.10",
+];
 pub const BGP_PATH: [&str; 1] = ["router bgp 65000"];
 
 #[derive(Clone, PartialEq)]
@@ -33,6 +42,72 @@ pub struct Config {
     pub hostname: String,
     pub interfaces: Vec<Iface>,
     pub blocks: Vec<Block>,
+}
+
+/// A CGNAT log collector as a `logging udp|tcp|syslog` line configures it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Collector {
+    pub address: String,
+    pub port: u32,
+    /// `src` of `logging udp`.
+    pub source: String,
+}
+
+impl Collector {
+    pub fn endpoint(&self) -> String {
+        if self.address.contains(':') {
+            format!("[{}]:{}", self.address, self.port)
+        } else {
+            format!("{}:{}", self.address, self.port)
+        }
+    }
+}
+
+/// The collectors of each stream; `None` when the stream is not configured,
+/// disabled, or the whole export is (`logging disable`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Collectors {
+    pub syslog: Option<Collector>,
+    pub tcp: Option<Collector>,
+    pub udp: Option<Collector>,
+}
+
+/// The line's key when only one line with it can exist in a block, so a new
+/// value replaces the old one as the VTY does (`timeout udp 300` after
+/// `timeout udp 120`); `None` for lines that accumulate (prefixes, bypasses).
+fn single_key(line: &str) -> Option<String> {
+    let w: Vec<&str> = line.split_whitespace().collect();
+    match w.as_slice() {
+        ["logging", "enable" | "disable"] => Some("logging".into()),
+        [a @ ("timeout" | "alg" | "logging" | "interface"), b, ..] => Some(format!("{a} {b}")),
+        [k, ..]
+            if matches!(
+                *k,
+                "block-size"
+                    | "mode"
+                    | "policy"
+                    | "block-holddown"
+                    | "max-blocks"
+                    | "initial-allocation"
+                    | "block-stride"
+                    | "reserve"
+                    | "utilisation-alarm"
+                    | "max-sessions"
+                    | "max-session-rate"
+                    | "tcp-mss"
+                    | "filter"
+                    | "vrf"
+                    | "outside-vrf"
+                    | "ports"
+                    | "identity"
+                    | "session-table"
+                    | "memory"
+            ) =>
+        {
+            Some((*k).into())
+        }
+        _ => None,
+    }
 }
 
 /// Refusal of a line: the VTY message and the matching diagnostic.
@@ -109,33 +184,76 @@ impl Config {
         self.blocks.iter().find(|b| b.path.iter().map(String::as_str).eq(path.iter().copied()))
     }
 
-    pub fn pool_block_size(&self) -> u32 {
-        self.block(&POOL_PATH)
-            .and_then(|b| b.lines.iter().find_map(|l| l.strip_prefix("block-size ")))
+    /// Names of the CGNAT pools, in the order they appear.
+    pub fn pool_names(&self) -> Vec<String> {
+        let cgnat = CGNAT_PATH.map(String::from);
+        self.children(&cgnat).iter().filter_map(|c| c.strip_prefix("pool ")).map(|n| n.trim().to_string()).collect()
+    }
+
+    fn pool_lines(&self, pool: &str) -> &[String] {
+        self.block(&["nat", "cgnat", &format!("pool {pool}")]).map_or(&[], |b| &b.lines)
+    }
+
+    pub fn pool_block_size(&self, pool: &str) -> u32 {
+        self.pool_lines(pool)
+            .iter()
+            .find_map(|l| l.strip_prefix("block-size "))
             .and_then(|v| v.trim().parse().ok())
             .unwrap_or(256)
     }
 
     /// The pool's `prefix-outside` addresses (for the capacity).
-    pub fn pool_outside_addresses(&self) -> u64 {
-        self.pool_prefixes("prefix-outside ")
+    pub fn pool_outside_addresses(&self, pool: &str) -> u64 {
+        self.pool_prefixes(pool, "prefix-outside ")
             .iter()
             .filter_map(|p| p.split_once('/').and_then(|(_, l)| l.parse::<u32>().ok()))
             .map(|len| 1u64 << (32 - len.min(32)))
             .sum()
     }
 
-    pub fn pool_prefixes(&self, keyword: &str) -> Vec<String> {
-        self.block(&POOL_PATH)
-            .map(|b| b.lines.iter().filter_map(|l| l.strip_prefix(keyword)).map(|s| s.trim().to_string()).collect())
-            .unwrap_or_default()
+    pub fn pool_prefixes(&self, pool: &str, keyword: &str) -> Vec<String> {
+        self.pool_lines(pool).iter().filter_map(|l| l.strip_prefix(keyword)).map(|s| s.trim().to_string()).collect()
     }
 
-    pub fn pool_line(&self, keyword: &str, default: &str) -> String {
-        self.block(&POOL_PATH)
-            .and_then(|b| b.lines.iter().find_map(|l| l.strip_prefix(keyword)))
+    pub fn pool_line(&self, pool: &str, keyword: &str, default: &str) -> String {
+        self.pool_lines(pool)
+            .iter()
+            .find_map(|l| l.strip_prefix(keyword))
             .map(|s| s.trim().to_string())
             .unwrap_or_else(|| default.to_string())
+    }
+
+    /// The log collectors `nat > cgnat` configures (#41): what GetLogging reports.
+    pub fn log_collectors(&self) -> Collectors {
+        let mut c = Collectors::default();
+        let lines = self.block(&CGNAT_PATH).map_or(&[][..], |b| &b.lines[..]);
+        if lines.iter().any(|l| l.trim() == "logging disable") {
+            return c;
+        }
+        for l in lines {
+            let w: Vec<&str> = l.split_whitespace().collect();
+            if w.first() != Some(&"logging") {
+                continue;
+            }
+            let (slot, default_port) = match w.get(1).copied() {
+                Some("syslog") => (&mut c.syslog, 601),
+                Some("tcp") => (&mut c.tcp, 4739),
+                Some("udp") => (&mut c.udp, 4739),
+                _ => continue,
+            };
+            *slot = match w.get(2).copied() {
+                None | Some("disable") => None,
+                Some(address) => {
+                    let after = |k: &str| w.iter().position(|x| *x == k).and_then(|i| w.get(i + 1)).map(|v| v.to_string());
+                    Some(Collector {
+                        address: address.into(),
+                        port: after("port").and_then(|p| p.parse().ok()).unwrap_or(default_port),
+                        source: after("src").unwrap_or_default(),
+                    })
+                }
+            };
+        }
+        c
     }
 
     pub fn bgp_neighbors(&self) -> Vec<(String, u32)> {
@@ -280,6 +398,21 @@ impl Config {
     }
 
     fn edit_block(&mut self, path: &[String], line: &str) {
+        if let Some(rest) = line.strip_prefix("no ").map(str::trim) {
+            // `no pool P` under `nat > cgnat` removes the pool and what is in it.
+            let mut child = path.to_vec();
+            child.push(rest.to_string());
+            self.blocks.retain(|b| !b.path.starts_with(&child));
+            if let Some(b) = self.blocks.iter_mut().find(|b| b.path == path) {
+                let before = b.lines.len();
+                b.lines.retain(|l| l != rest);
+                // `no max-blocks`, `no interface wan0`: the line whatever its value.
+                if b.lines.len() == before {
+                    b.lines.retain(|l| !l.starts_with(&format!("{rest} ")));
+                }
+            }
+            return;
+        }
         let idx = match self.blocks.iter().position(|b| b.path == path) {
             Some(i) => i,
             None => {
@@ -288,14 +421,9 @@ impl Config {
             }
         };
         let lines = &mut self.blocks[idx].lines;
-        if let Some(rest) = line.strip_prefix("no ") {
-            lines.retain(|l| l != rest.trim());
-            return;
-        }
-        // Single-value keywords replace the existing line.
-        let key = line.split_whitespace().next().unwrap_or_default();
-        if matches!(key, "block-size" | "mode" | "policy") {
-            if let Some(existing) = lines.iter_mut().find(|l| l.split_whitespace().next() == Some(key)) {
+        // Single-value statements replace the existing line.
+        if let Some(key) = single_key(line) {
+            if let Some(existing) = lines.iter_mut().find(|l| single_key(l).as_deref() == Some(key.as_str())) {
                 *existing = line.to_string();
                 return;
             }
@@ -397,7 +525,7 @@ mod tests {
         assert!(text.contains("nat\n cgnat\n  pool RFC6598\n   prefix-inside 100.64.0.0/10\n"));
         c.edit(&p(&["interface wan0"]), &p(&["mtu 9000", "no description"])).ok().unwrap();
         c.edit(&p(&POOL_PATH), &p(&["block-size 512"])).ok().unwrap();
-        assert_eq!(c.pool_block_size(), 512);
+        assert_eq!(c.pool_block_size(SEED_POOL), 512);
         let err = c.edit(&p(&["interface wan0"]), &p(&["mtu 1400", "mtu 1000"])).err().unwrap();
         assert_eq!(err.message, "mtu must be between 1280 and 9216");
         assert_eq!(c.iface("wan0").unwrap().mtu, 1400, "lines before the refusal are kept");
@@ -431,6 +559,43 @@ mod tests {
         assert!(d.contains("-  mtu 1500"), "{d}");
         assert!(d.contains("+  mtu 9000"), "{d}");
         assert!(compare(&a.render(), &a.render()).is_empty());
+    }
+
+    #[test]
+    fn pools_are_added_replaced_and_removed() {
+        let mut c = Config::seed("x");
+        let pool = p(&["nat", "cgnat", "pool BIZ"]);
+        c.edit(&pool, &p(&["prefix-inside 10.0.0.0/8", "prefix-outside 198.51.100.0/28", "block-size 512", "max-blocks 4"])).ok().unwrap();
+        c.edit(&pool, &p(&["max-blocks 8", "alg ftp off", "alg ftp on", "prefix-outside 198.51.100.16/28"])).ok().unwrap();
+        assert_eq!(c.pool_names(), ["RFC6598", "BIZ"]);
+        assert_eq!(c.pool_line("BIZ", "max-blocks ", "-"), "8");
+        assert_eq!(c.pool_line("BIZ", "alg ftp ", "-"), "on");
+        assert_eq!(c.pool_outside_addresses("BIZ"), 32, "two prefixes accumulate");
+        c.edit(&pool, &p(&["no max-blocks", "no prefix-outside 198.51.100.0/28"])).ok().unwrap();
+        assert_eq!(c.pool_line("BIZ", "max-blocks ", "-"), "-");
+        assert_eq!(c.pool_prefixes("BIZ", "prefix-outside "), ["198.51.100.16/28"]);
+        c.edit(&p(&CGNAT_PATH), &p(&["interface wan0 outside", "interface wan0 inside", "no pool BIZ"])).ok().unwrap();
+        assert_eq!(c.pool_names(), ["RFC6598"]);
+        assert!(c.render().contains("  interface wan0 inside\n"), "{}", c.render());
+        c.edit(&p(&CGNAT_PATH), &p(&["no interface wan0"])).ok().unwrap();
+        assert!(!c.render().contains("interface wan0 inside"));
+    }
+
+    #[test]
+    fn log_collectors_follow_the_logging_lines() {
+        let mut c = Config::seed("x");
+        assert_eq!(c.log_collectors(), Collectors::default());
+        c.edit(&p(&CGNAT_PATH), &p(&SEED_LOGGING)).ok().unwrap();
+        let l = c.log_collectors();
+        assert_eq!(l.syslog.unwrap().endpoint(), "192.0.2.50:601");
+        assert_eq!(l.tcp.unwrap().endpoint(), "192.0.2.51:4739");
+        assert_eq!(l.udp.as_ref().unwrap().source, "203.0.113.10");
+        c.edit(&p(&CGNAT_PATH), &p(&["logging udp 2001:db8::9 src 2001:db8::1 port 2055", "logging tcp disable"])).ok().unwrap();
+        let l = c.log_collectors();
+        assert_eq!(l.udp.unwrap().endpoint(), "[2001:db8::9]:2055", "a new collector replaces the old one");
+        assert!(l.tcp.is_none() && l.syslog.is_some());
+        c.edit(&p(&CGNAT_PATH), &p(&["logging disable"])).ok().unwrap();
+        assert_eq!(c.log_collectors(), Collectors::default(), "logging disable turns the whole export off");
     }
 
     #[test]
