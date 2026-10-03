@@ -475,7 +475,7 @@ def clear_checks(admin, R, router_id):
     st, b = admin.post(f"{R}/clear", {"target": "interface_counters", "name": "two words"})
     check(st == 400 or st == 422, "a name that is not one word is refused (INVALID_ARGUMENT)", b)
     st, b = admin.post(f"{R}/clear", {"target": "everything"})
-    check(st == 400, "an unknown target is refused before the box", b)
+    check(st == 422 and b["error"]["code"] == "invalid", "an unknown target is refused before the box", b)
     st, audit = admin.get(f"/audit?router_id={router_id}&action=router.clear&limit=20")
     items = audit["items"]
     check(any(e["success"] and e["details"].get("command") == f"clear ip bgp {peer} soft in" for e in items)
