@@ -16,6 +16,19 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.13.0 - Commit facts from the box — 2026-10-03
+
+### New
+- The configuration editor shows when Prisma closes the change if it is left idle (Prisma 0.149.18 or newer) (#37).
+- The pending commit-confirmed banner warns when the deadline has passed and the box failed to roll back (#37).
+
+### Fixed
+- The pending commit-confirmed banner no longer disappears when the back end restarts during the window: it is read from the box (Prisma 0.149.18 or newer) (#37).
+- A candidate the box does not know (closed elsewhere) is no longer reported as expired (#37).
+
+### Internal
+- Client regenerated from the Prisma 0.149.18 contract (additions only). Refusal reasons, the candidate expiry and the pending window come from the box; the previous rules remain for older boxes (#37).
+
 ## 0.12.1 - Prisma API coverage — 2026-10-03
 
 ### Internal
