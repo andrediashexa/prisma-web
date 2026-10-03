@@ -184,11 +184,11 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.20 | `4cdfee65edf97ae1239d5c4a18648250b04a0d08ff4d4b6106b117e47ea86c09` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.20 | `6d1a3803982b1c72e004c024ca7b0fd1f0b842089a963da7c27919e81a9b9df3` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.20 | `f0bc0dc8898389700ba1725a82882a3dc374cabb8e59ac3d1776f86e2c102397` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.21 | `4cdfee65edf97ae1239d5c4a18648250b04a0d08ff4d4b6106b117e47ea86c09` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.21 | `6d1a3803982b1c72e004c024ca7b0fd1f0b842089a963da7c27919e81a9b9df3` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.21 | `f0bc0dc8898389700ba1725a82882a3dc374cabb8e59ac3d1776f86e2c102397` |
 
-Read up to 0.149.20 in `clients.md` and already handled:
+Read up to 0.149.21 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -252,6 +252,10 @@ Read up to 0.149.20 in `clients.md` and already handled:
   guard reads `configured` from `GetConfig` (#44). The dedicated forms (#40, #41, #42/#43) still
   write lines through `Edit`; moving interfaces, pools and collectors to `SetConfig` is its own issue.
   The coverage map also gained `<A.B.C.D|X:X::X:X>` for a value of either family.
+- 0.149.21 fixes two box-side bugs. An account with no configuration role waited about 90 s for any
+  read of the running configuration; prisma-web gives those reads (`GetRunning`, `GetConfig`) a
+  120 s deadline, as `clients.md` asks for older boxes (#44). And `no mtu` now really returns an
+  interface to the default MTU; the running configuration still names an MTU for every interface.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

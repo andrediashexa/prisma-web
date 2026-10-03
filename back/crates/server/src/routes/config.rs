@@ -193,7 +193,7 @@ fn cref(cid: &str) -> CandidateRef {
 
 pub async fn running(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<ConfigText>> {
     let r = st.routers.get(id).await?;
-    Ok(Json(r.config().get_running(req(GetRunningRequest {})).await?.into_inner()))
+    Ok(Json(r.config().get_running(crate::grpc::req_with(GetRunningRequest {}, crate::grpc::RUNNING_TIMEOUT)).await?.into_inner()))
 }
 
 pub async fn revisions(
@@ -421,11 +421,11 @@ pub async fn commit(
     if adds_syslog_disable(&diff) {
         let release = r.ops().get_version(req(GetVersionRequest {})).await?.into_inner().release;
         // The box says whether a syslog collector is configured (Prisma 0.149.20); else read the text.
-        let typed = r.config().get_config(req(GetConfigRequest { areas: vec!["logging".into()], ..Default::default() })).await.ok();
+        let typed = r.config().get_config(crate::grpc::req_with(GetConfigRequest { areas: vec!["logging".into()], ..Default::default() }, crate::grpc::RUNNING_TIMEOUT)).await.ok();
         let running = match typed.and_then(|c| c.into_inner().logging) {
             Some(l) if l.collectors.iter().any(|c| c.transport == "syslog" && c.configured) => "logging syslog configured".to_string(),
             Some(_) => String::new(),
-            None => r.config().get_running(req(GetRunningRequest {})).await?.into_inner().text,
+            None => r.config().get_running(crate::grpc::req_with(GetRunningRequest {}, crate::grpc::RUNNING_TIMEOUT)).await?.into_inner().text,
         };
         if syslog_disable_hazard(&release, &running, &diff) {
             return Err(AppError::Conflict(format!(
@@ -504,7 +504,7 @@ pub async fn commit(
                 Some(stale) => stale,
                 // A box before 0.149.18: compare the candidate's base with the running revision.
                 None if status.code() == tonic::Code::FailedPrecondition => {
-                    let running = r.config().get_running(req(GetRunningRequest {})).await.ok().map(|r| r.into_inner().revision);
+                    let running = r.config().get_running(crate::grpc::req_with(GetRunningRequest {}, crate::grpc::RUNNING_TIMEOUT)).await.ok().map(|r| r.into_inner().revision);
                     let base = st.candidates.base_revision(&cid);
                     is_stale(base.as_deref(), running.as_deref(), st.routers.telemetry.pending(id).is_some())
                 }
@@ -820,13 +820,13 @@ pub async fn tree(
             st.candidates.check(id, cid, &user)?;
             r.config().show_candidate(req(cref(cid))).await.map_err(gone(&st, cid))?.into_inner()
         }
-        None => r.config().get_running(req(GetRunningRequest {})).await?.into_inner(),
+        None => r.config().get_running(crate::grpc::req_with(GetRunningRequest {}, crate::grpc::RUNNING_TIMEOUT)).await?.into_inner(),
     };
     let (_, modes) = modes_for(&r).await;
     let nodes = crate::config_model::tree(&text.text);
     let mut instances = crate::config_model::instances(&nodes, &modes);
     let owned_req = GetConfigRequest { candidate_id: cid.unwrap_or_default(), areas: vec!["logging".into()], ..Default::default() };
-    if let Ok(c) = r.config().get_config(req(owned_req)).await {
+    if let Ok(c) = r.config().get_config(crate::grpc::req_with(owned_req, crate::grpc::RUNNING_TIMEOUT)).await {
         let owned: HashMap<String, String> = c.into_inner().box_owned.into_iter().map(|o| (o.line.trim().to_string(), o.why)).collect();
         for l in instances.iter_mut().flat_map(|i| i.lines.iter_mut()) {
             if let Some(why) = owned.get(l.text.trim()) {
