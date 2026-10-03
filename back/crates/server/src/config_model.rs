@@ -91,6 +91,8 @@ pub static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
 /// coverage map's: each statement's words, then its forms as alternatives,
 /// each argument typed by the box (#44).
 pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
+    // From Prisma 0.149.24 each argument says where it stands among the words (#47).
+    let positional = release_at_least(&schema.release, (0, 149, 24));
     schema
         .modes
         .iter()
@@ -100,9 +102,50 @@ pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
             path_tokens: m.path.iter().map(|e| parse_syntax(e)).collect(),
             path: m.path.clone(),
             roles: m.roles.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect(),
-            groups: vec![Group { title: m.mode.clone(), statements: m.statements.iter().map(statement_from_schema).collect() }],
+            groups: vec![Group {
+                title: m.mode.clone(),
+                statements: m.statements.iter().map(|s| if positional { statement_positional(s) } else { statement_from_schema(s) }).collect(),
+            }],
         })
         .collect()
+}
+
+fn release_at_least(release: &str, min: (u32, u32, u32)) -> bool {
+    let core = release.trim().trim_start_matches('v').split([' ', '-', '+', '(']).next().unwrap_or_default();
+    let mut it = core.split('.').map(|n| n.parse::<u32>().ok());
+    matches!((it.next().flatten(), it.next().flatten(), it.next().flatten()), (Some(a), Some(b), Some(c)) if (a, b, c) >= min)
+}
+
+/// A 0.149.24 schema statement: literal `words`, each argument at its
+/// `position` among them (`neighbor <address> remote-as <asn>` is words
+/// [neighbor, remote-as] with the address at 1 and the AS at 2) (#47).
+fn statement_positional(s: &prisma_proto::v1::SchemaStatement) -> Statement {
+    let mut next_id = 0usize;
+    let mut forms: Vec<Vec<Tok>> = vec![];
+    let shapes: Vec<&[prisma_proto::v1::SchemaArgument]> =
+        if s.forms.is_empty() { vec![&[]] } else { s.forms.iter().map(|f| f.arguments.as_slice()).collect() };
+    for args in shapes {
+        let mut toks = vec![];
+        for i in 0..=s.words.len() {
+            let here: Vec<prisma_proto::v1::SchemaArgument> = args.iter().filter(|a| a.position as usize == i).cloned().collect();
+            toks.extend(form_tokens(&here, &mut next_id));
+            if let Some(w) = s.words.get(i) {
+                toks.push(Tok::Word { w: w.clone() });
+            }
+        }
+        forms.push(toks);
+    }
+    // The words every form starts with stay in front; the forms differ after them.
+    let common = (0..forms.iter().map(Vec::len).min().unwrap_or(0))
+        .take_while(|&i| matches!(&forms[0][i], Tok::Word { .. }) && forms.iter().all(|f| f[i] == forms[0][i]))
+        .count();
+    let mut tokens: Vec<Tok> = forms[0][..common].to_vec();
+    match forms.len() {
+        1 => tokens.extend(forms.pop().unwrap().split_off(common)),
+        _ => tokens.push(Tok::Alt { options: forms.into_iter().map(|mut f| f.split_off(common)).collect() }),
+    }
+    let syntax = prisma_proto::vty::describe(&tokens);
+    Statement { syntax, class: if s.typed { "typed".into() } else { "text".into() }, tokens }
 }
 
 fn statement_from_schema(s: &prisma_proto::v1::SchemaStatement) -> Statement {
@@ -200,7 +243,8 @@ fn arg_token(a: &prisma_proto::v1::SchemaArgument, next_id: &mut usize, last: bo
     };
     let id = *next_id;
     *next_id += 1;
-    Tok::Param { id, label, kind, prefix: String::new(), rest: a.kind == "text" && last }
+    // `text` takes the rest of the line; so does `many` (several values to the end, 0.149.24).
+    Tok::Param { id, label, kind: if a.many { Kind::Text } else { kind }, prefix: String::new(), rest: (a.kind == "text" || a.many) && last }
 }
 
 /// A line of the configuration and the lines under it.
@@ -567,6 +611,38 @@ mod tests {
         let l = classify(&mode, "logging syslog 192.0.2.196 port 1601 enterprise 67033 facility 16 severity 6");
         assert!(l.statement.is_some(), "port before enterprise");
         assert!(classify(&mode, "logging syslog 192.0.2.196 enterprise 67033 bogus 1").statement.is_none());
+    }
+
+    #[test]
+    fn a_0_149_24_schema_places_arguments_among_the_words() {
+        use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
+        let arg = |name: &str, kind: &str, position: u32| SchemaArgument { name: name.into(), kind: kind.into(), position, ..Default::default() };
+        let schema = |release: &str| ConfigSchema {
+            release: release.into(),
+            modes: vec![SchemaMode {
+                mode: "router bgp".into(),
+                path: vec!["router bgp <asn>".into()],
+                statements: vec![
+                    SchemaStatement {
+                        words: vec!["neighbor".into(), "remote-as".into()],
+                        forms: vec![
+                            SchemaForm { arguments: vec![arg("<address>", "address", 1), SchemaArgument { name: "<1-4294967295>".into(), kind: "integer".into(), min: 1, max: 4294967295, position: 2, ..Default::default() }] },
+                            SchemaForm { arguments: vec![arg("<address>", "address", 1), SchemaArgument { name: "internal|external".into(), kind: "choice".into(), choices: vec!["internal".into(), "external".into()], position: 2, ..Default::default() }] },
+                        ],
+                        ..Default::default()
+                    },
+                    SchemaStatement { words: vec!["next-hop".into()], forms: vec![SchemaForm { arguments: vec![arg("<prefix>", "prefix", 0), arg("<next-hop>", "address", 1)] }], ..Default::default() },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let m = &from_schema(&schema("0.149.24"))[0];
+        let st = &m.groups[0].statements;
+        assert!(match_line(&st[0].tokens, &w("neighbor 192.0.2.10 remote-as 65000")).is_some(), "{}", st[0].syntax);
+        assert!(match_line(&st[0].tokens, &w("neighbor 192.0.2.10 remote-as internal")).is_some());
+        assert!(match_line(&st[1].tokens, &w("0.0.0.0/0 next-hop 192.0.2.10")).is_some(), "{}", st[1].syntax);
+        assert!(release_at_least("0.149.24", (0, 149, 24)) && !release_at_least("0.149.22", (0, 149, 24)));
     }
 
     #[test]

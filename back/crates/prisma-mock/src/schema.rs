@@ -55,7 +55,7 @@ pub fn schema() -> ConfigSchema {
     }
     ConfigSchema {
         modes,
-        release: "0.149.20-mock".into(),
+        release: "0.149.24-mock".into(),
         digest: "mock".into(),
         box_owned: BOX_OWNED.iter().map(|(p, w)| BoxOwnedStatement { pattern: (*p).into(), why: (*w).into(), ..Default::default() }).collect(),
         ..Default::default()
@@ -74,6 +74,13 @@ fn statement(path: &[String], syntax: &str) -> SchemaStatement {
         [] => vec![],
         _ => vec![SchemaForm { arguments: args(rest, false), ..Default::default() }],
     };
+    // As 0.149.24 places them: every argument after the leading words (#47).
+    let mut forms = forms;
+    for f in &mut forms {
+        for a in &mut f.arguments {
+            a.position = words.len() as u32;
+        }
+    }
     SchemaStatement { removable: true, no_words: words.clone(), words, forms, ..Default::default() }
 }
 
