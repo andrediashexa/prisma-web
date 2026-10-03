@@ -14,6 +14,8 @@ export interface ConfigChange {
   label: string
   /** Staging again with the same key replaces the change (a form edited twice). */
   key?: string
+  /** What the user should know before the review (a remap the gates will ask about), shown with the change (#41). */
+  warning?: string
 }
 
 /** The VTY refused a line while the changes were applied to the candidate. */
