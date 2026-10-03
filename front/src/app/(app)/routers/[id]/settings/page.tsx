@@ -5,6 +5,7 @@ import { useMemo, useState } from "react"
 import useSWR from "swr"
 import { PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react"
 
+import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
 import { StatementForm } from "@/components/config/statement-form"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +18,7 @@ import { useConfigChanges, type ConfigChange } from "@/hooks/use-config-changes"
 import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { fetcher } from "@/lib/api"
 import {
+  boxAllows,
   buildLine,
   describe,
   emptyForm,
@@ -28,7 +30,7 @@ import {
   type Mode,
   type Statement,
 } from "@/lib/config-model"
-import { roleAtLeast, routerApi, type WhoAmI } from "@/lib/types"
+import { roleAtLeast, routerApi } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /** A mode instance added in this session, before its first line exists on the box. */
@@ -44,22 +46,16 @@ function sameHeads(template: string[], concrete: string[]) {
   return template.length === concrete.length && template.every((t, i) => t.split(" ")[0] === concrete[i].split(" ")[0])
 }
 
-/** Whether the box account may change a mode (#28, #39): CGNAT modes are open to a cgnat-operator. */
-function boxAllows(access: WhoAmI | null, m: Mode) {
-  if (!access) return true
-  return access.can_configure || (access.can_configure_cgnat && m.roles.includes("cgnat-operator"))
-}
-
 export default function SettingsPage() {
   const { id } = useParams<{ id: string }>()
   const myRole = useRouterRole(id)
   const { access, readOnly } = useRouterAccess(id)
   const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
   const { data: tree, mutate } = useSWR<{ revision: string; instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
-  // `?at=nat > cgnat > pool P` opens that part (the CGNAT forms link here for the rest of a pool).
+  // `?at=interface wan0` opens that instance (the Interfaces page links here, #40).
   const at = useSearchParams().get("at")
   const [selected, setSelected] = useState(at ?? "config")
-  const changes = useConfigChanges(id)
+  const cc = useConfigChanges(id)
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [editing, setEditing] = useState<{ statement: Statement; path: string[]; form: FormState; old?: string } | null>(null)
   const [adding, setAdding] = useState<{ path: string[]; mode: Mode } | null>(null)
@@ -93,7 +89,7 @@ export default function SettingsPage() {
     current.path.length > 0 &&
     !!parentMode?.groups.some((g) => g.statements.some((s) => s.syntax.startsWith(`no ${current.path.at(-1)!.split(" ")[0]} `)))
 
-  const stage = (e: ConfigChange) => changes.stage(e)
+  const stage = (e: ConfigChange) => cc.stage(e)
 
   // Navigation: the top level, then every instance under its mode's title.
   const nav = new Map<string, Instance[]>()
@@ -220,15 +216,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        <StagedChanges
-          routerId={id}
-          changes={changes}
-          reviewTitle="Apply settings"
-          onCommitted={() => {
-            setDrafts([])
-            void mutate()
-          }}
-        />
+        <StagedChanges cc={cc} />
       </div>
 
       <AddDialog
@@ -259,6 +247,18 @@ export default function SettingsPage() {
           setDrafts((d) => [...d, { mode: c.mode.key, path }])
           setSelected(key(path))
           setCreating(null)
+        }}
+      />
+      <ChangeReview
+        routerId={id}
+        candidateId={cc.candidateId}
+        title="Apply settings"
+        onClose={cc.closeReview}
+        onStale={cc.reopen}
+        onCommitted={() => {
+          cc.committed()
+          setDrafts([])
+          void mutate()
         }}
       />
     </div>

@@ -11,7 +11,7 @@ The key words MUST, MUST NOT, SHOULD and MAY follow [RFC 2119](https://www.rfc-e
 
 | 5W2H | |
 |---|---|
-| **What** | Every configuration area editable through forms (**Settings**); dashboard (with memory, per-worker dataplane load and link utilization), configuration, CGNAT (with forms for its settings, pools and log collectors), routing (with a paged, filterable route table and a RIB/FIB summary), the CGNAT log export, routing policies (with per-term counters and a policy test) and console for each Prisma; a per-user widget homepage; local accounts and a change log. |
+| **What** | Every configuration area editable through forms (**Settings**), with a dedicated form for ports and bundles (addresses validated, dual stack); dashboard (with memory, per-worker dataplane load and link utilization), configuration, CGNAT (with forms for its settings, pools and log collectors), routing (with a paged, filterable route table and a RIB/FIB summary), the CGNAT log export, routing policies (with per-term counters and a policy test) and console for each Prisma; a per-user widget homepage; local accounts and a change log. |
 | **Why** | Touching a production router through the web is only acceptable if every change is reviewed first, can undo itself, and is recorded with its author and diff. |
 | **Who** | Administrators (users and router registration), operators (changes and console) and read-only users. |
 | **Where** | A host with Docker that can reach the gRPC port of each Prisma. |

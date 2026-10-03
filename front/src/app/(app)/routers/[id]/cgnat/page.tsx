@@ -8,6 +8,7 @@ import { Loader2Icon, PencilIcon, PlusIcon, SearchIcon, SettingsIcon, Trash2Icon
 import { GlobalDialog } from "@/components/cgnat/global-dialog"
 import { LOG_KIND_LABEL, LoggingDialog } from "@/components/cgnat/logging-dialog"
 import { PoolDialog } from "@/components/cgnat/pool-dialog"
+import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
 import { LogExportCard } from "@/components/log-export-card"
 import { CgnatWidget } from "@/components/widgets/cgnat-widget"
@@ -17,10 +18,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useConfigChanges } from "@/hooks/use-config-changes"
+import { useConfigChanges, type ConfigChange } from "@/hooks/use-config-changes"
 import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, errorMessage, fetcher } from "@/lib/api"
 import {
+  CGNAT_PATH,
   GLOBAL_TIMEOUTS,
   LOG_KINDS,
   poolRemoval,
@@ -29,13 +31,13 @@ import {
   type CgnatConfig,
   type PoolConfig,
 } from "@/lib/cgnat-config"
-import type { Instance } from "@/lib/config-model"
+import { boxAllows, type Instance } from "@/lib/config-model"
 import { formatNumber } from "@/lib/format"
-import { roleAtLeast, routerApi, type Pool, type RouterInterface, type Subscriber, type WhoAmI } from "@/lib/types"
+import { roleAtLeast, routerApi, type Pool, type RouterInterface, type Subscriber } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-/** Whether the box account may change `nat > cgnat` (#28, #41): an administrator or a cgnat-operator. */
-const boxAllowsCgnat = (a: WhoAmI | null) => !a || a.can_configure || a.can_configure_cgnat
+/** `nat > cgnat` is changed by an administrator or a cgnat-operator (the grammar's roles, #28, #41). */
+const CGNAT_ROLES = { roles: ["administrator", "cgnat-operator"] }
 
 export default function CgnatPage() {
   const { id } = useParams<{ id: string }>()
@@ -44,12 +46,14 @@ export default function CgnatPage() {
   const { data } = useSWR<{ pools: Pool[] }>(routerApi(id, "/pools"), fetcher, { refreshInterval: 10_000 })
   const { data: tree } = useSWR<{ revision: string; instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
   const { data: ifaces } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(id, "/interfaces"), fetcher)
-  const changes = useConfigChanges(id)
+  const cc = useConfigChanges(id)
   const [editing, setEditing] = useState<"global" | "logging" | { pool: PoolConfig | null } | null>(null)
 
   const config = useMemo(() => (tree ? readCgnat(tree.instances) : null), [tree])
-  const canChange = roleAtLeast(myRole, "operator") && !readOnly && boxAllowsCgnat(access)
-  const staged = (group: string) => changes.staged.some((c) => c.group === group)
+  const canChange = roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, CGNAT_ROLES)
+  const staged = (key: string) => cc.changes.some((c) => c.key === key)
+  // Each form stages at most one change, keyed so that editing it again replaces it.
+  const stageAs = (key: string, list: ConfigChange[]) => cc.stage({ ...(list[0] ?? { path: CGNAT_PATH, lines: [], label: "" }), key })
 
   // Every pool the configuration names, with the box's numbers when it reports them.
   const rows = useMemo(() => {
@@ -63,7 +67,7 @@ export default function CgnatPage() {
 
   return (
     <>
-      <StagedChanges routerId={id} changes={changes} reviewTitle="Apply CGNAT changes" />
+      <StagedChanges cc={cc} />
       <CgnatWidget routerId={id} title="Sessions and subscribers" />
 
       {config ? (
@@ -181,7 +185,7 @@ export default function CgnatPage() {
                               variant="ghost"
                               className="text-destructive size-8"
                               aria-label={`Remove pool ${name}`}
-                              onClick={() => changes.stage(poolRemoval(pc), `pool:${name}`)}
+                              onClick={() => cc.stage({ ...poolRemoval(pc), key: `pool:${name}` })}
                             >
                               <Trash2Icon />
                             </Button>
@@ -206,13 +210,13 @@ export default function CgnatPage() {
             open={editing === "global"}
             interfaces={ifaces?.interfaces.map((i) => i.name) ?? config.global.interfaces.map((i) => i.name)}
             onClose={() => setEditing(null)}
-            onStage={(c) => changes.stage(c, "cgnat-global")}
+            onStage={(c) => stageAs("cgnat-global", c)}
           />
           <LoggingDialog
             current={config.logging}
             open={editing === "logging"}
             onClose={() => setEditing(null)}
-            onStage={(c) => changes.stage(c, "cgnat-logging")}
+            onStage={(c) => stageAs("cgnat-logging", c)}
           />
           <PoolDialog
             routerId={id}
@@ -220,10 +224,18 @@ export default function CgnatPage() {
             open={typeof editing === "object" && !!editing}
             taken={config.pools.map((p) => p.name)}
             onClose={() => setEditing(null)}
-            onStage={(c) => c.length && changes.stage(c, `pool:${c[0].path.at(-1)!.slice("pool ".length)}`)}
+            onStage={(c) => c[0] && stageAs(`pool:${c[0].path.at(-1)!.slice("pool ".length)}`, c)}
           />
         </>
       )}
+      <ChangeReview
+        routerId={id}
+        candidateId={cc.candidateId}
+        title="Apply CGNAT changes"
+        onClose={cc.closeReview}
+        onStale={cc.reopen}
+        onCommitted={cc.committed}
+      />
     </>
   )
 }

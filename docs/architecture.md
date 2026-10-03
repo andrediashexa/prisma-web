@@ -241,6 +241,20 @@ sequenceDiagram
   A line no statement matches (FRR's own, the backplane VRF) is shown read-only. The box account's
   role decides what is editable (a cgnat-operator only the CGNAT modes). When the box answers
   `GetSchema` (Prisma 0.149.20) it replaces the coverage map as the source; the model stays.
+- **Interface forms (#40):** the **Interfaces** tab edits a port (`interface <name>`) or a bundle
+  (`interface bond<n>`) in one form: description, MTU, admin state, IPv4 and IPv6 addresses (a
+  list per family, dual stack), VRF, CGNAT side, uRPF, `ipv6 nd suppress-ra`, VLAN, Linux name and
+  MAC address, and for a bundle its members, LACP mode and rate and load balancing. A new bundle is
+  created by its first lines. The rest of the mode (OSPF, IS-IS, VRRP) is listed and reached on the
+  Settings page (`settings?at=interface <name>`). The form reads the running configuration tree and
+  MUST refuse an invalid address before it reaches the box: not an address of the family, a /0, an
+  IPv4 network or broadcast address, a multicast address, an address already on the interface, or
+  one that overlaps a prefix of another interface in the same VRF. Saving stages the lines (removals
+  first, so an address can be replaced) with `use-config-changes.ts`, the staging the Settings page
+  uses too; they go to one candidate and the usual review. `front/src/lib/interface-config.ts` is
+  the only place that knows the interface lines, and the place typed `GetConfig` / `SetInterface`
+  (Prisma 0.149.20) will replace. There is no statement to delete a bundle in the grammar, so the
+  form does not offer it.
 - **CGNAT forms (#41):** the **CGNAT** tab edits `nat > cgnat` without the generic editor: the
   global settings (timeouts, block hold-down, inside and outside interfaces, subscriber identity,
   session table and memory), the pools (create, edit, remove; prefixes, block size, mode, policy,
@@ -248,8 +262,8 @@ sequenceDiagram
   (syslog, IPFIX over TCP and UDP, each sent to a collector or disabled). `front/src/lib/cgnat-config.ts`
   is the only place that reads those lines from the tree and writes them, so the typed GetConfig and
   SetPool/SetLogging (Prisma 0.149.20) replace it alone. Changes are staged with
-  `useConfigChanges` (`front/src/hooks/use-config-changes.ts`, shared with Settings) and go
-  through ChangeReview, which keeps the gates. A form MUST say before the review what the gates
+  `use-config-changes.ts`, keyed by form so editing again replaces them, each with an optional
+  warning shown in the staged list, and go through ChangeReview, which keeps the gates. A form MUST say before the review what the gates
   will ask: a new block size, a prefix change or a removed pool remaps subscribers, and disabling
   a syslog that was never enabled is refused by the back before 0.149.8 (#31), whose reason the
   review shows. A statement the VTY has no `no` form for (the global timeouts, a pool's block
@@ -257,8 +271,6 @@ sequenceDiagram
   forms and, outside `nat > cgnat`, nothing (Settings shows the rest read-only). The Log export
   card reads GetLogging, which reports the collectors the configuration sets, so it follows a
   commit; the mock derives its streams from its running configuration the same way.
-- **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,
-  `mtu` and `shutdown` lines. They are an assumption until the Prisma confirms them.
 
 ## Errors
 
