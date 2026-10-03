@@ -434,10 +434,15 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     async fn list_bundles(&self, _: Request<ListBundlesRequest>) -> R<ListBundlesResponse> {
         let _turno = self.shared.ops.lock().await;
         let members = vec!["TenGig0".to_string(), "TenGig1".to_string()];
-        Ok(Response::new(ListBundlesResponse {
-            bundles: vec![Bundle { name: "BondEthernet0".into(), mode: "lacp".into(), active_members: members.clone(), members, ..Default::default() }],
-            ..Default::default()
-        }))
+        let mut bundles = vec![Bundle { name: "BondEthernet0".into(), mode: "lacp".into(), active_members: members.clone(), members, ..Default::default() }];
+        // The bundles configured through `interface bond<n>` (#40); a member is active while it is up.
+        let st = self.shared.state.lock().unwrap();
+        for (b, members) in st.running.bundles() {
+            let up = |m: &String| !b.shutdown && st.running.iface(m).is_some_and(|i| !i.shutdown);
+            let active_members = members.iter().filter(|m| up(m)).cloned().collect();
+            bundles.push(Bundle { name: b.name.clone(), mode: "lacp".into(), members, active_members, ..Default::default() });
+        }
+        Ok(Response::new(ListBundlesResponse { bundles, ..Default::default() }))
     }
 
     async fn list_policies(&self, _: Request<ListPoliciesRequest>) -> R<ListPoliciesResponse> {

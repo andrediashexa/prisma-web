@@ -1,13 +1,12 @@
 "use client"
 
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import useSWR from "swr"
-import { toast } from "sonner"
-import { Loader2Icon, PencilIcon, PlayIcon, PlusIcon, SearchIcon, Trash2Icon, Undo2Icon } from "lucide-react"
+import { PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react"
 
 import { ChangeReview } from "@/components/config/change-review"
-import { DiagnosticsList } from "@/components/config/diagnostics"
+import { StagedChanges } from "@/components/config/staged-changes"
 import { StatementForm } from "@/components/config/statement-form"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,9 +14,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useConfigChanges, type ConfigChange } from "@/hooks/use-config-changes"
 import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
-import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
+import { fetcher } from "@/lib/api"
 import {
+  boxAllows,
   buildLine,
   describe,
   emptyForm,
@@ -29,16 +30,8 @@ import {
   type Mode,
   type Statement,
 } from "@/lib/config-model"
-import { roleAtLeast, routerApi, type Diagnostic, type OpenCandidateResponse, type WhoAmI } from "@/lib/types"
+import { roleAtLeast, routerApi } from "@/lib/types"
 import { cn } from "@/lib/utils"
-
-/** A change waiting for review: lines at a path, as one Edit. */
-interface Staged {
-  path: string[]
-  lines: string[]
-  /** What it does, for the list. */
-  label: string
-}
 
 /** A mode instance added in this session, before its first line exists on the box. */
 interface Draft {
@@ -53,27 +46,20 @@ function sameHeads(template: string[], concrete: string[]) {
   return template.length === concrete.length && template.every((t, i) => t.split(" ")[0] === concrete[i].split(" ")[0])
 }
 
-/** Whether the box account may change a mode (#28, #39): CGNAT modes are open to a cgnat-operator. */
-function boxAllows(access: WhoAmI | null, m: Mode) {
-  if (!access) return true
-  return access.can_configure || (access.can_configure_cgnat && m.roles.includes("cgnat-operator"))
-}
-
 export default function SettingsPage() {
   const { id } = useParams<{ id: string }>()
   const myRole = useRouterRole(id)
   const { access, readOnly } = useRouterAccess(id)
   const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
   const { data: tree, mutate } = useSWR<{ revision: string; instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
-  const [selected, setSelected] = useState("config")
-  const [staged, setStaged] = useState<Staged[]>([])
+  // `?at=interface wan0` opens that instance (the Interfaces page links here, #40).
+  const at = useSearchParams().get("at")
+  const [selected, setSelected] = useState(at ?? "config")
+  const cc = useConfigChanges(id)
   const [drafts, setDrafts] = useState<Draft[]>([])
   const [editing, setEditing] = useState<{ statement: Statement; path: string[]; form: FormState; old?: string } | null>(null)
   const [adding, setAdding] = useState<{ path: string[]; mode: Mode } | null>(null)
   const [creating, setCreating] = useState<{ mode: Mode; parent: string[] } | null>(null)
-  const [preparing, setPreparing] = useState(false)
-  const [refusal, setRefusal] = useState<{ message: string; items: Diagnostic[]; edit: Staged } | null>(null)
-  const [reviewing, setReviewing] = useState<string | null>(null)
   const [filter, setFilter] = useState("")
 
   const modes = useMemo(() => new Map((grammar?.modes ?? []).map((m) => [m.key, m])), [grammar])
@@ -103,34 +89,7 @@ export default function SettingsPage() {
     current.path.length > 0 &&
     !!parentMode?.groups.some((g) => g.statements.some((s) => s.syntax.startsWith(`no ${current.path.at(-1)!.split(" ")[0]} `)))
 
-  function stage(e: Staged) {
-    setStaged((s) => [...s, e])
-    setRefusal(null)
-  }
-
-  async function review() {
-    setPreparing(true)
-    setRefusal(null)
-    let cid: string | null = null
-    try {
-      const c = await api.post<OpenCandidateResponse>(routerApi(id, "/config/candidates"), {})
-      cid = c.candidate_id
-      for (const e of staged) {
-        try {
-          await api.post(routerApi(id, `/config/candidates/${cid}/edit`), { path: e.path, lines: e.lines })
-        } catch (err) {
-          setRefusal({ message: errorMessage(err), items: err instanceof ApiError ? (err.diagnostics?.items ?? []) : [], edit: e })
-          await api.delete(routerApi(id, `/config/candidates/${cid}`)).catch(() => undefined)
-          return
-        }
-      }
-      setReviewing(cid)
-    } catch (err) {
-      toast.error(errorMessage(err))
-    } finally {
-      setPreparing(false)
-    }
-  }
+  const stage = (e: ConfigChange) => cc.stage(e)
 
   // Navigation: the top level, then every instance under its mode's title.
   const nav = new Map<string, Instance[]>()
@@ -257,39 +216,7 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
-        {staged.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Changes to review</CardTitle>
-              <CardDescription>Applied together to one candidate; nothing reaches the router before the review.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {staged.map((e, n) => (
-                <div key={n} className={cn("flex items-center gap-2 rounded-md border px-3 py-2 text-sm", refusal?.edit === e && "border-destructive")}>
-                  <span className="text-muted-foreground font-mono text-xs">{e.path.length ? e.path.join(" › ") : "top"}</span>
-                  <span className="font-mono">{e.lines.join(" ; ")}</span>
-                  <Button size="icon" variant="ghost" className="ml-auto size-7" aria-label="Drop this change" onClick={() => setStaged((s) => s.filter((_, i) => i !== n))}>
-                    <Undo2Icon />
-                  </Button>
-                </div>
-              ))}
-              {refusal && (
-                <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-3">
-                  <p className="text-destructive text-sm font-medium">The VTY rejected a change</p>
-                  {refusal.items.length > 0 ? <DiagnosticsList items={refusal.items} /> : <p className="text-destructive text-sm">{refusal.message}</p>}
-                </div>
-              )}
-              <div className="flex gap-2 pt-2">
-                <Button onClick={review} disabled={preparing}>
-                  {preparing ? <Loader2Icon className="animate-spin" /> : <PlayIcon />} Review and apply ({staged.length})
-                </Button>
-                <Button variant="ghost" onClick={() => setStaged([])}>
-                  Discard all
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <StagedChanges cc={cc} />
       </div>
 
       <AddDialog
@@ -324,11 +251,12 @@ export default function SettingsPage() {
       />
       <ChangeReview
         routerId={id}
-        candidateId={reviewing}
+        candidateId={cc.candidateId}
         title="Apply settings"
-        onClose={() => setReviewing(null)}
+        onClose={cc.closeReview}
+        onStale={cc.reopen}
         onCommitted={() => {
-          setStaged([])
+          cc.committed()
           setDrafts([])
           void mutate()
         }}
