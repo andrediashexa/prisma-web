@@ -7,7 +7,7 @@ use prisma_proto::v1::{
     BoxOwnedLine, BoxOwnedStatement, ConfigSchema, LogCollectorConfig, LoggingConfig, SchemaArgument, SchemaForm, SchemaMode,
     SchemaStatement,
 };
-use prisma_proto::vty::{parse_syntax, Kind, Tok};
+use prisma_proto::vty::{parse_statement, Kind, Tok};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -40,7 +40,7 @@ pub fn schema() -> ConfigSchema {
     let g: Grammar = serde_json::from_str(include_str!("../../server/src/config_grammar.json")).expect("grammar");
     let mut modes: Vec<SchemaMode> = vec![];
     for a in g.areas {
-        let statements: Vec<SchemaStatement> = a.statements.iter().filter(|s| !s.syntax.starts_with("no ")).map(|s| statement(&s.syntax)).collect();
+        let statements: Vec<SchemaStatement> = a.statements.iter().filter(|s| !s.syntax.starts_with("no ")).map(|s| statement(&a.path, &s.syntax)).collect();
         match modes.iter_mut().find(|m| m.path == a.path) {
             Some(m) => m.statements.extend(statements),
             None => modes.push(SchemaMode {
@@ -62,8 +62,9 @@ pub fn schema() -> ConfigSchema {
     }
 }
 
-fn statement(syntax: &str) -> SchemaStatement {
-    let toks = parse_syntax(syntax);
+fn statement(path: &[String], syntax: &str) -> SchemaStatement {
+    // As the box types them: an address family's prefixes are of either family (#42).
+    let toks = parse_statement(path, syntax);
     let words: Vec<String> = toks.iter().map_while(|t| if let Tok::Word { w } = t { Some(w.clone()) } else { None }).collect();
     let rest = &toks[words.len()..];
     let forms = match rest {
