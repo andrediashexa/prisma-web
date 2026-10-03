@@ -331,6 +331,9 @@ mod tests {
         for ok in ["identity file /x", "identity dhcp-leases /y", "identity radius secret s port 1812", "identity none"] {
             assert!(match_line(&t, &w(ok)).is_some(), "{ok}");
         }
+        let t = parse_syntax("ssh listen-address <A.B.C.D|X:X::X:X>");
+        assert!(match_line(&t, &w("ssh listen-address 0.0.0.0")).is_some() && match_line(&t, &w("ssh listen-address ::")).is_some());
+        assert!(match_line(&t, &w("ssh listen-address A.B.C.D")).is_none(), "a value, not the label");
         let t = parse_syntax("alg ftp <on|off>");
         assert!(match_line(&t, &w("alg ftp off")).is_some() && match_line(&t, &w("alg ftp maybe")).is_none());
         let t = parse_syntax("logging udp <collector> src <source> [port <n>] | disable");

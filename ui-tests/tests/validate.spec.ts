@@ -5,7 +5,7 @@ import { routerId } from "./helpers"
 test("a setting can be checked by the router before it is staged", async ({ page }) => {
   await page.goto(`/routers/${routerId()}/settings`)
   await expect(page.getByText(/Grammar from the router/)).toBeVisible()
-  await page.getByRole("button", { name: "interface lan0" }).click()
+  await page.getByRole("button", { name: "interface lan0", exact: true }).click()
   await page.getByRole("button", { name: "Add a setting" }).click()
   await page.getByPlaceholder(/Search/).fill("mtu")
   await page.locator("[role=dialog] button").filter({ hasText: /^mtu/ }).first().click()

@@ -56,6 +56,20 @@ fn kind_of(label: &str) -> Kind {
     }
 }
 
+/// `A.B.C.D|X:X::X:X` and the like: alternatives that are all value labels
+/// make one value of the widest kind; anything else is a choice of keywords.
+fn union_kind(words: &str) -> Option<Kind> {
+    let kinds: Vec<Kind> = words.split('|').map(kind_of).collect();
+    let all = |f: fn(&Kind) -> bool| kinds.iter().all(f);
+    if all(|k| matches!(k, Kind::Ipv4 | Kind::Ipv6 | Kind::Address)) {
+        Some(Kind::Address)
+    } else if all(|k| matches!(k, Kind::Ipv4Prefix | Kind::Ipv6Prefix | Kind::Prefix)) {
+        Some(Kind::Prefix)
+    } else {
+        None
+    }
+}
+
 /// Splits on `sep` outside square brackets.
 fn split_top<'a>(s: &'a str, sep: &str) -> Vec<&'a str> {
     let (mut out, mut depth, mut start) = (vec![], 0i32, 0usize);
@@ -117,8 +131,16 @@ impl Parser {
                     out.push(Tok::Opt { items: self.alts(inner) });
                 }
             } else if let Some(words) = part.strip_prefix('<').and_then(|p| p.strip_suffix('>')).filter(|p| p.contains('|')) {
-                // `<on|off>`: a choice of keywords written as a value (#41).
-                out.push(Tok::Alt { options: words.split('|').map(|w| vec![Tok::Word { w: w.to_string() }]).collect() });
+                match union_kind(words) {
+                    // `<A.B.C.D|X:X::X:X>`: one value of either family (Prisma 0.149.20, #44).
+                    Some(kind) => {
+                        let id = self.next_id;
+                        self.next_id += 1;
+                        out.push(Tok::Param { id, label: words.to_string(), kind, prefix: String::new(), rest: false });
+                    }
+                    // `<on|off>`: a choice of keywords written as a value (#41).
+                    None => out.push(Tok::Alt { options: words.split('|').map(|w| vec![Tok::Word { w: w.to_string() }]).collect() }),
+                }
             } else if part.contains('|') {
                 out.push(Tok::Alt { options: part.split('|').map(|o| vec![self.atom(o)]).collect() });
             } else {

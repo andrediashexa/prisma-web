@@ -113,6 +113,8 @@ services:
   prisma-mock-2:
     profiles: [mock]
     image: ${COMPOSE_PROJECT_NAME:-prisma-web}-prisma-mock
+    # Built by the prisma-mock service, never pulled.
+    pull_policy: never
     depends_on:
       prisma-mock:
         condition: service_started

@@ -68,6 +68,13 @@ to a read-only login) and `dev/cgnat` (CN `cgnat-ops`, a cgnat-operator, whose e
 `nat > cgnat` the mock refuses like the box, #41). `scripts/e2e.py` checks all five. The mock takes the account from the client
 certificate's CN like the box, and its roles from `MOCK_ACCOUNTS`.
 
+## Builds
+
+The Rust images cache their compiled artifacts per compose project (`CACHE_ID`, set from
+`COMPOSE_PROJECT_NAME`), and the mock image is named after the project. Two checkouts building at
+once (a test stack and the running one) otherwise shared one cargo target directory, and cargo's
+file-time fingerprints then reused one branch's build-script output for another's sources (#44).
+
 ## Fleet status
 
 The monitor queries `GetVersion`, `GetSystem` and `GetSessionsSummary` of every router in parallel,
@@ -239,8 +246,13 @@ sequenceDiagram
   its statement, which also gives the values to prefill a form. Forms are generated from the syntax;
   changes accumulate and are applied as lines to one candidate, then go through the usual review.
   A line no statement matches (FRR's own, the backplane VRF) is shown read-only. The box account's
-  role decides what is editable (a cgnat-operator only the CGNAT modes). When the box answers
-  `GetSchema` (Prisma 0.149.20) it replaces the coverage map as the source; the model stays.
+  role decides what is editable (a cgnat-operator only the CGNAT modes). Since Prisma 0.149.20 the
+  grammar comes from the box's `GetSchema` (kept ten minutes per router), converted to the same
+  model (`config_model::from_schema`); the coverage map remains the source for an older box. The
+  box's own lines are marked from `TypedConfig.box_owned`, with the box's reason, and a setting can
+  be checked by the VTY itself (`ValidateLines`, nothing staged) before it joins the changes (#44).
+  The syntax parser lives in `prisma_proto::vty`, shared with the mock, whose `GetSchema` is built
+  from the same grammar.
 - **Interface forms (#40):** the **Interfaces** tab edits a port (`interface <name>`) or a bundle
   (`interface bond<n>`) in one form: description, MTU, admin state, IPv4 and IPv6 addresses (a
   list per family, dual stack), VRF, CGNAT side, uRPF, `ipv6 nd suppress-ra`, VLAN, Linux name and

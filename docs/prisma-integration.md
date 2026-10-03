@@ -184,11 +184,11 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.18 | `8fdfa4978201d4fa54fe5d0b8b368bc3ae95d6ca163d23c2bb0ac303c550ed5d` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.18 | `6572c3d30f43a0ba65d86b549c4b7a69ceba7ebc62d03c58c4c508158e28ebff` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.18 | `bd25c0eff230e38c6017b1416614404bf559cf995c8a47e90b297273d8803fe5` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.20 | `4cdfee65edf97ae1239d5c4a18648250b04a0d08ff4d4b6106b117e47ea86c09` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.20 | `6d1a3803982b1c72e004c024ca7b0fd1f0b842089a963da7c27919e81a9b9df3` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.20 | `f0bc0dc8898389700ba1725a82882a3dc374cabb8e59ac3d1776f86e2c102397` |
 
-Read up to 0.149.18 in `clients.md` and already handled:
+Read up to 0.149.20 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -243,6 +243,15 @@ Read up to 0.149.18 in `clients.md` and already handled:
   answers: stale base from the reason, expiry from `expires_at` and the reason, the pending banner
   from the box, so it survives a restart of the back (#37). Each guess stays as the fallback for a
   box before 0.149.18, such as the lab box on 0.149.14.
+- 0.149.19 changes only the VTY's completion.
+- 0.149.20 is phase 2 of #558: `GetSchema` (the whole configuration grammar from the VTY's own
+  tree), `GetConfig`/`SetConfig`/`DeleteConfig` (interfaces, pools and log collectors as fields),
+  `ValidateLines` and `TypedConfig.box_owned`. prisma-web's Settings editor takes its grammar from
+  `GetSchema` when the box has it (the coverage map otherwise), shows the box's own lines read only
+  with the box's reason, and checks a setting with `ValidateLines` before staging it; the 0.149.8
+  guard reads `configured` from `GetConfig` (#44). The dedicated forms (#40, #41, #42/#43) still
+  write lines through `Edit`; moving interfaces, pools and collectors to `SetConfig` is its own issue.
+  The coverage map also gained `<A.B.C.D|X:X::X:X>` for a value of either family.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
