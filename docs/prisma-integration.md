@@ -184,10 +184,11 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.16 | `b08a5a089ff29ecc6c4d44f4cad3f51864d225d3ed210726953eee7a480c3e7a` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.16 | `315984bd9b9cd3a44087e294739eec7937a9118dc5f11f3d5504300c0905ea72` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.17 | `b08a5a089ff29ecc6c4d44f4cad3f51864d225d3ed210726953eee7a480c3e7a` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.17 | `cea80c55534517b6a8b652ed59ede0ae474e8da5020df0f97d194efb131a5b9f` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.17 | `8414e2af3cae7f38d1763869eede6cf39f1b5b33380a68998aa7b2c89aa0b5f8` |
 
-Read up to 0.149.16 in `clients.md` and already handled:
+Read up to 0.149.17 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -232,6 +233,10 @@ Read up to 0.149.16 in `clients.md` and already handled:
   the card is hidden; checked on the lab box on 0.149.14.
 - 0.149.16 adds `monitor cgnat logging` to the VTY only (`Show` refuses `monitor`); `GetLogging`
   stays the API's view of the export. Nothing to change in prisma-web.
+- 0.149.17 publishes `docs/api-coverage.md` (vendored here as `docs/prisma-api-coverage.md`):
+  every VTY command classified as typed, text or not reachable, with the rpc that serves it, and
+  the #558 phases in the order prisma-web asked for (refusal reasons, the pending commit confirmed
+  and candidate lifecycle first). It is the map for what prisma-web can type next.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

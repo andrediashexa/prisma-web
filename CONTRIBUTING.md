@@ -288,6 +288,7 @@ reads this block too.
 ```text generated-files
 front/AGENTS.md                  # written and re-added by `next dev`
 front/CLAUDE.md                  # written and re-added by `next dev`
+docs/prisma-api-coverage.md      # vendored from prismarouting, generated from the VTY's grammar
 ```
 
 **Versions.** Cargo and npm require a literal version in their manifests;
