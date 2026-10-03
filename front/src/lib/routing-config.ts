@@ -9,8 +9,16 @@
  * only `readRouting` changes.
  */
 
-import type { StagedEdit } from "@/hooks/use-config-changes"
+import type { ConfigChange } from "@/hooks/use-config-changes"
 import { invalid, type Instance } from "@/lib/config-model"
+
+/** A change the routing forms stage: a ConfigChange whose label defaults to its lines. */
+export type StagedEdit = Omit<ConfigChange, "label"> & { label?: string }
+
+/** The ConfigChange to stage; an edit with no label is listed by its lines. */
+export function toChange(e: StagedEdit): ConfigChange {
+  return { ...e, label: e.label ?? e.lines.join("; ") }
+}
 
 const words = (s: string) => s.trim().split(/\s+/)
 

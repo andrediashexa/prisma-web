@@ -3,61 +3,106 @@
 import { useParams } from "next/navigation"
 import { useState } from "react"
 import useSWR from "swr"
-import { toast } from "sonner"
-import { Loader2Icon, PencilIcon, PowerIcon, PowerOffIcon } from "lucide-react"
+import { BoxesIcon, Loader2Icon, PencilIcon, PowerIcon, PowerOffIcon } from "lucide-react"
 
 import { AddressList } from "@/components/address-list"
-import { ChangeReview, discardCandidate, prepareCandidate } from "@/components/config/change-review"
+import { ChangeReview } from "@/components/config/change-review"
+import { StagedChanges } from "@/components/config/staged-changes"
+import { InterfaceForm, type InterfaceEditing } from "@/components/interface-form"
 import { InterfaceIcon } from "@/components/interface-icon"
 import { LinkBadge } from "@/components/link-badge"
 import { LinkUsage } from "@/components/link-usage"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useConfigChanges } from "@/hooks/use-config-changes"
 import { useInterfaceRates } from "@/hooks/use-interface-rates"
 import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
-import { errorMessage, fetcher } from "@/lib/api"
+import { fetcher } from "@/lib/api"
+import { boxAllows, type Instance } from "@/lib/config-model"
 import { formatBytes, formatNumber } from "@/lib/format"
-import { roleAtLeast, MTU_MAX, MTU_MIN, routerApi, type RouterInterface } from "@/lib/types"
-import { interfaceEdit, type EditBlock } from "@/lib/vty"
-
-type Review = { cid: string; name: string; edit: EditBlock; title: string; comment: string }
+import {
+  emptyInterface,
+  INTERFACE_ROLES,
+  interfaceChange,
+  interfacePath,
+  readInterfaces,
+  type InterfaceConfig,
+} from "@/lib/interface-config"
+import { roleAtLeast, routerApi, type RouterInterface } from "@/lib/types"
 
 export default function InterfacesPage() {
   const { id } = useParams<{ id: string }>()
   const { data } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(id, "/interfaces"), fetcher, { refreshInterval: 10_000 })
+  const { data: tree } = useSWR<{ instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
   const { data: rates } = useInterfaceRates(id, data?.interfaces)
-  const [editing, setEditing] = useState<RouterInterface | null>(null)
-  const [preparing, setPreparing] = useState<string | null>(null)
-  const [review, setReview] = useState<Review | null>(null)
-  const { readOnly } = useRouterAccess(id)
+  const { access, readOnly } = useRouterAccess(id)
   const myRole = useRouterRole(id)
-  const canEdit = roleAtLeast(myRole, "operator") && !readOnly
+  // Ports and bundles are changed by the box's administrators only (the grammar's roles).
+  const canEdit = roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, { roles: INTERFACE_ROLES })
+  const cc = useConfigChanges(id)
+  const [editing, setEditing] = useState<InterfaceEditing | null>(null)
+  const [creating, setCreating] = useState(false)
+  // The form's state behind each staged change, so editing again continues from it.
+  const [drafts, setDrafts] = useState<Record<string, InterfaceConfig>>({})
 
-  /** Opens a candidate with the lines and shows the review before commit. */
-  async function propose(name: string, edit: EditBlock, title: string, comment: string) {
-    setPreparing(name)
-    try {
-      const cid = await prepareCandidate(id, [edit])
-      setReview({ cid, name, edit, title, comment })
-      return true
-    } catch (err) {
-      toast.error(errorMessage(err))
-      return false
-    } finally {
-      setPreparing(null)
-    }
+  const configs = tree ? readInterfaces(tree.instances) : []
+  const staged = (name: string) => cc.changes.some((c) => c.key === `interface ${name}`)
+  // Interfaces as the form sees them: staged state over the running one, bundles being created included.
+  const known = new Set(configs.map((c) => c.name))
+  const all = [
+    ...configs.map((c) => (staged(c.name) && drafts[c.name]) || c),
+    ...Object.values(drafts).filter((d) => !known.has(d.name) && staged(d.name)),
+  ]
+
+  function edit(name: string) {
+    const running = configs.find((c) => c.name === name) ?? emptyInterface(name)
+    const draft = staged(name) ? drafts[name] : undefined
+    setEditing({ running, start: draft ?? running, isNew: !known.has(name) })
   }
+
+  /** Shut down or enable at once: one line, straight to the review. */
+  function toggle(i: RouterInterface) {
+    void cc.review([
+      {
+        path: interfacePath(i.name),
+        lines: [i.admin_up ? "shutdown" : "no shutdown"],
+        label: `${i.admin_up ? "shut down" : "enable"} ${i.name}`,
+      },
+    ])
+  }
+
+  const reviewTitle =
+    cc.reviewed.length === 1 ? cc.reviewed[0].label.replace(/^./, (c) => c.toUpperCase()) : `Apply ${cc.reviewed.length} interface changes`
 
   return (
     <>
-      <p className="text-muted-foreground text-sm">
-        Changes become a candidate on Prisma: you review the diff and the <span className="font-mono">commit check</span> before applying.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-muted-foreground text-sm">
+          Changes become a candidate on Prisma: you review the diff and the <span className="font-mono">commit check</span> before applying.
+        </p>
+        {canEdit && (
+          <div className="flex flex-wrap gap-2">
+            {/* A bundle being created has no row until it is committed. */}
+            {all
+              .filter((i) => !known.has(i.name))
+              .map((i) => (
+                <Button key={i.name} variant="outline" size="sm" onClick={() => edit(i.name)} aria-label={`Edit ${i.name}`}>
+                  <PencilIcon /> <span className="font-mono">{i.name}</span>
+                  <Badge variant="outline">staged</Badge>
+                </Button>
+              ))}
+            <Button variant="outline" size="sm" disabled={!tree} onClick={() => setCreating(true)}>
+              <BoxesIcon /> New bundle
+            </Button>
+          </div>
+        )}
+      </div>
       <Card className="py-0">
         <div className="overflow-x-auto">
           <Table>
@@ -94,7 +139,10 @@ export default function InterfacesPage() {
                           <InterfaceIcon name={i.name} className="size-4" />
                         </span>
                         <div>
-                          <div className="font-mono font-medium">{i.name}</div>
+                          <div className="flex items-center gap-2 font-mono font-medium">
+                            {i.name}
+                            {staged(i.name) && <Badge variant="outline">staged</Badge>}
+                          </div>
                           <div className="text-muted-foreground text-xs">{i.description || "No description"}</div>
                           <div className="text-muted-foreground font-mono text-[11px]">
                             {[i.mac_address, i.linux_name && `linux: ${i.linux_name}`].filter(Boolean).join(" · ")}
@@ -142,19 +190,12 @@ export default function InterfacesPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              disabled={preparing === i.name}
+                              disabled={cc.preparing}
                               aria-label={i.admin_up ? `Shut down ${i.name}` : `Enable ${i.name}`}
                               title={i.admin_up ? "Shut down (shutdown)" : "Enable (no shutdown)"}
-                              onClick={() =>
-                                propose(
-                                  i.name,
-                                  interfaceEdit(i.name, { adminUp: !i.admin_up }),
-                                  `${i.admin_up ? "Shut down" : "Enable"} ${i.name}`,
-                                  `${i.admin_up ? "shutdown" : "no shutdown"} ${i.name}`,
-                                )
-                              }
+                              onClick={() => toggle(i)}
                             >
-                              {preparing === i.name ? (
+                              {cc.preparing ? (
                                 <Loader2Icon className="animate-spin" />
                               ) : i.admin_up ? (
                                 <PowerOffIcon />
@@ -163,7 +204,7 @@ export default function InterfacesPage() {
                               )}
                             </Button>
                           )}
-                          <Button variant="ghost" size="icon" onClick={() => setEditing(i)} aria-label={`Edit ${i.name}`}>
+                          <Button variant="ghost" size="icon" disabled={!tree} onClick={() => edit(i.name)} aria-label={`Edit ${i.name}`}>
                             <PencilIcon />
                           </Button>
                         </div>
@@ -177,96 +218,90 @@ export default function InterfacesPage() {
         </div>
       </Card>
 
-      <EditInterfaceDialog
-        iface={editing}
+      <StagedChanges cc={cc} />
+
+      <InterfaceForm
+        routerId={id}
+        editing={editing}
+        all={all}
         onClose={() => setEditing(null)}
-        onPropose={async (i, change) => {
-          const ok = await propose(i.name, interfaceEdit(i.name, change), `Edit ${i.name}`, `edit ${i.name}`)
-          if (ok) setEditing(null)
+        onSave={(running, cur) => {
+          cc.stage(interfaceChange(running, cur))
+          setDrafts((d) => ({ ...d, [cur.name]: cur }))
+          setEditing(null)
+        }}
+      />
+      <NewBundleDialog
+        open={creating}
+        taken={all.map((i) => i.name)}
+        onClose={() => setCreating(false)}
+        onCreate={(name) => {
+          setCreating(false)
+          setEditing({ running: emptyInterface(name), start: emptyInterface(name), isNew: true })
         }}
       />
       <ChangeReview
         routerId={id}
-        candidateId={review?.cid ?? null}
-        title={review?.title ?? ""}
-        defaultComment={review?.comment}
-        onClose={() => setReview(null)}
-        onStale={async () => {
-          // The configuration moved: the same edit on a new candidate, and a new review of its diff (#10).
-          const r = review
-          if (!r) return
-          setReview(null)
-          await discardCandidate(id, r.cid)
-          await propose(r.name, r.edit, r.title, r.comment)
-        }}
+        candidateId={cc.candidateId}
+        title={reviewTitle}
+        defaultComment={cc.reviewed.map((c) => c.label).join("; ")}
+        onClose={cc.closeReview}
+        onStale={cc.reopen}
+        onCommitted={cc.committed}
       />
     </>
   )
 }
 
-function EditInterfaceDialog({
-  iface,
+/** Names a new bundle: `interface bond<n>` creates it with its first lines. */
+function NewBundleDialog({
+  open,
+  taken,
   onClose,
-  onPropose,
+  onCreate,
 }: {
-  iface: RouterInterface | null
+  open: boolean
+  taken: string[]
   onClose: () => void
-  onPropose: (i: RouterInterface, change: { description?: string; mtu?: number }) => Promise<void>
+  onCreate: (name: string) => void
 }) {
-  const [error, setError] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
-
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (!iface) return
-    const form = new FormData(e.currentTarget)
-    const description = String(form.get("description") ?? "")
-    const mtu = Number(form.get("mtu"))
-    // Only send what changed, so the diff shows exactly the intent.
-    const change: { description?: string; mtu?: number } = {}
-    if (description.trim() !== (iface.description ?? "")) change.description = description
-    if (mtu !== iface.mtu) change.mtu = mtu
-    if (Object.keys(change).length === 0) {
-      setError("Nothing was changed")
-      return
-    }
-    setPending(true)
-    setError(null)
-    await onPropose(iface, change)
-    setPending(false)
-  }
-
+  const [n, setN] = useState("")
+  const name = `bond${n}`
+  const why = !n ? null : !/^\d{1,9}$/.test(n) ? "a number" : taken.includes(name) ? `${name} already exists` : null
   return (
-    <Dialog open={!!iface} onOpenChange={(o) => !o && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose()
+        setN("")
+      }}
+    >
       <DialogContent>
-        <form onSubmit={submit} key={iface?.name}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (n && !why) onCreate(name)
+            setN("")
+          }}
+        >
           <DialogHeader>
-            <DialogTitle>
-              Edit <span className="font-mono">{iface?.name}</span>
-            </DialogTitle>
-            <DialogDescription>In the next step you review the diff before applying.</DialogDescription>
+            <DialogTitle>New bundle</DialogTitle>
+            <DialogDescription>A bond of ports with LACP. Name it, then choose its members and addresses.</DialogDescription>
           </DialogHeader>
-          <FieldGroup className="py-4">
-            <Field>
-              <FieldLabel htmlFor="description">Description</FieldLabel>
-              <Input id="description" name="description" maxLength={64} defaultValue={iface?.description ?? ""} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="mtu">MTU</FieldLabel>
-              <Input id="mtu" name="mtu" type="number" min={MTU_MIN} max={MTU_MAX} required defaultValue={iface?.mtu} />
-              <FieldDescription>
-                Between {MTU_MIN} and {MTU_MAX}. IPv6 requires at least {MTU_MIN}.
-              </FieldDescription>
-            </Field>
-            {error && <FieldError>{error}</FieldError>}
-          </FieldGroup>
+          <Field className="py-4" data-invalid={!!why}>
+            <FieldLabel htmlFor="bundle-number">Bundle number</FieldLabel>
+            <div className="flex items-center gap-1">
+              <span className="font-mono text-sm">bond</span>
+              <Input id="bundle-number" inputMode="numeric" autoFocus value={n} onChange={(e) => setN(e.target.value.trim())} className="w-32 font-mono" />
+            </div>
+            {why ? <FieldError>{why}</FieldError> : <FieldDescription>It reaches the router with its settings, after the review.</FieldDescription>}
+          </Field>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pending}>
-              {pending && <Loader2Icon className="animate-spin" />}
-              Review change
+            <Button type="submit" disabled={!n || !!why}>
+              Continue
             </Button>
           </DialogFooter>
         </form>

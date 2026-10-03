@@ -5,6 +5,7 @@ import { useMemo, useState } from "react"
 import useSWR from "swr"
 import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
 
+import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
 import { BgpPanel } from "@/components/routing/bgp-config"
 import { OspfPanel } from "@/components/routing/ospf-config"
@@ -24,7 +25,7 @@ import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import { boxAllows, type Grammar, type Instance } from "@/lib/config-model"
 import { formatDateTime, formatNumber, formatUptime } from "@/lib/format"
-import { readRouting } from "@/lib/routing-config"
+import { readRouting, toChange, type StagedEdit } from "@/lib/routing-config"
 import {
   roleAtLeast,
   routerApi,
@@ -62,16 +63,17 @@ export default function RoutingPage() {
   const { data: tree, mutate: mutateTree } = useSWR<{ revision: string; instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
   const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
   const routing = useMemo(() => (tree ? readRouting(tree.instances) : undefined), [tree])
-  const changes = useConfigChanges(id)
+  const cc = useConfigChanges(id)
+  const stage = (...edits: StagedEdit[]) => edits.forEach((e) => cc.stage(toChange(e)))
   const myRole = useRouterRole(id)
   const { access, readOnly } = useRouterAccess(id)
   // The routing modes' roles come from the grammar (administrator today).
   const roles = grammar?.modes.find((m) => m.key === "router bgp <asn>")?.roles ?? ["administrator"]
-  const editable = !!routing && roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, roles)
+  const editable = !!routing && roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, { roles })
 
   return (
     <>
-      <BgpPanel bgp={routing ? routing.bgp : undefined} live={bgp?.neighbors} editable={editable} stage={changes.stage} />
+      <BgpPanel bgp={routing ? routing.bgp : undefined} live={bgp?.neighbors} editable={editable} stage={stage} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Section title="OSPF / OSPFv3 neighbors" loading={!ospf} empty={ospf?.neighbors.length === 0}>
@@ -183,23 +185,28 @@ export default function RoutingPage() {
         </Section>
       </div>
 
-      {routing && <OspfPanel ospf={routing.ospf} ospf6={routing.ospf6} editable={editable} stage={changes.stage} />}
-      {routing && <StaticRoutesPanel routes={routing.statics} interfaces={routing.interfaces} editable={editable} stage={changes.stage} />}
+      {routing && <OspfPanel ospf={routing.ospf} ospf6={routing.ospf6} editable={editable} stage={stage} />}
+      {routing && <StaticRoutesPanel routes={routing.statics} interfaces={routing.interfaces} editable={editable} stage={stage} />}
 
       <Routes routerId={id} />
 
       {/* Kept in sight while scrolling: the forms above and below stage into it. */}
       <div className="sticky bottom-4 z-20 shadow-lg empty:hidden">
-        <StagedChanges
-          routerId={id}
-          changes={changes}
-          title="Apply routing changes"
-          onCommitted={() => {
-            void mutateTree()
-            void mutateBgp()
-          }}
-        />
+        <StagedChanges cc={cc} />
       </div>
+      <ChangeReview
+        routerId={id}
+        candidateId={cc.candidateId}
+        title="Apply routing changes"
+        defaultComment={cc.reviewed.map((c) => c.label).join("; ")}
+        onClose={cc.closeReview}
+        onStale={cc.reopen}
+        onCommitted={() => {
+          cc.committed()
+          void mutateTree()
+          void mutateBgp()
+        }}
+      />
     </>
   )
 }

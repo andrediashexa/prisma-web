@@ -256,6 +256,42 @@ def routing_form_checks(admin, R):
     check(not any(x["peer"] == "192.0.2.77" for x in n["neighbors"]), "the neighbor is gone after the rollback", n)
 
 
+def interface_form_checks(admin, R):
+    """Interfaces form (#40): the port and bundle lines it writes are accepted, refused and read back as statements."""
+    st, c = admin.post(f"{R}/config/candidates")
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    try:
+        st, b = admin.post(f"{C}/edit", {"path": ["interface wan0"], "lines": [
+            "no ipv6 address 2001:db8:100::2/64", "ipv6 address 2001:db8:100::3/64", "vrf 10", "cgnat outside"]})
+        check(st == 200, "a port takes an IPv6 address swap, a VRF and its CGNAT side", b)
+        st, b = admin.post(f"{C}/edit", {"path": ["interface bond7"], "lines": [
+            "description e2e bundle", "member wg0", "lacp mode active", "ipv4 address 198.51.100.1/24"]})
+        check(st == 200, "interface bond<n> creates a bundle with its members", b)
+        st, b = admin.post(f"{C}/edit", {"path": ["interface bond8"], "lines": ["member wg0"]})
+        check(st == 422 and "already a member of bond7" in b["error"]["message"], "a port joins one bundle at most", b)
+        st, b = admin.post(f"{C}/edit", {"path": ["interface wan0"], "lines": ["member lan0"]})
+        check(st == 422, "member is a bundle statement, refused on a port", b)
+        st, b = admin.post(f"{C}/edit", {"path": ["interface wan0"], "lines": ["vrf 0"]})
+        check(st == 422, "a VRF id out of range is refused by the box too", b)
+
+        st, t = admin.get(f"{R}/config/tree?candidate={c['candidate_id']}")
+        inst = {tuple(i["path"]): i for i in (t or {}).get("instances", [])}
+        bond, wan = inst.get(("interface bond7",)), inst.get(("interface wan0",))
+        check(st == 200 and bond and bond["mode"] == "interface bond<n>" and all(l["statement"] for l in bond["lines"]),
+              "the new bundle reads back in the bundle mode, every line a statement", bond)
+        texts = {l["text"]: l for l in (wan or {}).get("lines", [])}
+        check({"vrf 10", "cgnat outside", "ipv6 address 2001:db8:100::3/64"} <= texts.keys()
+              and all(texts[k]["statement"] for k in ["vrf 10", "cgnat outside", "ipv6 address 2001:db8:100::3/64"])
+              and "ipv6 address 2001:db8:100::2/64" not in texts,
+              "the port's new lines read back as statements, the removed address gone", sorted(texts))
+        st, cmp = admin.get(f"{C}/compare")
+        d = (cmp or {}).get("diff", "")
+        check(st == 200 and "-  ipv6 address 2001:db8:100::2/64" in d and "+  ipv6 address 2001:db8:100::3/64" in d
+              and "+ interface bond7" in d and "+  member wg0" in d, "the diff shows the address swap and the new bundle", d)
+    finally:
+        admin.delete(C)
+
+
 def log_export_checks(admin, router_id):
     """CGNAT log export (Prisma 0.149.15, #34) on prisma-mock-2, which has all three streams."""
     R = f"/routers/{router_id}"
@@ -561,6 +597,7 @@ def main():
         health_checks(admin, router_id)
         config_model_checks(admin, R)
         routing_form_checks(admin, R)
+        interface_form_checks(admin, R)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
               "a box with no log export lists three unconfigured streams", lg)

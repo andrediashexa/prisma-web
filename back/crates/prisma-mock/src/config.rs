@@ -20,8 +20,9 @@ pub struct Iface {
     pub shutdown: bool,
     pub v4: Vec<String>,
     pub v6: Vec<String>,
-    /// Per-interface OSPF lines (`ip ospf …`, `ipv6 ospf6 …`, #43), as typed.
-    pub ospf: Vec<String>,
+    /// The other statements of the port and bundle modes, as typed (#40):
+    /// `vrf`, `cgnat`, `member`, `lacp`, OSPF, IS-IS...
+    pub extra: Vec<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -65,7 +66,7 @@ impl Config {
             shutdown: false,
             v4: strs(v4),
             v6: strs(v6),
-            ospf: Vec::new(),
+            extra: vec![],
         };
         let mut c = Self {
             hostname: hostname.into(),
@@ -81,7 +82,7 @@ impl Config {
                     shutdown: false,
                     v4: strs(&["127.0.0.1/8"]),
                     v6: strs(&["::1/128"]),
-                    ospf: Vec::new(),
+                    extra: vec![],
                 },
             ],
             blocks: vec![
@@ -119,13 +120,22 @@ impl Config {
             ],
         };
         if let Some(lan) = c.interfaces.iter_mut().find(|i| i.name == "lan0") {
-            lan.ospf = strs(&["ipv6 ospf6 area 0"]);
+            lan.extra = strs(&["ipv6 ospf6 area 0"]);
         }
         c
     }
 
     pub fn iface(&self, name: &str) -> Option<&Iface> {
         self.interfaces.iter().find(|i| i.name == name)
+    }
+
+    /// Configured bundles and their `member` lines.
+    pub fn bundles(&self) -> Vec<(&Iface, Vec<String>)> {
+        self.interfaces
+            .iter()
+            .filter(|i| is_bundle(&i.name))
+            .map(|i| (i, i.extra.iter().filter_map(|l| l.strip_prefix("member ")).map(str::to_string).collect()))
+            .collect()
     }
 
     pub fn block(&self, path: &[&str]) -> Option<&Block> {
@@ -205,6 +215,7 @@ impl Config {
             if let Some(d) = &i.description {
                 out.push(format!(" description {d}"));
             }
+            out.extend(i.extra.iter().map(|l| format!(" {l}")));
             // Order and wording as in a real Prisma's `show running-config` (issue #9).
             out.extend(i.v4.iter().map(|a| format!(" ipv4 address {a}")));
             out.extend(i.v6.iter().map(|a| format!(" ipv6 address {a}")));
@@ -212,7 +223,6 @@ impl Config {
                 out.push(" shutdown".into());
             }
             out.push(format!(" mtu {}", i.mtu));
-            out.extend(i.ospf.iter().map(|l| format!(" {l}")));
             out.push(" exit".into());
         }
         for top in self.children(&[]) {
@@ -287,10 +297,26 @@ impl Config {
     }
 
     fn edit_iface(&mut self, name: &str, path: &[String], line: &str) -> Result<Option<Diagnostic>, Refusal> {
-        let Some(i) = self.interfaces.iter_mut().find(|i| i.name == name) else {
-            return Err(refuse(format!("interface {name} does not exist"), path, line));
-        };
         let words: Vec<&str> = line.split_whitespace().collect();
+        if words.first() == Some(&"member") {
+            self.check_member(name, &words, path, line)?;
+        }
+        if self.iface(name).is_none() {
+            // `interface bond<n>` creates the bundle, as on the box (#40); a port must exist.
+            if !is_bundle(name) {
+                return Err(refuse(format!("interface {name} does not exist"), path, line));
+            }
+            self.interfaces.push(Iface {
+                name: name.into(),
+                description: None,
+                mtu: 1500,
+                shutdown: false,
+                v4: vec![],
+                v6: vec![],
+                extra: vec![],
+            });
+        }
+        let i = self.interfaces.iter_mut().find(|i| i.name == name).expect("found or created above");
         match words.as_slice() {
             ["description", ..] => i.description = Some(line["description".len()..].trim().to_string()),
             ["no", "description", ..] => i.description = None,
@@ -298,6 +324,7 @@ impl Config {
                 Ok(m) if (1280..=9216).contains(&m) => i.mtu = m,
                 _ => return Err(refuse("mtu must be between 1280 and 9216", path, line)),
             },
+            ["no", "mtu", ..] => i.mtu = 1500,
             ["shutdown"] => {
                 i.shutdown = true;
                 if !i.v4.is_empty() || !i.v6.is_empty() {
@@ -305,15 +332,16 @@ impl Config {
                 }
             }
             ["no", "shutdown"] => i.shutdown = false,
+            // One line per OSPF setting (`ip ospf cost 20` replaces `ip ospf cost 10`, #43).
             ["ip", "ospf", _, ..] | ["ipv6", "ospf6", _, ..] | ["no", "ip", "ospf", _, ..] | ["no", "ipv6", "ospf6", _, ..] => {
                 let no = words[0] == "no";
                 let stmt = if no { line[2..].trim() } else { line };
                 let key = ospf_key(stmt);
                 if !no {
-                    i.ospf.retain(|l| ospf_key(l) != key);
-                    i.ospf.push(stmt.to_string());
-                } else if i.ospf.iter().any(|l| ospf_key(l) == key) {
-                    i.ospf.retain(|l| ospf_key(l) != key);
+                    i.extra.retain(|l| ospf_key(l) != key);
+                    i.extra.push(stmt.to_string());
+                } else if i.extra.iter().any(|l| ospf_key(l) == key) {
+                    i.extra.retain(|l| ospf_key(l) != key);
                 } else {
                     return Err(refuse(format!("{stmt} is not configured on {name}"), path, line));
                 }
@@ -335,11 +363,25 @@ impl Config {
                     return Err(refuse(format!("address {cidr} is not configured on {name}"), path, line));
                 }
             }
-            _ => return Err(refuse(format!("unknown command: {line}"), path, line)),
+            _ => edit_extra(i, path, line)?,
         }
         Ok(None)
     }
 
+    /// A port joins one bundle at most, and only a port does.
+    fn check_member(&self, bundle: &str, words: &[&str], path: &[String], line: &str) -> Result<(), Refusal> {
+        let [_, port] = words else { return Err(refuse(format!("unknown command: {line}"), path, line)) };
+        if !is_bundle(bundle) {
+            return Err(refuse(format!("unknown command: {line}"), path, line));
+        }
+        if self.iface(port).is_none() || is_bundle(port) || *port == "lo" || port.contains('.') {
+            return Err(refuse(format!("{port} is not a port that can join a bundle"), path, line));
+        }
+        if let Some((b, _)) = self.bundles().into_iter().find(|(b, m)| b.name != bundle && m.iter().any(|x| x == port)) {
+            return Err(refuse(format!("{port} is already a member of {}", b.name), path, line));
+        }
+        Ok(())
+    }
     fn edit_block(&mut self, path: &[String], line: &str) -> Result<(), Refusal> {
         if path.len() == 1 && path[0] == "router static" {
             check_static(path, line)?;
@@ -439,6 +481,88 @@ fn check_static(path: &[String], line: &str) -> Result<(), Refusal> {
         if !d.parse::<u8>().is_ok_and(|d| d >= 1) {
             return Err(refuse("distance must be between 1 and 255", path, line));
         }
+    }
+    Ok(())
+}
+
+pub fn is_bundle(name: &str) -> bool {
+    name.strip_prefix("bond").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Statements with one value: a new line replaces the old one (`vrf 10` over `vrf 5`).
+const SINGLE: &[&[&str]] = &[
+    &["vrf"],
+    &["linux-name"],
+    &["mac-address"],
+    &["vlan"],
+    &["urpf"],
+    &["cgnat"],
+    &["lacp", "mode"],
+    &["lacp", "rate"],
+    &["load-balance"],
+];
+/// Statements kept as typed, several of each; the routing ones are not checked further.
+const MULTI: &[&[&str]] = &[
+    &["member"],
+    &["ipv6", "nd", "suppress-ra"],
+    &["ip", "ospf"],
+    &["ip", "router", "isis"],
+    &["isis"],
+    &["ipv6", "ospf6"],
+    &["ipv6", "router", "isis"],
+    &["vrrp"],
+];
+
+/// The port and bundle statements beyond description, mtu, shutdown and the addresses (#40).
+fn edit_extra(i: &mut Iface, path: &[String], line: &str) -> Result<(), Refusal> {
+    let (no, body) = match line.strip_prefix("no ") {
+        Some(b) => (true, b.trim()),
+        None => (false, line),
+    };
+    let w: Vec<&str> = body.split_whitespace().collect();
+    let unknown = || refuse(format!("unknown command: {line}"), path, line);
+    let single = SINGLE.iter().find(|h| w.starts_with(h));
+    let Some(head) = single.or_else(|| MULTI.iter().find(|h| w.starts_with(h))) else { return Err(unknown()) };
+    if matches!(head[0], "member" | "lacp" | "load-balance") && !is_bundle(&i.name) {
+        return Err(unknown());
+    }
+    let value = &w[head.len()..];
+    // `no vrf` alone removes whatever is set; with a value it must be the one set.
+    if !(no && value.is_empty()) {
+        let int = |v: &str, max: u64| v.parse::<u64>().is_ok_and(|n| (1..=max).contains(&n));
+        let ok = match (head, value) {
+            (["vrf"], [v]) => int(v, u64::from(u32::MAX)),
+            (["vlan"], [v]) => int(v, 4094),
+            (["vlan"], [v, "inner", x]) => int(v, 4094) && int(x, 4094),
+            (["urpf"], [v]) => matches!(*v, "strict" | "loose" | "off"),
+            (["cgnat"], [v]) => matches!(*v, "inside" | "outside"),
+            (["lacp", "mode"], [v]) => matches!(*v, "active" | "passive"),
+            (["lacp", "rate"], [v]) => matches!(*v, "fast" | "slow"),
+            (["load-balance"], [v]) => matches!(*v, "l2" | "l23" | "l34"),
+            (["mac-address"], [v]) => {
+                v.split(':').count() == 6 && v.split(':').all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_hexdigit()))
+            }
+            (["linux-name"] | ["member"], [_]) => true,
+            (["ipv6", "nd", "suppress-ra"], []) => true,
+            // OSPF, IS-IS, VRRP: some value after the keywords.
+            (_, v) if single.is_none() => !v.is_empty(),
+            _ => false,
+        };
+        if !ok {
+            return Err(refuse(format!("invalid value: {line}"), path, line));
+        }
+    }
+    let starts = |l: &str| l.split_whitespace().take(head.len()).eq(head.iter().copied());
+    if no {
+        let before = i.extra.len();
+        i.extra.retain(|l| !(l == body || (value.is_empty() && single.is_some() && starts(l))));
+        if i.extra.len() == before {
+            return Err(refuse(format!("{body} is not configured on {}", i.name), path, line));
+        }
+    } else if let Some(existing) = single.and_then(|_| i.extra.iter_mut().find(|l| starts(l))) {
+        *existing = body.to_string();
+    } else if !i.extra.iter().any(|l| l == body) {
+        i.extra.push(body.to_string());
     }
     Ok(())
 }
@@ -559,6 +683,40 @@ mod tests {
         c.edit(&p(&["interface wan0"]), &p(&["ipv4 address 192.0.2.1/24", "no ipv4 address 192.0.2.1/24"])).ok().unwrap();
     }
 
+    /// The port and bundle statements the Interfaces form writes (#40).
+    #[test]
+    fn port_and_bundle_statements() {
+        let mut c = Config::seed("x");
+        let wan = p(&["interface wan0"]);
+        c.edit(&wan, &p(&["vrf 5", "cgnat outside", "ipv6 address 2001:db8:100::3/64", "no ipv6 address 2001:db8:100::2/64"])).ok().unwrap();
+        c.edit(&wan, &p(&["no vrf 5", "vrf 10", "urpf strict", "ipv6 nd suppress-ra", "ip ospf area 0"])).ok().unwrap();
+        let text = c.render();
+        assert!(
+            text.contains("interface wan0\n description Carrier uplink\n cgnat outside\n vrf 10\n urpf strict\n ipv6 nd suppress-ra\n ip ospf area 0\n ipv4 address 203.0.113.10/29\n ipv6 address 2001:db8:100::3/64\n"),
+            "{text}"
+        );
+        c.edit(&wan, &p(&["vrf 20"])).ok().unwrap();
+        assert_eq!(c.iface("wan0").unwrap().extra.iter().filter(|l| l.starts_with("vrf ")).count(), 1, "one vrf, replaced");
+        for bad in ["vrf 0", "vrf ten", "cgnat sideways", "member lan0", "lacp mode active", "mac-address 02:00", "frobnicate"] {
+            assert!(c.edit(&wan, &p(&[bad])).is_err(), "{bad} is refused on a port");
+        }
+        assert!(c.edit(&wan, &p(&["no vrf 99"])).is_err(), "removing a value that is not set");
+        c.edit(&wan, &p(&["no vrf"])).ok().unwrap();
+
+        let bond = p(&["interface bond1"]);
+        c.edit(&bond, &p(&["description Core", "member lan0", "member wg0", "lacp mode active", "load-balance l34", "ipv4 address 198.51.100.1/24"])).ok().unwrap();
+        assert!(c.render().contains("interface bond1\n description Core\n member lan0\n member wg0\n lacp mode active\n load-balance l34\n ipv4 address 198.51.100.1/24\n mtu 1500\n exit\n"));
+        assert_eq!(c.bundles()[0].1, ["lan0", "wg0"]);
+        let err = c.edit(&p(&["interface bond2"]), &p(&["member lan0"])).err().unwrap();
+        assert_eq!(err.message, "lan0 is already a member of bond1");
+        for bad in ["member eth9", "member lo", "member lan0.20", "member bond1"] {
+            assert!(c.edit(&bond, &p(&[bad])).is_err(), "{bad}");
+        }
+        c.edit(&bond, &p(&["no member wg0"])).ok().unwrap();
+        assert_eq!(c.bundles()[0].1, ["lan0"]);
+        assert!(c.edit(&p(&["interface eth9"]), &p(&["mtu 1500"])).is_err(), "a port is not created");
+    }
+
     #[test]
     fn compare_marks_changes() {
         let a = Config::seed("x");
@@ -608,9 +766,9 @@ mod tests {
         assert!(!c.render().contains("192.0.2.0/24"));
 
         c.edit(&p(&["interface wan0"]), &p(&["ip ospf area 0", "ip ospf cost 10", "ip ospf cost 20", "ipv6 ospf6 passive"])).ok().unwrap();
-        assert!(c.render().contains(" mtu 1500\n ip ospf area 0\n ip ospf cost 20\n ipv6 ospf6 passive\n exit\n"), "{}", c.render());
+        assert!(c.render().contains(" description Carrier uplink\n ip ospf area 0\n ip ospf cost 20\n ipv6 ospf6 passive\n"), "{}", c.render());
         c.edit(&p(&["interface wan0"]), &p(&["no ip ospf cost 20", "no ipv6 ospf6 passive"])).ok().unwrap();
-        assert_eq!(c.iface("wan0").unwrap().ospf, ["ip ospf area 0"]);
+        assert_eq!(c.iface("wan0").unwrap().extra, ["ip ospf area 0"]);
         assert!(c.edit(&p(&["interface wan0"]), &p(&["no ip ospf bfd"])).is_err());
 
         c.edit(&[], &p(&["no router ospf6"])).ok().unwrap();

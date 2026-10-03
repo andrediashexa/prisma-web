@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { StagedEdit } from "@/hooks/use-config-changes"
 import { invalid } from "@/lib/config-model"
 import { formatNumber, formatUptime } from "@/lib/format"
 import {
@@ -30,6 +29,7 @@ import {
   neighborShutdownEdits,
   networkLine,
   removeLineEdits,
+  type StagedEdit,
   type Afi,
   type Attrs,
   type BgpConfig,

@@ -16,6 +16,15 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.15.0 - Interface forms — 2026-10-03
+
+### New
+- **Interfaces:** one form per port and per bundle: description, MTU, enabled, IPv4 and IPv6 addresses side by side, VRF, CGNAT side, uRPF, router advertisements, VLAN, Linux name and MAC; for a bundle its member ports, LACP mode and rate, and load balancing. A new bundle can be created. The form shows the exact lines it will send, and wrong addresses (family, network or broadcast, overlap with another interface in the VRF, duplicates) are refused before anything is sent. Changes go through the usual review (#40).
+
+### Changed
+- The Settings page opens straight on one instance (`?at=`), so the interface form links there for the statements it does not show (#40).
+- The MTU in the form stays 1280-9216, IPv6's minimum, although the VTY's grammar accepts from 576 (#40).
+
 ## 0.14.0 - Settings — 2026-10-03
 
 ### New

@@ -66,10 +66,22 @@ export const emptyForm = (): FormState => ({ values: {}, opts: {}, alts: {} })
 
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/
 
-function isIpv6(v: string) {
-  // Loose: hex groups with at most one "::"; the box has the last word.
-  return /^[0-9a-fA-F:]+$/.test(v) && v.includes(":") && (v.match(/::/g)?.length ?? 0) <= 1
+/** RFC 4291 text form: eight groups of 1-4 hex digits, one "::" at most, an IPv4 tail allowed (#40). */
+export function isIpv6(v: string) {
+  let s = v
+  const tail = /^(.*:)(\d+\.\d+\.\d+\.\d+)$/.exec(s)
+  if (tail) {
+    if (!IPV4.test(tail[2])) return false
+    s = `${tail[1]}0:0`
+  }
+  const halves = s.split("::")
+  if (halves.length > 2) return false
+  const groups = halves.flatMap((h) => (h === "" ? [] : h.split(":")))
+  if (!groups.every((g) => /^[0-9a-fA-F]{1,4}$/.test(g))) return false
+  return halves.length === 2 ? groups.length < 8 : groups.length === 8
 }
+
+export const isIpv4 = (v: string) => IPV4.test(v)
 
 function prefix(v: string, check: (a: string) => boolean, max: number) {
   const [a, l, extra] = v.split("/")
@@ -181,8 +193,8 @@ export function isNamed(m: Mode): boolean {
   return !!last?.some((t) => t.t === "param" || t.t === "alt")
 }
 
-/** Whether the box account may change a mode with these roles (#28, #39): CGNAT modes are open to a cgnat-operator. */
-export function boxAllows(access: WhoAmI | null, roles: string[]) {
+/** Whether the box account may change a mode (#28, #39): CGNAT modes are open to a cgnat-operator. */
+export function boxAllows(access: WhoAmI | null, m: Pick<Mode, "roles">) {
   if (!access) return true
-  return access.can_configure || (access.can_configure_cgnat && roles.includes("cgnat-operator"))
+  return access.can_configure || (access.can_configure_cgnat && m.roles.includes("cgnat-operator"))
 }

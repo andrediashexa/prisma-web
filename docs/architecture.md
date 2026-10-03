@@ -240,6 +240,20 @@ sequenceDiagram
   A line no statement matches (FRR's own, the backplane VRF) is shown read-only. The box account's
   role decides what is editable (a cgnat-operator only the CGNAT modes). When the box answers
   `GetSchema` (Prisma 0.149.20) it replaces the coverage map as the source; the model stays.
+- **Interface forms (#40):** the **Interfaces** tab edits a port (`interface <name>`) or a bundle
+  (`interface bond<n>`) in one form: description, MTU, admin state, IPv4 and IPv6 addresses (a
+  list per family, dual stack), VRF, CGNAT side, uRPF, `ipv6 nd suppress-ra`, VLAN, Linux name and
+  MAC address, and for a bundle its members, LACP mode and rate and load balancing. A new bundle is
+  created by its first lines. The rest of the mode (OSPF, IS-IS, VRRP) is listed and reached on the
+  Settings page (`settings?at=interface <name>`). The form reads the running configuration tree and
+  MUST refuse an invalid address before it reaches the box: not an address of the family, a /0, an
+  IPv4 network or broadcast address, a multicast address, an address already on the interface, or
+  one that overlaps a prefix of another interface in the same VRF. Saving stages the lines (removals
+  first, so an address can be replaced) with `use-config-changes.ts`, the staging the Settings page
+  uses too; they go to one candidate and the usual review. `front/src/lib/interface-config.ts` is
+  the only place that knows the interface lines, and the place typed `GetConfig` / `SetInterface`
+  (Prisma 0.149.20) will replace. There is no statement to delete a bundle in the grammar, so the
+  form does not offer it.
 - **Routing forms (#42, #43):** the **Routing** tab has dedicated forms for BGP (global settings,
   neighbors with their live `ListBgpNeighbors` state beside their configuration, and per IPv4/IPv6
   unicast family: activation and policies per neighbor, networks, aggregates, redistribution), OSPF
@@ -248,15 +262,13 @@ sequenceDiagram
   `front/src/lib/routing-config.ts` is the only place that reads these statements (from
   `/config/tree`) and builds their lines, with the syntax of `config_grammar.json`; typed routing
   reads (#558 phase 9) MUST replace only its reader. Changes are staged with
-  `front/src/hooks/use-config-changes.ts`, shared with the Settings tab, and go through the same
+  `front/src/hooks/use-config-changes.ts`, shared with the Settings and Interfaces tabs, and go through the same
   candidate and review. A changed `remote-as` is sent as the new line alone, because FRR's
   `no neighbor … remote-as` removes the whole neighbor; `no neighbor <address>` is how a neighbor
   is removed. OSPF6 has no `network` statement: an interface joins an area with
   `ipv6 ospf6 area`. The grammar types a static route's next hop as an address; the form also takes
   an interface name, as the issue asks, and the box has the last word in the review. The forms are
   offered to operators and above whose box account can change the routing modes (administrator).
-- **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,
-  `mtu` and `shutdown` lines. They are an assumption until the Prisma confirms them.
 
 ## Errors
 

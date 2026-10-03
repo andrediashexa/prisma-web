@@ -9,9 +9,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import type { StagedEdit } from "@/hooks/use-config-changes"
 import { invalid } from "@/lib/config-model"
-import { invalidInt, invalidNextHop, STATIC_PATH, staticEdits, staticLine, type StaticRoute } from "@/lib/routing-config"
+import { invalidInt, invalidNextHop, STATIC_PATH, staticEdits, staticLine, type StagedEdit, type StaticRoute } from "@/lib/routing-config"
 
 type Stage = (...e: StagedEdit[]) => void
 

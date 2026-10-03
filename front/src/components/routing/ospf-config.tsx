@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { StagedEdit } from "@/hooks/use-config-changes"
 import { invalid } from "@/lib/config-model"
 import {
   addLineEdits,
@@ -25,6 +24,7 @@ import {
   ospfRedistributeLine,
   ospfRouterIdEdits,
   removeLineEdits,
+  type StagedEdit,
   type OspfConfig,
   type OspfInterface,
 } from "@/lib/routing-config"
