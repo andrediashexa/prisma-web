@@ -83,7 +83,8 @@ const PHASE_LABEL: Record<UpgradeProgress["phase"], string> = {
 
 function UpgradeCard({ routerId }: { routerId: string }) {
   const name = useRouterName(routerId)
-  const release = useFleetStatus().data?.find((r) => r.id === routerId)?.version?.release
+  const fleet = useFleetStatus()
+  const release = fleet.data?.find((r) => r.id === routerId)?.version?.release
   const last = useSWR<UpgradeProgress>(routerApi(routerId, "/system/upgrade"), fetcher, { revalidateOnFocus: false, shouldRetryOnError: false })
   const [phases, setPhases] = useState<UpgradeProgress[]>([])
   const [running, setRunning] = useState(false)
@@ -112,6 +113,8 @@ function UpgradeCard({ routerId }: { routerId: string }) {
           const p = JSON.parse(data) as UpgradeProgress
           if (p.phase === "CHECKED") setNewest(p.newest)
           else setPhases((xs) => [...xs, p])
+          // Maintenance begins, gets its end or is over: show it now, not at the next poll.
+          if (["STARTED", "API_RESTART", "FAILED"].includes(p.phase)) void fleet.mutate()
         } else if (event === "error") setError(data)
       })
       void last.mutate()
@@ -227,6 +230,7 @@ function refusal(err: unknown): string {
 
 function PowerCard({ routerId }: { routerId: string }) {
   const name = useRouterName(routerId)
+  const fleet = useFleetStatus()
   const [action, setAction] = useState<Action | null>(null)
   const [typed, setTyped] = useState("")
   const [force, setForce] = useState(false)
@@ -250,6 +254,7 @@ function PowerCard({ routerId }: { routerId: string }) {
       await api.post(routerApi(routerId, `/system/${action}`), { confirm: typed, force })
       toast.success(ACTIONS[action].done)
       setAction(null)
+      void fleet.mutate()
     } catch (err) {
       setError(refusal(err))
       const reason = err instanceof ApiError ? err.diagnostics?.reason : undefined

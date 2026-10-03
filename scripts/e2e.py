@@ -534,6 +534,9 @@ def system_checks(admin, R, router_id):
     """SystemService (Prisma 0.149.25, #50) on the mock that lets prisma-web run it."""
     status = lambda: next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
     name = next(r["name"] for r in admin.get("/routers")[1] if r["id"] == router_id)
+    st, last = admin.get(f"{R}/system/upgrade")
+    check(st == 200 and last["phase"] in ("PHASE_UNSPECIFIED", "API_RESTART", "FAILED"),
+          "GetUpgradeStatus answers; a box with no run (the box's NOT_FOUND) reads as no run", last)
     st, b = admin.post(f"{R}/system/reboot", {"confirm": "not-the-name"})
     check(st == 422 and name in errmsg(b), "a reboot asks for the router's name, typed", b)
     st, b = admin.post(f"{R}/system/reboot", {"confirm": name})

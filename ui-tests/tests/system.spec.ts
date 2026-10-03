@@ -40,7 +40,9 @@ test("a reboot needs the name, and an unsaved box can be rebooted anyway", async
   await go.click()
   // The UI tests commit on this mock without saving: the box refuses until forced.
   const alert = dialog.getByRole("alert")
-  if (await alert.isVisible({ timeout: 3_000 }).catch(() => false)) {
+  const done = page.getByText("The box is rebooting.")
+  await expect(alert.or(done)).toBeVisible()
+  if (await alert.isVisible()) {
     await expect(alert).toContainText("Save it first, or go on anyway")
     await dialog.getByLabel("Go on anyway").click()
     await go.click()
@@ -51,6 +53,7 @@ test("a reboot needs the name, and an unsaved box can be rebooted anyway", async
 
 test("a router before 0.149.25 has no System tab", async ({ page }) => {
   await page.goto(`/routers/${linesRouterId()}/interfaces`)
-  await expect(page.getByRole("link", { name: "Interfaces" })).toBeVisible()
-  await expect(page.getByRole("link", { name: "System" })).toHaveCount(0)
+  const tabs = page.getByRole("navigation", { name: "Router sections" })
+  await expect(tabs.getByRole("link", { name: "Interfaces" })).toBeVisible()
+  await expect(tabs.getByRole("link", { name: "System" })).toHaveCount(0)
 })

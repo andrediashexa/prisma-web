@@ -145,6 +145,10 @@ impl SystemService for SystemSvc {
         if let Some(e) = denied() {
             return Err(e);
         }
-        Ok(Response::new(self.0.state.lock().unwrap().upgrade.clone().unwrap_or_default()))
+        // As the box: NOT_FOUND until a run was started through the API.
+        match self.0.state.lock().unwrap().upgrade.clone() {
+            Some(p) => Ok(Response::new(p)),
+            None => Err(Status::not_found("no upgrade was started through the API on this box")),
+        }
     }
 }

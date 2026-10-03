@@ -75,7 +75,7 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
             )}
           </p>
         </div>
-        <nav className="bg-muted text-muted-foreground inline-flex h-9 max-w-full items-center overflow-x-auto rounded-lg p-1">
+        <nav aria-label="Router sections" className="bg-muted text-muted-foreground inline-flex h-9 max-w-full items-center overflow-x-auto rounded-lg p-1">
           {tabs.map((t) => {
             const href = base + t.href
             const active = t.href === "" ? pathname === base : pathname.startsWith(href)

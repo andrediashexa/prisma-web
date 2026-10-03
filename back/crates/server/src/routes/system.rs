@@ -98,8 +98,14 @@ pub async fn action(
 pub async fn upgrade_status(State(st): State<AppState>, user: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     user.require(Role::Admin)?;
     let r = st.routers.get(id).await?;
-    let p = r.system().get_upgrade_status(req(GetUpgradeStatusRequest {})).await?.into_inner();
-    Ok(Json(progress_json(&p)))
+    match r.system().get_upgrade_status(req(GetUpgradeStatusRequest {})).await {
+        Ok(p) => Ok(Json(progress_json(&p.into_inner()))),
+        // A box with no run through the API answers NOT_FOUND: no run, not an error (#50).
+        Err(s) if s.code() == tonic::Code::NotFound => {
+            Ok(Json(progress_json(&UpgradeProgress { message: s.message().to_string(), ..Default::default() })))
+        }
+        Err(s) => Err(s.into()),
+    }
 }
 
 /// `Upgrade` as Server-Sent Events: `progress` per phase, `error` if the stream
