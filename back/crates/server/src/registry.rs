@@ -64,6 +64,10 @@ impl RouterHandle {
         TelemetryServiceClient::new(self.channel.clone())
     }
 
+    pub fn system(&self) -> prisma_proto::v1::system_service_client::SystemServiceClient<Channel> {
+        prisma_proto::v1::system_service_client::SystemServiceClient::new(self.channel.clone())
+    }
+
     pub fn session(&self) -> SessionServiceClient<Channel> {
         SessionServiceClient::new(self.channel.clone())
     }
@@ -101,6 +105,32 @@ pub struct RouterStatus {
     /// grpc.health.v1 of `prisma.v1.SystemService` (Prisma 0.149.25): `Some`
     /// on a box that has `SystemService` and `OperationalService.Clear` (#48).
     pub system_service: Option<&'static str>,
+    /// Set while prisma-web knows the box is in maintenance: an upgrade, a
+    /// reboot or a shutdown it asked for (#50).
+    pub maintenance: Option<Maintenance>,
+}
+
+/// A box in maintenance (#50): from an upgrade's `STARTED` until `api_away_seconds`
+/// after its `API_RESTART`, or from a reboot until it answers again.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Maintenance {
+    /// `upgrade`, `reboot` or `shutdown`.
+    pub what: String,
+    pub since: chrono::DateTime<chrono::Utc>,
+    /// When it ends; `None` until the box says (an upgrade's API_RESTART) or answers again.
+    pub until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Maintenance {
+    /// Whether it still holds: before `until`, or with no `until`, while the box has not
+    /// answered again since a minute after it began (a reboot answers before it goes down).
+    /// A shutdown holds until the box answers again, however long.
+    pub fn holds(&self, now: chrono::DateTime<chrono::Utc>, online: bool) -> bool {
+        match self.until {
+            Some(until) => now < until,
+            None => !(online && now - self.since > chrono::Duration::seconds(60)),
+        }
+    }
 }
 
 pub struct Registry {
@@ -116,6 +146,8 @@ pub struct Registry {
     access: AccessCache,
     /// Console `Show` in progress, per router.
     consoles: Arc<std::sync::Mutex<HashMap<Uuid, usize>>>,
+    /// Boxes in maintenance (#50).
+    maintenance: std::sync::Mutex<HashMap<Uuid, Maintenance>>,
 }
 
 /// Marks a console command as in progress for as long as it exists.
@@ -163,6 +195,7 @@ impl Registry {
             hostnames: Arc::new(RwLock::new(HashMap::new())),
             access: Arc::new(RwLock::new(HashMap::new())),
             consoles: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            maintenance: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -249,7 +282,36 @@ impl Registry {
         };
         self.poll(missing).await;
         let cache = self.status.read().unwrap();
-        Ok(handles.iter().filter_map(|h| cache.get(&h.id).cloned()).collect())
+        let now = chrono::Utc::now();
+        let mut m = self.maintenance.lock().unwrap();
+        Ok(handles
+            .iter()
+            .filter_map(|h| cache.get(&h.id).cloned())
+            .map(|mut st| {
+                if m.get(&st.id).is_some_and(|x| !x.holds(now, st.online)) {
+                    m.remove(&st.id);
+                }
+                st.maintenance = m.get(&st.id).cloned();
+                st
+            })
+            .collect())
+    }
+
+    /// The box enters maintenance (#50); `until` when it is known.
+    pub fn maintenance_begin(&self, id: Uuid, what: &str, until: Option<chrono::DateTime<chrono::Utc>>) {
+        let since = chrono::Utc::now();
+        self.maintenance.lock().unwrap().insert(id, Maintenance { what: what.into(), since, until });
+    }
+
+    /// The box said when it is back (an upgrade's API_RESTART with `api_away_seconds`).
+    pub fn maintenance_until(&self, id: Uuid, until: chrono::DateTime<chrono::Utc>) {
+        if let Some(m) = self.maintenance.lock().unwrap().get_mut(&id) {
+            m.until = Some(until);
+        }
+    }
+
+    pub fn maintenance_end(&self, id: Uuid) {
+        self.maintenance.lock().unwrap().remove(&id);
     }
 
     /// Queries the routers in parallel and updates the status cache.
@@ -276,6 +338,7 @@ impl Registry {
                         health: None,
                         log_export: None,
                         system_service: None,
+                        maintenance: None,
                     };
                 }
                 let started = Instant::now();
@@ -308,6 +371,7 @@ impl Registry {
                     health,
                     log_export,
                     system_service,
+                    maintenance: None,
                 };
                 match res {
                     Ok(Ok((v, s, ss))) => {
@@ -588,5 +652,23 @@ mod hostname_tests {
         // Top-level line only: a nested `description hostname x` does not count.
         assert_eq!(hostname_from_running(" description hostname fake\n"), None);
         assert_eq!(hostname_from_running("hostname   \n"), None);
+    }
+}
+
+#[cfg(test)]
+mod maintenance_tests {
+    use super::Maintenance;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn maintenance_holds_until_the_box_says_or_answers_again() {
+        let now = Utc::now();
+        let up = Maintenance { what: "upgrade".into(), since: now - Duration::seconds(100), until: Some(now + Duration::seconds(5)) };
+        assert!(up.holds(now, true), "until api_away_seconds pass, even if it answers");
+        assert!(!up.holds(now + Duration::seconds(6), false));
+        let reboot = Maintenance { what: "reboot".into(), since: now, until: None };
+        assert!(reboot.holds(now + Duration::seconds(10), true), "the reply comes before the box goes down");
+        assert!(reboot.holds(now + Duration::seconds(90), false));
+        assert!(!reboot.holds(now + Duration::seconds(90), true), "back once it answers again");
     }
 }

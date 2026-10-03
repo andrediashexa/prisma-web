@@ -131,6 +131,8 @@ services:
       MOCK_CANDIDATE_IDLE_SECS: "15"
       # All three CGNAT log streams configured (Prisma 0.149.15, #34); prisma-mock has none, like the lab box.
       MOCK_LOG_EXPORT: "1"
+      # SystemService refused as the real box refuses prisma-web's account: root's only (#50).
+      MOCK_SYSTEM_DENIED: "1"
       MOCK_TLS_DIR: /run/tls
     volumes:
       - ./dev-certs/mock-server:/run/tls:ro

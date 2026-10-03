@@ -387,6 +387,10 @@ impl ConfigService for ConfigSvc {
     }
 
     async fn save(&self, _: Request<SaveRequest>) -> R<SaveResponse> {
+        {
+            let mut st = self.0.state.lock().unwrap();
+            st.saved_revision = st.revision();
+        }
         self.0.emit("saved", "/etc/prisma/prisma.conf");
         Ok(Response::new(SaveResponse { output: "configuration saved to /etc/prisma/prisma.conf".into(), ..Default::default() }))
     }

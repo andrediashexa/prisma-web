@@ -348,6 +348,20 @@ export interface RouterStatus {
   log_export: "serving" | "not-serving" | null
   /** grpc.health.v1 of prisma.v1.SystemService (Prisma 0.149.25): set on a box that has Clear (#48). */
   system_service: "serving" | "not-serving" | null
+  /** Set while prisma-web knows the box is in maintenance: an upgrade, reboot or shutdown it asked for (#50). */
+  maintenance: { what: "upgrade" | "reboot" | "shutdown"; since: string; until: string | null } | null
+}
+
+/** SystemService's UpgradeProgress (Prisma 0.149.25, #50); the phase by name. */
+export interface UpgradeProgress {
+  phase: "PHASE_UNSPECIFIED" | "CHECKED" | "STARTED" | "DOWNLOAD" | "VERIFY" | "INSTALL" | "INSTALLED" | "API_RESTART" | "FAILED"
+  message: string
+  version: string
+  newest: string
+  api_away_seconds: number
+  started_at: string | null
+  output: string
+  diagnostics: { items: Diagnostic[]; output: string; reason?: string } | null
 }
 
 /** OperationalService.Clear's targets (Prisma 0.149.25, #48). */

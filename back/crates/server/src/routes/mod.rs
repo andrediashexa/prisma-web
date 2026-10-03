@@ -5,6 +5,7 @@ mod dashboard;
 mod log_watch;
 mod ops;
 mod route_table;
+mod system;
 pub mod routers;
 mod users;
 
@@ -48,6 +49,8 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/bundles", get(ops::bundles))
         .route("/routers/{id}/show", post(ops::show))
         .route("/routers/{id}/clear", post(ops::clear))
+        .route("/routers/{id}/system/upgrade", get(system::upgrade_status).post(system::upgrade))
+        .route("/routers/{id}/system/{action}", post(system::action))
         .route("/routers/{id}/policies", get(ops::policies))
         .route("/routers/{id}/logging", get(ops::logging))
         .route("/routers/{id}/logging/watch", get(log_watch::watch))

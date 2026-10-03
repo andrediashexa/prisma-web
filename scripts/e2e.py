@@ -136,6 +136,8 @@ def tls_checks(admin, args):
               "mock with a restarted dataplane reports dataplane_restarted", sysinfo)
         candidate_expiry_checks(admin, f"/routers/{r['id']}")
         log_export_checks(admin, r["id"])
+        st, b = admin.post(f"/routers/{r['id']}/system/reboot", {"confirm": r["name"]})
+        check(st == 403 and "root" in errmsg(b), "a box that gives the system actions to root only refuses prisma-web, in its words (#50)", b)
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
@@ -484,9 +486,12 @@ def clear_checks(admin, R, router_id):
           and any(not e["success"] for e in items), "every clear is in the change log, refused ones too", items[:3])
 
 
-def sse(client, path):
+def sse(client, path, body=None):
     """A Server-Sent Events body read to its end: (status, [(event, data)]) or (status, error JSON)."""
-    req = urllib.request.Request(client.base + "/api" + path)
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(client.base + "/api" + path, data=data, method="GET" if body is None else "POST")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
     try:
         with client.opener.open(req, timeout=60) as r:
             out, event, data = [], "message", []
@@ -523,6 +528,47 @@ def log_watch_checks(admin, R, router_id):
     st, audit = admin.get(f"/audit?router_id={router_id}&action=router.log_watch&limit=10")
     check(any(e["success"] and e["details"].get("subscriber") == "100.64.7.7" and e["details"].get("seconds") == 3 for e in audit["items"])
           and any(not e["success"] for e in audit["items"]), "each watch is in the audit log with its filters, refused ones too", audit["items"][:2])
+
+
+def system_checks(admin, R, router_id):
+    """SystemService (Prisma 0.149.25, #50) on the mock that lets prisma-web run it."""
+    status = lambda: next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+    name = next(r["name"] for r in admin.get("/routers")[1] if r["id"] == router_id)
+    st, b = admin.post(f"{R}/system/reboot", {"confirm": "not-the-name"})
+    check(st == 422 and name in errmsg(b), "a reboot asks for the router's name, typed", b)
+    st, b = admin.post(f"{R}/system/reboot", {"confirm": name})
+    d = (b or {}).get("error", {}).get("diagnostics") or {}
+    check(st >= 400 and d.get("reason") == "unsaved", "after the e2e commits the box refuses a reboot as unsaved (REASON_UNSAVED)", b)
+    st, b = admin.post(f"{R}/system/reboot", {"confirm": name, "force": True})
+    check(st == 200 and b["output"], "with force the reboot goes", b)
+    s = status()
+    check((s.get("maintenance") or {}).get("what") == "reboot" and s["maintenance"]["until"] is None,
+          "the fleet shows the box in maintenance until it answers again", s.get("maintenance"))
+    st, b = admin.post(f"{R}/system/restart-dataplane", {"confirm": name})
+    check(st == 200 and "restarted" in b["output"], "the dataplane restart answers when it has finished", b)
+    st, evs = sse(admin, f"{R}/system/upgrade", {"version": ""})
+    prog = [json.loads(d) for e, d in evs if e == "progress"] if st == 200 else []
+    check(len(prog) == 1 and prog[0]["phase"] == "CHECKED" and prog[0]["newest"], "an upgrade with no version only checks: the newest release", evs)
+    newest = prog[0]["newest"] if prog else ""
+    st, b = sse(admin, f"{R}/system/upgrade", {"version": newest})
+    check(st == 422, "an upgrade asks for the router's name too", b)
+    st, evs = sse(admin, f"{R}/system/upgrade", {"version": newest, "confirm": name})
+    phases = [json.loads(d)["phase"] for e, d in evs if e == "progress"] if st == 200 else []
+    check(phases[:1] == ["STARTED"] and phases[-1:] == ["API_RESTART"] and "INSTALL" in phases and evs[-1][0] == "end",
+          "the upgrade streams its phases up to API_RESTART, then ends", phases)
+    m = status().get("maintenance") or {}
+    check(m.get("what") == "upgrade" and m.get("until"), "after API_RESTART the box is in maintenance until api_away_seconds pass", m)
+    st, last = admin.get(f"{R}/system/upgrade")
+    check(st == 200 and last["phase"] == "API_RESTART" and last["version"] == newest, "GetUpgradeStatus reads the run back", last)
+    wait_for(lambda: (lambda s: (not s.get("maintenance"), s))(status()), "and is out of maintenance once they have", timeout=20)
+    st, evs = sse(admin, f"{R}/system/upgrade", {"version": "0.0.1", "confirm": name})
+    failed = [json.loads(d) for e, d in evs if e == "progress" and json.loads(d)["phase"] == "FAILED"] if st == 200 else []
+    check(failed and failed[0]["output"], "a failed upgrade carries the run's output", evs)
+    check(not status().get("maintenance"), "and leaves no maintenance behind", status().get("maintenance"))
+    st, audit = admin.get(f"/audit?router_id={router_id}&action=router.system.&limit=20")
+    acts = {e["action"] for e in audit["items"]}
+    check({"router.system.reboot", "router.system.restart-dataplane", "router.system.upgrade", "router.system.upgrade-check"} <= acts
+          and any(not e["success"] for e in audit["items"]), "every attempt is in the audit log, refused ones too", sorted(acts))
 
 
 def log_export_checks(admin, router_id):
@@ -601,6 +647,8 @@ def access_checks(admin, args):
         check(st == 404, "a hidden router answers as if it did not exist", b)
         st, c = v.post(f"/routers/{ra}/config/candidates")
         check(st == 200, "raised to operator on router a, the viewer opens a change there", c)
+        st, b = v.post(f"/routers/{ra}/system/reboot", {"confirm": "e2e"})
+        check(st == 403, "an operator may not reboot the router: an administrator's (#50)", b)
         v.delete(f"/routers/{ra}/config/candidates/{c['candidate_id']}")
         st, b = v.patch(f"/routers/{ra}", {"description": "nope"})
         check(st == 403, "a per-router grant never gives the router's registration", b)
@@ -835,6 +883,15 @@ def lab(admin, args):
         lab_typed_checks(admin, R)
         # WatchLogging only reads the box's observation ring: a 3 s watch, read-only (#49).
         if st_lab.get("system_service"):
+            # GetUpgradeStatus and an upgrade check change nothing on the box (#50).
+            st, last = admin.get(f"{R}/system/upgrade")
+            check(st in (200, 403), f"GetUpgradeStatus on the real Prisma ({st}): {last.get('phase') if st == 200 else errmsg(last)}", last)
+            st, evs = sse(admin, f"{R}/system/upgrade", {"version": ""})
+            if st == 200:
+                prog = [json.loads(d) for e, d in evs if e == "progress"]
+                check(prog and prog[0]["phase"] in ("CHECKED", "FAILED"), f"an upgrade check on the real Prisma: {[(p['phase'], p['newest'] or p['message']) for p in prog]}", evs)
+            else:
+                check(st == 403 and errmsg(evs), f"the real Prisma refuses the upgrade check to prisma-web, in its words: {errmsg(evs)}", evs)
             st, evs = sse(admin, f"{R}/logging/watch?seconds=3")
             if st == 200:
                 kinds = [json.loads(d)["kind"] for e, d in evs if e == "log"]
@@ -976,6 +1033,7 @@ def main():
         typed_form_checks(admin, R)
         clear_checks(admin, R, router_id)
         log_watch_checks(admin, R, router_id)
+        system_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
