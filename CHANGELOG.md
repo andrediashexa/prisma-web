@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.17.0 - Routing forms — 2026-10-03
+
+### New
+- **BGP:** global settings, and the neighbors with their live state beside their configuration: add, change, shut down and remove a neighbor (remote AS, peer group, description, password, update source, multihop, timers, maximum prefixes, next hop self, BFD), and per IPv4 and IPv6 unicast its activation, route map, prefix list and soft reconfiguration; networks, aggregates and redistribution per family. A router without BGP can start it from a small form (#42).
+- **OSPF and OSPF6:** router ID, areas, OSPFv2 networks, redistribution, and per interface its area, cost and passive switch (#43).
+- **Static routes:** IPv4 and IPv6, by next hop or interface, with distance, tag and description (#43).
+- Changes go through the usual review; the forms are offered to operators whose box account is an administrator (#42, #43).
+
 ## 0.16.0 - CGNAT forms — 2026-10-03
 
 ### New

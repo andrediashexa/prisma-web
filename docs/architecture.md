@@ -283,6 +283,21 @@ sequenceDiagram
   forms and, outside `nat > cgnat`, nothing (Settings shows the rest read-only). The Log export
   card reads GetLogging, which reports the collectors the configuration sets, so it follows a
   commit; the mock derives its streams from its running configuration the same way.
+- **Routing forms (#42, #43):** the **Routing** tab has dedicated forms for BGP (global settings,
+  neighbors with their live `ListBgpNeighbors` state beside their configuration, and per IPv4/IPv6
+  unicast family: activation and policies per neighbor, networks, aggregates, redistribution), OSPF
+  and OSPF6 (router ID, areas, OSPFv2 networks, redistribution, and per interface the area, cost
+  and passive switch) and static routes (IPv4 and IPv6, next hop or interface, distance, tag).
+  `front/src/lib/routing-config.ts` is the only place that reads these statements (from
+  `/config/tree`) and builds their lines, with the syntax of `config_grammar.json`; typed routing
+  reads (#558 phase 9) MUST replace only its reader. Changes are staged with
+  `front/src/hooks/use-config-changes.ts`, shared with the other configuration tabs, and go through the same
+  candidate and review. A changed `remote-as` is sent as the new line alone, because FRR's
+  `no neighbor … remote-as` removes the whole neighbor; `no neighbor <address>` is how a neighbor
+  is removed. OSPF6 has no `network` statement: an interface joins an area with
+  `ipv6 ospf6 area`. The grammar types a static route's next hop as an address; the form also takes
+  an interface name, as the issue asks, and the box has the last word in the review. The forms are
+  offered to operators and above whose box account can change the routing modes (administrator).
 
 ## Errors
 

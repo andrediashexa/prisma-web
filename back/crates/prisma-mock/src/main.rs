@@ -205,7 +205,7 @@ mod tests {
 
         let running = cfg.get_running(GetRunningRequest {}).await.unwrap().into_inner();
         assert!(
-            running.text.contains("interface lan0\n description Internal network\n ipv4 address 192.168.10.1/24\n ipv6 address 2001:db8:200:10::1/64\n mtu 9000\n exit\n"),
+            running.text.contains("interface lan0\n description Internal network\n ipv6 ospf6 area 0\n ipv4 address 192.168.10.1/24\n ipv6 address 2001:db8:200:10::1/64\n mtu 9000\n exit\n"),
             "{}",
             running.text
         );

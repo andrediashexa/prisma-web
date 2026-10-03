@@ -98,6 +98,9 @@ struct Parser {
     /// The statement names `ipv6`: the coverage map labels its prefixes
     /// `<A.B.C.D/M>` too, so they are taken as IPv6 (#39).
     ipv6: bool,
+    /// The statement belongs to `address-family <afi> <safi>`, which serves both families:
+    /// its `<A.B.C.D/M>` takes an IPv6 prefix too (#42).
+    any_family: bool,
 }
 
 impl Parser {
@@ -107,6 +110,7 @@ impl Parser {
             let id = self.next_id;
             self.next_id += 1;
             let kind = match (kind_of(&label), self.ipv6) {
+                (Kind::Ipv4Prefix, _) if self.any_family => Kind::Prefix,
                 (Kind::Ipv4Prefix, true) => Kind::Ipv6Prefix,
                 (Kind::Ipv4, true) => Kind::Ipv6,
                 (k, _) => k,
@@ -192,7 +196,13 @@ pub fn describe(tokens: &[Tok]) -> String {
 }
 
 pub fn parse_syntax(s: &str) -> Vec<Tok> {
-    Parser { next_id: 0, ipv6: s.split_whitespace().any(|w| w == "ipv6") }.alts(s)
+    Parser { next_id: 0, ipv6: s.split_whitespace().any(|w| w == "ipv6"), any_family: false }.alts(s)
+}
+
+/// A statement of a mode: in an address family, a prefix may be of either family.
+pub fn parse_statement(path: &[String], s: &str) -> Vec<Tok> {
+    let any_family = path.last().is_some_and(|e| e.starts_with("address-family <afi>"));
+    Parser { next_id: 0, ipv6: s.split_whitespace().any(|w| w == "ipv6"), any_family }.alts(s)
 }
 
 /// The values a line gives a statement's parameters, by id; `None` when the

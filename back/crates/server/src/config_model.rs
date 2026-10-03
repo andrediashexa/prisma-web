@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
-pub use prisma_proto::vty::{match_line, parse_syntax, Kind, Tok};
+pub use prisma_proto::vty::{match_line, parse_statement, parse_syntax, Kind, Tok};
 
 #[derive(Deserialize)]
 struct RawGrammar {
@@ -69,7 +69,7 @@ pub static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
             statements: a
                 .statements
                 .into_iter()
-                .map(|s| Statement { tokens: parse_syntax(&s.syntax), syntax: s.syntax, class: s.class })
+                .map(|s| Statement { tokens: parse_statement(&a.path, &s.syntax), syntax: s.syntax, class: s.class })
                 .collect(),
         };
         match modes.iter_mut().find(|m| m.path == a.path) {
@@ -411,6 +411,17 @@ mod tests {
         assert!(match_line(t, &w("logging udp 192.0.2.52 src 203.0.113.10 port")).is_none(), "port takes its value with it");
         assert!(match_line(t, &w("logging udp disable")).is_some());
         assert!(match_line(t, &w("logging udp 192.0.2.52 src 203.0.113.10 port 70000")).is_none(), "the box's range");
+    }
+
+    #[test]
+    fn an_address_family_takes_prefixes_of_both_families() {
+        let af = MODES.iter().find(|m| m.key == "router bgp <asn> > address-family <afi> <safi>").unwrap();
+        let network = af.groups.iter().flat_map(|g| &g.statements).find(|s| s.syntax.starts_with("network ")).unwrap();
+        assert!(match_line(&network.tokens, &w("network 2001:db8:1::/48")).is_some());
+        assert!(match_line(&network.tokens, &w("network 192.0.2.0/24 policy P")).is_some());
+        let bgp = MODES.iter().find(|m| m.key == "router bgp <asn>").unwrap();
+        let top = bgp.groups.iter().flat_map(|g| &g.statements).find(|s| s.syntax.starts_with("network ")).unwrap();
+        assert!(match_line(&top.tokens, &w("network 2001:db8:1::/48")).is_none(), "router bgp itself is IPv4");
     }
 
     #[test]

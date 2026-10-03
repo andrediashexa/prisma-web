@@ -19,7 +19,7 @@ export function StagedChanges({ cc }: { cc: ReturnType<typeof useConfigChanges> 
       </CardHeader>
       <CardContent className="space-y-2">
         {cc.changes.map((e, n) => (
-          <div key={n} className={cn("space-y-1 rounded-md border px-3 py-2 text-sm", cc.refusal?.change === e && "border-destructive")}>
+          <div key={n} data-staged className={cn("space-y-1 rounded-md border px-3 py-2 text-sm", cc.refusal?.change === e && "border-destructive")}>
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground shrink-0 font-mono text-xs">{e.path.length ? e.path.join(" › ") : "top"}</span>
               <span className="min-w-0 font-mono break-words">{e.lines.join(" ; ")}</span>
