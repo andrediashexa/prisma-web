@@ -7,6 +7,7 @@ import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, XIcon } f
 
 import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
+import { ClearAction, useClears } from "@/components/clear-action"
 import { BgpPanel } from "@/components/routing/bgp-config"
 import { OspfPanel } from "@/components/routing/ospf-config"
 import { StaticRoutesPanel } from "@/components/routing/static-routes"
@@ -77,21 +78,58 @@ export default function RoutingPage() {
   // The routing modes' roles come from the grammar (administrator today).
   const roles = grammar?.modes.find((m) => m.key === "router bgp <asn>")?.roles ?? ["administrator"]
   const editable = !!routing && roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, { roles })
+  const clears = useClears(id)
 
   return (
     <>
       {typed.error && <p className="text-destructive text-sm">Could not read the typed configuration: {typed.error.message}</p>}
-      <BgpPanel bgp={routing ? routing.bgp : undefined} live={bgp?.neighbors} editable={editable} stage={stage} release={release} />
+      <BgpPanel
+        bgp={routing ? routing.bgp : undefined}
+        live={bgp?.neighbors}
+        editable={editable}
+        stage={stage}
+        release={release}
+        clearOf={
+          clears
+            ? (peer) => (
+                <ClearAction
+                  routerId={id}
+                  target="bgp"
+                  name={peer}
+                  title={`the BGP session with ${peer}`}
+                  disrupts="A soft clear asks for or resends the routes and keeps the session up; a hard clear drops the session and its routes until it comes back."
+                  onDone={() => mutateBgp()}
+                />
+              )
+            : undefined
+        }
+      />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Section title="OSPF / OSPFv3 neighbors" loading={!ospf} empty={ospf?.neighbors.length === 0}>
+        <Section
+          title="OSPF / OSPFv3 neighbors"
+          loading={!ospf}
+          empty={ospf?.neighbors.length === 0}
+          action={
+            clears && (
+              <ClearAction
+                routerId={id}
+                target="ospf_process"
+                title="the OSPF process"
+                label="Restart OSPF"
+                disrupts="Every OSPF adjacency is torn down and the process starts again; OSPF routes are withdrawn until the adjacencies are full again."
+              />
+            )
+          }
+        >
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-6">Router ID</TableHead>
                 <TableHead>Address</TableHead>
                 <TableHead>Interface</TableHead>
-                <TableHead className="pr-6">State</TableHead>
+                <TableHead className={clears ? undefined : "pr-6"}>State</TableHead>
+                {clears && <TableHead className="pr-6" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -105,7 +143,20 @@ export default function RoutingPage() {
                   </TableCell>
                   <TableCell className="font-mono text-xs">{n.address}</TableCell>
                   <TableCell className="font-mono text-sm">{n.interface}</TableCell>
-                  <TableCell className="pr-6">{n.state}</TableCell>
+                  <TableCell className={clears ? undefined : "pr-6"}>{n.state}</TableCell>
+                  {clears && (
+                    <TableCell className="pr-6 text-right">
+                      {n.protocol === "ospf" && (
+                        <ClearAction
+                          routerId={id}
+                          target="ospf_neighbor"
+                          name={n.router_id}
+                          title={`the OSPF neighbor ${n.router_id}`}
+                          disrupts="The adjacency is torn down and formed again; the routes through it are withdrawn meanwhile."
+                        />
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -119,7 +170,8 @@ export default function RoutingPage() {
                 <TableHead className="pl-6">System ID</TableHead>
                 <TableHead>Interface</TableHead>
                 <TableHead>Level</TableHead>
-                <TableHead className="pr-6">State</TableHead>
+                <TableHead className={clears ? undefined : "pr-6"}>State</TableHead>
+                {clears && <TableHead className="pr-6" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -128,7 +180,18 @@ export default function RoutingPage() {
                   <TableCell className="pl-6 font-mono text-sm">{a.system_id}</TableCell>
                   <TableCell className="font-mono text-sm">{a.interface}</TableCell>
                   <TableCell>{a.level}</TableCell>
-                  <TableCell className="pr-6">{a.state}</TableCell>
+                  <TableCell className={clears ? undefined : "pr-6"}>{a.state}</TableCell>
+                  {clears && (
+                    <TableCell className="pr-6 text-right">
+                      <ClearAction
+                        routerId={id}
+                        target="isis_adjacency"
+                        name={a.system_id}
+                        title={`the IS-IS adjacency with ${a.system_id}`}
+                        disrupts="The adjacency is torn down and formed again; the routes through it are withdrawn meanwhile."
+                      />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -226,12 +289,14 @@ function Section({
   description,
   loading,
   empty,
+  action,
   children,
 }: {
   title: string
   description?: string
   loading: boolean
   empty?: boolean
+  action?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -239,6 +304,7 @@ function Section({
       <CardHeader className="pt-6">
         <CardTitle>{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
+        {action && <CardAction>{action}</CardAction>}
       </CardHeader>
       {loading ? (
         <CardContent className="pb-6">

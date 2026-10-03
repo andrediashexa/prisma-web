@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.24 | `4403c9c2813624c4dc9135821388512de1c74be78450315cff1256ce1f0fe883` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.24 | `a19bf5b78d906edcfefb81845b854ff03787953d12eeef3bbf3e63e1670bdaef` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.24 | `c2439b05b662976496c633f9a2352e69b94f610d0777432b774ad8d8c73db07f` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.25 | `7c924ccf4d961baaa7cea9f4d9fcf2ccea5b6773fff30a93ce8e698bde8db60f` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.25 | `a7b449b8fe4cfe173c6798cde4c38d9b234c6343519945ee2d4d76c20c37b40c` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.25 | `fb3054d7bbf85ed143e4fde28d31ffa28cf73ce51423524e5b9c67305f4547e2` |
 
-0.149.23 changed none of the three; 0.149.24 changes all three (#47).
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three.
 
-Read up to 0.149.24 in `clients.md` and already handled:
+Read up to 0.149.25 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -295,6 +295,20 @@ Read up to 0.149.24 in `clients.md` and already handled:
   `<prefix> next-hop <address>`); an older box's schema is read as before. It also adds
   `SetConfig` objects (`System`, `VrfDevice`) and a `KeyValue` message; the mock answers
   *unimplemented* for the new objects (#47).
+- 0.149.25 (phase 5 of #558, additive) leaves nothing the VTY does out of the API's reach.
+  `OperationalService.Clear` is followed (#48): the Interfaces, Routing and CGNAT screens offer the
+  clears of interface counters, a BGP session (soft, soft in, soft out, hard), the OSPF process and
+  an OSPF neighbor, an IS-IS adjacency and a CGNAT subscriber's sessions, each after a confirmation
+  that says what it disrupts, to operators and above; `POST /api/routers/{id}/clear` records each
+  one (`router.clear`), refused or not. A box has them when its `prisma.v1.SystemService` answers
+  health (it came in the same release; the fleet status carries it as `system_service`); an older
+  box is offered none. `TelemetryService.WatchLogging` and `SystemService` (reboot, shutdown,
+  dataplane restart, upgrade) follow in their own issues; their calls are root's on the box, so
+  prisma-web's `prisma-web` account gets `PERMISSION_DENIED` for them today. The mock simulates
+  `Clear` (a hard BGP clear restarts the session; a name that is not one word is
+  `INVALID_ARGUMENT`; an unknown neighbor or interface `FAILED_PRECONDITION`) and the line-only
+  mock stands for a box before it. 192.0.2.198 is on 0.149.25 since 2026-10-03 (with a reboot);
+  no clear is sent to a real box by the tests.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

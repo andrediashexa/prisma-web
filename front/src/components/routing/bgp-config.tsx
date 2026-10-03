@@ -60,6 +60,7 @@ export function BgpPanel({
   editable,
   stage,
   release,
+  clearOf,
 }: {
   bgp: BgpConfig | null | undefined
   live?: BgpNeighbor[]
@@ -67,6 +68,8 @@ export function BgpPanel({
   stage: Stage
   /** The box's release: whether the line form may remove a neighbor with a bare `no neighbor` (0.149.23). */
   release?: string
+  /** A session's clear (Prisma 0.149.25, #48), where the box has it. */
+  clearOf?: (peer: string) => React.ReactNode
 }) {
   const [editing, setEditing] = useState<{ neighbor?: BgpNeighborConfig } | null>(null)
   const [global, setGlobal] = useState(false)
@@ -171,6 +174,8 @@ export function BgpPanel({
                     <TableCell className="text-right tabular-nums">{l?.uptime_seconds ? formatUptime(l.uptime_seconds) : "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">{l ? formatNumber(l.prefixes_received) : "—"}</TableCell>
                     <TableCell className="pr-6">
+                      <span className="flex justify-end gap-1">
+                      {l && clearOf?.(n.address)}
                       {editable && bgp && (
                         <span className="flex justify-end gap-1">
                           <Button size="icon" variant="ghost" className="size-7" aria-label={`Edit ${n.address}`} onClick={() => setEditing({ neighbor: n })}>
@@ -197,6 +202,7 @@ export function BgpPanel({
                           </Button>
                         </span>
                       )}
+                      </span>
                     </TableCell>
                   </TableRow>
                 )
@@ -215,7 +221,7 @@ export function BgpPanel({
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{n.uptime_seconds ? formatUptime(n.uptime_seconds) : "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatNumber(n.prefixes_received)}</TableCell>
-                  <TableCell className="pr-6" />
+                  <TableCell className="pr-6 text-right">{clearOf?.(n.peer)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

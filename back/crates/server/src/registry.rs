@@ -98,6 +98,9 @@ pub struct RouterStatus {
     /// grpc.health.v1 of `prisma.v1.LogExport` (Prisma 0.149.15): `not-serving`
     /// while a configured CGNAT log stream is stalled; `None` on older boxes (#34).
     pub log_export: Option<&'static str>,
+    /// grpc.health.v1 of `prisma.v1.SystemService` (Prisma 0.149.25): `Some`
+    /// on a box that has `SystemService` and `OperationalService.Clear` (#48).
+    pub system_service: Option<&'static str>,
 }
 
 pub struct Registry {
@@ -272,12 +275,14 @@ impl Registry {
                         access: None,
                         health: None,
                         log_export: None,
+                        system_service: None,
                     };
                 }
                 let started = Instant::now();
-                let (health, log_export, res) = tokio::join!(
+                let (health, log_export, system_service, res) = tokio::join!(
                     health(&h, "prisma.v1.OperationalService"),
                     health(&h, "prisma.v1.LogExport"),
+                    health(&h, "prisma.v1.SystemService"),
                     tokio::time::timeout(STATUS_TIMEOUT, async {
                         let (mut a, mut b, mut c) = (h.ops(), h.ops(), h.ops());
                         tokio::try_join!(
@@ -302,6 +307,7 @@ impl Registry {
                     access: None,
                     health,
                     log_export,
+                    system_service,
                 };
                 match res {
                     Ok(Ok((v, s, ss))) => {

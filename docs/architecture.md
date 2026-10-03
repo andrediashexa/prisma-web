@@ -307,6 +307,11 @@ sequenceDiagram
   them (#47). The grammar types a static route's next hop as an address; the form also takes
   an interface name, as the issue asks, and the box has the last word in the review. The forms are
   offered to operators and above whose box account can change the routing modes (administrator).
+- **Clears (#48):** `OperationalService.Clear` (Prisma 0.149.25) behind `POST
+  /api/routers/{id}/clear` (operator and above, audited as `router.clear`), and
+  `front/src/components/clear-action.tsx`, a button with a confirmation that says what the clear
+  disrupts, placed where the object is shown (interfaces, BGP sessions, OSPF, IS-IS, a CGNAT
+  subscriber). The monitor probes `prisma.v1.SystemService`'s health to know whether a box has it.
 - **Forms on the typed configuration (#46):** on a box that answers `GetConfig` for their area
   (Prisma 0.149.20 for interfaces, pools and the log collectors; 0.149.22 for the routing areas),
   the Interfaces, CGNAT and Routing forms read typed and write with `SetConfig` / `DeleteConfig`;

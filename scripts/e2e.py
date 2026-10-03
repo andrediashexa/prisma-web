@@ -447,8 +447,39 @@ def line_fallback_checks(admin, args):
         st, cmp = admin.get(f"{C}/compare")
         check(any(l.startswith("+") and l[1:].strip() == "neighbor 192.0.2.47 remote-as 64747" for l in cmp["diff"].splitlines()), "and reaches the diff", cmp)
         admin.delete(C)
+        s = next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])
+        check(s.get("system_service") is None, "a box before 0.149.25 has no SystemService: the clears are not offered", s)
+        st, b = admin.post(f"{R}/clear", {"target": "interface_counters"})
+        check(st == 501, "and Clear answers 501 there", b)
     finally:
         admin.delete(R)
+
+
+def clear_checks(admin, R, router_id):
+    """OperationalService.Clear (Prisma 0.149.25, #48): each target reaches the box, refusals keep
+    the box's words, and every clear is in the change log."""
+    status = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+    check(status.get("system_service") == "serving", "the fleet status says the box has SystemService (and Clear)", status)
+    peer = admin.get(f"{R}/bgp")[1]["neighbors"][0]["peer"]
+    st, b = admin.post(f"{R}/clear", {"target": "bgp", "name": peer, "bgp": "soft_in"})
+    check(st == 200 and b["command"] == f"clear ip bgp {peer} soft in", "a soft-in BGP clear reaches the box, which says the command", b)
+    st, b = admin.post(f"{R}/clear", {"target": "bgp", "name": peer, "bgp": "hard"})
+    n = next(n for n in admin.get(f"{R}/bgp")[1]["neighbors"] if n["peer"] == peer)
+    check(st == 200 and n["uptime_seconds"] < 30, "a hard clear restarts the session", n)
+    for target, name in [("interface_counters", ""), ("cgnat_subscriber", "100.64.0.10"), ("ospf_process", ""),
+                         ("ospf_neighbor", "192.168.10.2"), ("isis_adjacency", "")]:
+        st, b = admin.post(f"{R}/clear", {"target": target, "name": name})
+        check(st == 200 and b["command"].startswith("clear "), f"Clear {target} reaches the box", b)
+    st, b = admin.post(f"{R}/clear", {"target": "bgp", "name": "192.0.2.254"})
+    check(st >= 400 and "Unknown neighbor" in errmsg(b), "an unknown neighbor is refused (FAILED_PRECONDITION) with the box's words", b)
+    st, b = admin.post(f"{R}/clear", {"target": "interface_counters", "name": "two words"})
+    check(st == 400 or st == 422, "a name that is not one word is refused (INVALID_ARGUMENT)", b)
+    st, b = admin.post(f"{R}/clear", {"target": "everything"})
+    check(st == 422 and b["error"]["code"] == "invalid", "an unknown target is refused before the box", b)
+    st, audit = admin.get(f"/audit?router_id={router_id}&action=router.clear&limit=20")
+    items = audit["items"]
+    check(any(e["success"] and e["details"].get("command") == f"clear ip bgp {peer} soft in" for e in items)
+          and any(not e["success"] for e in items), "every clear is in the change log, refused ones too", items[:3])
 
 
 def log_export_checks(admin, router_id):
@@ -509,6 +540,8 @@ def access_checks(admin, args):
 
         st, b = v.post(f"/routers/{ra}/config/candidates")
         check(st == 403, "with no grant the global role applies: a viewer cannot open a change", b)
+        st, b = v.post(f"/routers/{ra}/clear", {"target": "interface_counters"})
+        check(st == 403, "nor clear anything on the router (#48)", b)
         st, b = admin.put(f"/users/{made_user}/access/{ra}", {"role": "operator"})
         check(st == 204, "admin raises the viewer to operator on router a", b)
         st, b = admin.put(f"/users/{made_user}/access/{rb}", {"role": "none"})
@@ -886,6 +919,7 @@ def main():
         routing_form_checks(admin, R)
         interface_form_checks(admin, R)
         typed_form_checks(admin, R)
+        clear_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

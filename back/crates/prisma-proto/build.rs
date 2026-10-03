@@ -43,6 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "prisma.v1.PendingConfirm.deadline", "prisma.v1.PendingConfirm.committed_at",
         "prisma.v1.CandidateInfo.created_at", "prisma.v1.CandidateInfo.last_activity", "prisma.v1.CandidateInfo.expires_at",
         "prisma.v1.SetConfigResponse.last_activity", "prisma.v1.SetConfigResponse.expires_at",
+        // Prisma 0.149.25 (#48).
+        "prisma.v1.LogEvent.at", "prisma.v1.LogEvent.boot_time", "prisma.v1.UpgradeProgress.started_at",
     ] {
         cfg = cfg.field_attribute(ts, "#[serde(serialize_with = \"crate::ser::timestamp\")]");
     }

@@ -346,6 +346,16 @@ export interface RouterStatus {
   health: "serving" | "not-serving" | null
   /** grpc.health.v1 of prisma.v1.LogExport (Prisma 0.149.15): "not-serving" while a configured CGNAT log stream is stalled. */
   log_export: "serving" | "not-serving" | null
+  /** grpc.health.v1 of prisma.v1.SystemService (Prisma 0.149.25): set on a box that has Clear (#48). */
+  system_service: "serving" | "not-serving" | null
+}
+
+/** OperationalService.Clear's targets (Prisma 0.149.25, #48). */
+export type ClearTarget = "interface_counters" | "cgnat_subscriber" | "bgp" | "ospf_process" | "ospf_neighbor" | "isis_adjacency"
+
+export interface ClearResponse {
+  output: string
+  command: string
 }
 
 /** SessionService.WhoAmI (Prisma 0.149.2). */
