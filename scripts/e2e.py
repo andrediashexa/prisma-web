@@ -147,6 +147,7 @@ def candidate_expiry_checks(admin, R):
     """prisma-mock-2 closes a candidate idle for 15 s, as the box does after 30 min (#11)."""
     st, c = admin.post(f"{R}/config/candidates")
     check(st == 200, "candidate opened on the short-idle mock", c)
+    check(c.get("idle_seconds") == 15 and c.get("expires_at"), "the box says when the candidate expires (Prisma 0.149.18)", c)
     C = f"{R}/config/candidates/{c['candidate_id']}"
     st, b = admin.post(f"{C}/edit", {"path": ["interface lan0"], "lines": ["description e2e idle"]})
     check(st == 200, "edit within the idle limit", b)
@@ -489,6 +490,7 @@ def main():
             "VTY refusal arrives with path, line and message",
             b,
         )
+        check(b["error"]["diagnostics"].get("reason") == "grammar", "the refusal carries its reason by name (Prisma 0.149.18)", b["error"]["diagnostics"])
         st, b = admin.post(f"{C}/edit", {"path": ["interface lan0"], "lines": ["mtu 9000"]})
         check(st == 200, "edit accepted", b)
         st, b = admin.post(f"{C}/edit", {"path": ["nat", "cgnat", "pool RFC6598"], "lines": ["block-size 512"]})
@@ -513,6 +515,8 @@ def main():
         # --- commit ------------------------------------------------------------
         st, b = admin.post(f"{C}/commit", {"comment": "e2e"})
         check(st == 409 and b["error"]["code"] == "router_refused", "commit without acknowledging the remap is refused", b)
+        d = b["error"].get("diagnostics") or {}
+        check(d.get("reason") == "gate_remap" and d.get("gate_items"), "the gate refusal names its gate and what it is about", d)
         st, b = admin.post(
             f"{C}/commit",
             {"comment": "e2e jumbo", "confirmed_minutes": 2, "acknowledge_remap": True},
@@ -528,6 +532,8 @@ def main():
         )
         st, p = admin.get(f"{R}/config/pending")
         check(p["pending"] and p["pending"]["can_confirm"] and p["pending"]["by"] == user, "pending commit visible to the author", p)
+        check(p["pending"]["source"] == "box" and p["pending"]["deadline"] and p["pending"]["revision"],
+              "the pending window is read from the box (GetPendingConfirm), with its deadline and revision", p)
         st, p_op = op.get(f"{R}/config/pending")
         check(p_op["pending"] and not p_op["pending"]["can_confirm"], "another operator cannot confirm", p_op)
         st, b = op.post(f"{R}/config/confirm")

@@ -23,6 +23,7 @@ use crate::error::{AppError, AppResult};
 use crate::grpc::req;
 use crate::registry::RouterHandle;
 use crate::telemetry::PendingConfirm;
+use prisma_proto::v1::diagnostics::Reason;
 use crate::AppState;
 
 /// A candidate idle for longer than this is treated as expired. Prisma closes
@@ -39,6 +40,21 @@ struct Owner {
     last_used: Instant,
     /// Revision of the running configuration the candidate was opened from.
     base_revision: String,
+    /// When the box closes it, and its idle rule (Prisma 0.149.18); `None`
+    /// on an older box, where the 25-minute rule applies (#37).
+    expires_at: Option<DateTime<Utc>>,
+    idle: Option<Duration>,
+}
+
+impl Owner {
+    /// By the box's `expires_at` when it gives one (a few seconds early, so a
+    /// slow call does not land after it); otherwise 25 idle minutes (#11).
+    fn is_expired(&self, now: DateTime<Utc>) -> bool {
+        match self.expires_at {
+            Some(t) => now + chrono::Duration::seconds(5) >= t,
+            None => self.last_used.elapsed() > CANDIDATE_IDLE,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -51,17 +67,28 @@ impl Candidates {
         let mut map = self.0.lock().unwrap();
         match map.get_mut(cid) {
             Some(o) if o.router_id == router_id && o.user_id == user.id => {
-                if o.last_used.elapsed() > CANDIDATE_IDLE {
+                if o.is_expired(Utc::now()) {
                     map.remove(cid);
                     return Err(AppError::Expired(EXPIRED.into()));
                 }
                 o.last_used = Instant::now();
+                // Every call naming the candidate moves the box's expiry too.
+                if let Some(idle) = o.idle {
+                    o.expires_at = Some(Utc::now() + chrono::Duration::from_std(idle).unwrap_or_default());
+                }
                 Ok(())
             }
             Some(o) if o.router_id == router_id => {
                 Err(AppError::Conflict("this candidate was opened by another user".into()))
             }
             _ => Err(AppError::NotFound("candidate not found; open a new change".into())),
+        }
+    }
+
+    /// The box's own expiry after an Edit (Prisma 0.149.18).
+    fn set_expiry(&self, cid: &str, expires_at: Option<DateTime<Utc>>) {
+        if let (Some(o), Some(t)) = (self.0.lock().unwrap().get_mut(cid), expires_at) {
+            o.expires_at = Some(t);
         }
     }
 
@@ -78,7 +105,7 @@ impl Candidates {
         let mut map = self.0.lock().unwrap();
         let old: Vec<(Uuid, String)> = map
             .iter()
-            .filter(|(_, o)| o.last_used.elapsed() > CANDIDATE_IDLE)
+            .filter(|(_, o)| o.is_expired(Utc::now()))
             .map(|(cid, o)| (o.router_id, cid.clone()))
             .collect();
         for (_, cid) in &old {
@@ -131,13 +158,33 @@ fn release_triplet(release: &str) -> Option<(u32, u32, u32)> {
 fn gone<'a>(st: &'a AppState, cid: &'a str) -> impl FnOnce(tonic::Status) -> AppError + 'a {
     let candidates = &st.candidates;
     move |s| {
-        if s.code() == tonic::Code::NotFound {
-            candidates.forget(cid);
-            AppError::Expired(EXPIRED.into())
-        } else {
-            s.into()
+        if s.code() != tonic::Code::NotFound {
+            return s.into();
+        }
+        candidates.forget(cid);
+        match reason_of(&s) {
+            // Closed by a CloseCandidate, or never this account's: not an expiry (#37).
+            Some(Reason::CandidateUnknown) => AppError::NotFound("candidate not found; open a new change".into()),
+            // REASON_CANDIDATE_EXPIRED, or a box before 0.149.18 that gives no reason.
+            _ => AppError::Expired(EXPIRED.into()),
         }
     }
+}
+
+/// The refusal's code (Prisma 0.149.18); `None` from an older box.
+fn reason_of(s: &tonic::Status) -> Option<Reason> {
+    prisma_proto::diagnostics(s)
+        .and_then(|d| Reason::try_from(d.reason).ok())
+        .filter(|r| *r != Reason::Unspecified)
+}
+
+/// Stale from the reason when the box gives one; `None` to decide the old way (#10).
+fn stale_from_reason(reason: Option<Reason>) -> Option<bool> {
+    reason.map(|r| r == Reason::StaleBase)
+}
+
+fn ts(t: Option<prost_types::Timestamp>) -> Option<DateTime<Utc>> {
+    t.and_then(|t| DateTime::from_timestamp(t.seconds, t.nanos.max(0) as u32))
 }
 
 fn cref(cid: &str) -> CandidateRef {
@@ -172,12 +219,47 @@ pub struct PendingView {
 }
 
 pub async fn pending(State(st): State<AppState>, user: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<Pending>> {
-    st.routers.get(id).await?;
-    let pending = st.routers.telemetry.pending(id).map(|p| PendingView {
+    let r = st.routers.get(id).await?;
+    let pending = current_pending(&st, &r).await.map(|p| PendingView {
         can_confirm: can_confirm(&p, &user),
         inner: p,
     });
     Ok(Json(Pending { pending }))
+}
+
+/// The `commit confirmed` window: from the box (GetPendingConfirm, Prisma
+/// 0.149.18), so it survives a restart of this server; from memory on an
+/// older box (#37).
+async fn current_pending(st: &AppState, r: &RouterHandle) -> Option<PendingConfirm> {
+    match r.config().get_pending_confirm(req(GetPendingConfirmRequest {})).await {
+        Ok(resp) => {
+            let p = resp.into_inner();
+            if !p.pending {
+                st.routers.telemetry.set_pending(r.id, None);
+                return None;
+            }
+            let web = web_user(&p.comment);
+            let user_id = match web {
+                Some(name) => sqlx::query_scalar("SELECT id FROM users WHERE username = $1").bind(name).fetch_optional(&st.db).await.ok().flatten(),
+                None => None,
+            };
+            Some(PendingConfirm {
+                deadline: ts(p.deadline),
+                by: web.map(str::to_string).unwrap_or(p.account),
+                user_id,
+                revision: Some(p.revision).filter(|r| !r.is_empty()),
+                overdue: p.overdue,
+                revert_attempts: p.revert_attempts,
+                source: "box",
+            })
+        }
+        Err(_) => st.routers.telemetry.pending(r.id),
+    }
+}
+
+/// The web user a commit was made by: its comment starts `[prisma-web:<user>]`.
+fn web_user(comment: &str) -> Option<&str> {
+    comment.strip_prefix("[prisma-web:")?.split_once(']').map(|(u, _)| u).filter(|u| !u.is_empty())
 }
 
 fn can_confirm(p: &PendingConfirm, user: &CurrentUser) -> bool {
@@ -203,7 +285,14 @@ pub async fn open(
     let resp = r.config().open_candidate(req(OpenCandidateRequest { from_revision, ..Default::default() })).await?.into_inner();
     st.candidates.0.lock().unwrap().insert(
         resp.candidate_id.clone(),
-        Owner { router_id: id, user_id: user.id, last_used: Instant::now(), base_revision: resp.base_revision.clone() },
+        Owner {
+            router_id: id,
+            user_id: user.id,
+            last_used: Instant::now(),
+            base_revision: resp.base_revision.clone(),
+            expires_at: ts(resp.expires_at),
+            idle: (resp.idle_seconds > 0).then(|| Duration::from_secs(resp.idle_seconds.into())),
+        },
     );
     Ok(Json(resp))
 }
@@ -228,7 +317,9 @@ pub async fn edit(
     }
     let r = st.routers.get(id).await?;
     let msg = EditRequest { candidate_id: cid.clone(), path: body.path, lines, ..Default::default() };
-    Ok(Json(r.config().edit(req(msg)).await.map_err(gone(&st, &cid))?.into_inner()))
+    let resp = r.config().edit(req(msg)).await.map_err(gone(&st, &cid))?.into_inner();
+    st.candidates.set_expiry(&cid, ts(resp.expires_at));
+    Ok(Json(resp))
 }
 
 pub async fn show_candidate(
@@ -389,6 +480,9 @@ pub async fn commit(
                         by: user.username.clone(),
                         user_id: Some(user.id),
                         revision: Some(resp.revision.clone()),
+                        overdue: false,
+                        revert_attempts: 0,
+                        source: "memory",
                     }),
                 );
             }
@@ -400,12 +494,15 @@ pub async fn commit(
                 details["diagnostics"] = json!(d.items);
             }
             // The box's wording is not part of the contract: compare revisions instead.
-            let stale = if status.code() == tonic::Code::FailedPrecondition {
-                let running = r.config().get_running(req(GetRunningRequest {})).await.ok().map(|r| r.into_inner().revision);
-                let base = st.candidates.base_revision(&cid);
-                is_stale(base.as_deref(), running.as_deref(), st.routers.telemetry.pending(id).is_some())
-            } else {
-                false
+            let stale = match stale_from_reason(reason_of(&status)) {
+                Some(stale) => stale,
+                // A box before 0.149.18: compare the candidate's base with the running revision.
+                None if status.code() == tonic::Code::FailedPrecondition => {
+                    let running = r.config().get_running(req(GetRunningRequest {})).await.ok().map(|r| r.into_inner().revision);
+                    let base = st.candidates.base_revision(&cid);
+                    is_stale(base.as_deref(), running.as_deref(), st.routers.telemetry.pending(id).is_some())
+                }
+                None => false,
             };
             details["stale"] = json!(stale);
             audit::record(&st.db, entry.failed().details(details)).await;
@@ -424,7 +521,8 @@ pub async fn confirm(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ConfirmResponse>> {
     user.require(Role::Operator)?;
-    let pending = st.routers.telemetry.pending(id);
+    let r = st.routers.get(id).await?;
+    let pending = current_pending(&st, &r).await;
     if let Some(p) = &pending {
         if !can_confirm(p, &user) {
             return Err(AppError::Conflict(format!(
@@ -433,7 +531,6 @@ pub async fn confirm(
             )));
         }
     }
-    let r = st.routers.get(id).await?;
     require_can_change(&st, &r).await?;
     st.routers.telemetry.web_action(id);
     let resp = r.config().confirm(req(ConfirmRequest {})).await?.into_inner();
@@ -515,13 +612,55 @@ mod tests {
     fn candidate_belongs_to_whoever_opened_it() {
         let c = Candidates::default();
         let (router, owner, other) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-        c.0.lock().unwrap().insert("c1".into(), Owner { router_id: router, user_id: owner, last_used: Instant::now(), base_revision: String::new() });
+        c.0.lock().unwrap().insert("c1".into(), Owner { router_id: router, user_id: owner, last_used: Instant::now(), base_revision: String::new(), expires_at: None, idle: None });
         assert!(c.check(router, "c1", &user(owner)).is_ok());
         assert!(matches!(c.check(router, "c1", &user(other)), Err(AppError::Conflict(_))));
         // The same id on another router does not count.
         assert!(matches!(c.check(Uuid::new_v4(), "c1", &user(owner)), Err(AppError::NotFound(_))));
         c.forget("c1");
         assert!(matches!(c.check(router, "c1", &user(owner)), Err(AppError::NotFound(_))));
+    }
+
+    #[test]
+    fn the_reason_is_read_from_the_trailer() {
+        let with = |r: Reason| {
+            prisma_proto::with_diagnostics(
+                tonic::Status::not_found("candidate x does not exist"),
+                &Diagnostics { reason: r as i32, ..Default::default() },
+            )
+        };
+        assert_eq!(reason_of(&with(Reason::CandidateUnknown)), Some(Reason::CandidateUnknown));
+        assert_eq!(reason_of(&with(Reason::Unspecified)), None);
+        assert_eq!(reason_of(&tonic::Status::not_found("no trailer")), None, "a box before 0.149.18");
+    }
+
+    #[test]
+    fn typed_reasons_win_and_older_boxes_fall_back() {
+        assert_eq!(stale_from_reason(Some(Reason::StaleBase)), Some(true));
+        assert_eq!(stale_from_reason(Some(Reason::GateRemap)), Some(false), "a gate is not a moved base");
+        assert_eq!(stale_from_reason(Some(Reason::ConfirmPending)), Some(false));
+        assert_eq!(stale_from_reason(None), None, "no reason (before 0.149.18): decide the old way");
+        assert_eq!(web_user("[prisma-web:alice] mtu on lan0"), Some("alice"));
+        assert_eq!(web_user("[prisma-web:bob]"), Some("bob"));
+        assert_eq!(web_user("made at the prompt"), None);
+        assert_eq!(web_user("[prisma-web:] x"), None);
+    }
+
+    #[test]
+    fn the_boxs_expiry_wins_over_the_25_minute_rule() {
+        let o = |expires_at| Owner {
+            router_id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            last_used: Instant::now(),
+            base_revision: String::new(),
+            expires_at,
+            idle: Some(Duration::from_secs(15)),
+        };
+        let now = Utc::now();
+        assert!(o(Some(now - chrono::Duration::seconds(1))).is_expired(now), "past the box's expiry");
+        assert!(o(Some(now + chrono::Duration::seconds(3))).is_expired(now), "inside the 5 s margin");
+        assert!(!o(Some(now + chrono::Duration::seconds(60))).is_expired(now));
+        assert!(!o(None).is_expired(now), "an older box: just used, not expired");
     }
 
     #[test]
@@ -556,21 +695,21 @@ mod tests {
         let (router, owner) = (Uuid::new_v4(), Uuid::new_v4());
         let ago = |m: u64| Instant::now() - Duration::from_secs(m * 60);
         // Opened 40 minutes ago but used 20 minutes ago: alive, and the check counts as a use.
-        c.0.lock().unwrap().insert("busy".into(), Owner { router_id: router, user_id: owner, last_used: ago(20), base_revision: String::new() });
+        c.0.lock().unwrap().insert("busy".into(), Owner { router_id: router, user_id: owner, last_used: ago(20), base_revision: String::new(), expires_at: None, idle: None });
         assert!(c.check(router, "busy", &user(owner)).is_ok());
         assert!(c.0.lock().unwrap()["busy"].last_used.elapsed() < Duration::from_secs(5));
         // Idle for 26 minutes: expired with the reason, and forgotten.
-        c.0.lock().unwrap().insert("idle".into(), Owner { router_id: router, user_id: owner, last_used: ago(26), base_revision: String::new() });
+        c.0.lock().unwrap().insert("idle".into(), Owner { router_id: router, user_id: owner, last_used: ago(26), base_revision: String::new(), expires_at: None, idle: None });
         assert!(matches!(c.check(router, "idle", &user(owner)), Err(AppError::Expired(_))));
         assert!(matches!(c.check(router, "idle", &user(owner)), Err(AppError::NotFound(_))));
-        c.0.lock().unwrap().insert("idle2".into(), Owner { router_id: router, user_id: owner, last_used: ago(26), base_revision: String::new() });
+        c.0.lock().unwrap().insert("idle2".into(), Owner { router_id: router, user_id: owner, last_used: ago(26), base_revision: String::new(), expires_at: None, idle: None });
         assert_eq!(c.expired(), vec![(router, "idle2".to_string())]);
     }
 
     #[test]
     fn confirm_is_for_the_author_or_an_admin() {
         let author = Uuid::new_v4();
-        let p = PendingConfirm { deadline: None, by: "a".into(), user_id: Some(author), revision: None };
+        let p = PendingConfirm { deadline: None, by: "a".into(), user_id: Some(author), revision: None, overdue: false, revert_attempts: 0, source: "memory" };
         assert!(can_confirm(&p, &user(author)));
         assert!(!can_confirm(&p, &user(Uuid::new_v4())));
         let mut admin = user(Uuid::new_v4());

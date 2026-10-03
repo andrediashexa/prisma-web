@@ -51,6 +51,12 @@ export function PendingConfirmBanner({ routerId }: { routerId: string }) {
         <div className="text-xs opacity-80">
           Commit {pending.revision ?? ""} by {pending.by}. If nobody confirms in time, Prisma rolls back to the previous configuration.
         </div>
+        {pending.overdue && (
+          <div className="text-destructive text-xs font-medium">
+            The deadline has passed and the box is still on this configuration
+            {pending.revert_attempts ? ` (${pending.revert_attempts} failed revert attempt${pending.revert_attempts > 1 ? "s" : ""})` : ""}.
+          </div>
+        )}
       </div>
       {pending.can_confirm && (
         <Button size="sm" onClick={confirm} disabled={confirming}>

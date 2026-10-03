@@ -12,7 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .field_attribute(
             "prisma.v1.Diagnostic.severity",
             "#[serde(serialize_with = \"crate::ser::severity\")]",
-        );
+        )
+        .field_attribute("prisma.v1.Diagnostics.reason", "#[serde(serialize_with = \"crate::ser::reason\")]")
+        .field_attribute("prisma.v1.CheckResponse.reason", "#[serde(serialize_with = \"crate::ser::reason\")]");
     for ts in [
         "prisma.v1.Revision.committed_at",
         "prisma.v1.CommitResponse.confirm_deadline",
@@ -27,6 +29,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "prisma.v1.GetHistoryRequest.since",
         "prisma.v1.HistorySample.at",
         "prisma.v1.ListRoutesResponse.snapshot_at", "prisma.v1.LogStream.last_progress", "prisma.v1.LoggingState.at",
+        "prisma.v1.OpenCandidateResponse.expires_at", "prisma.v1.EditResponse.last_activity", "prisma.v1.EditResponse.expires_at",
+        "prisma.v1.PendingConfirm.deadline", "prisma.v1.PendingConfirm.committed_at",
+        "prisma.v1.CandidateInfo.created_at", "prisma.v1.CandidateInfo.last_activity", "prisma.v1.CandidateInfo.expires_at",
     ] {
         cfg = cfg.field_attribute(ts, "#[serde(serialize_with = \"crate::ser::timestamp\")]");
     }

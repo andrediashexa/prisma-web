@@ -30,7 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
-import { formatDateTime } from "@/lib/format"
+import { formatDateTime, formatTime } from "@/lib/format"
 import {
   roleAtLeast,
   routerApi,
@@ -277,6 +277,8 @@ function CandidateEditor({
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState<AppliedEdit[]>(carried.applied)
   const [expiredNow, setExpiredNow] = useState(false)
+  // When the box closes the candidate if idle (Prisma 0.149.18); every edit moves it.
+  const [expiresAt, setExpiresAt] = useState<string | null>(candidate.expires_at ?? null)
   const [reopening, setReopening] = useState(false)
   const expired = expiredNow || isExpired(textError)
   const [refusal, setRefusal] = useState<Refusal | null>(carried.refusal)
@@ -291,6 +293,7 @@ function CandidateEditor({
     try {
       const r = await api.post<EditResponse>(`${base}/edit`, body)
       setApplied((a) => [...a, { ...body, diagnostics: r.diagnostics }])
+      if (r.expires_at) setExpiresAt(r.expires_at)
       setLines("")
     } catch (err) {
       if (isExpired(err)) {
@@ -315,6 +318,7 @@ function CandidateEditor({
           <Badge variant="secondary">Candidate open</Badge>
           <span className="text-muted-foreground">
             based on revision <span className="font-mono">{candidate.base_revision}</span>. Nothing changes on the router until you apply.
+            {expiresAt && <> Prisma closes it at {formatTime(expiresAt)} if left idle.</>}
           </span>
         </div>
         <div className="flex gap-2">

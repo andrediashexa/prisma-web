@@ -201,22 +201,32 @@ sequenceDiagram
     B->>P: Confirm
 ```
 
+- **Pending commit confirmed:** read from the box with `GetPendingConfirm` (Prisma 0.149.18), so
+  the banner survives a restart of the back; the web user is the `[prisma-web:<user>]` of the
+  commit's comment, and an overdue window (the box failed to revert) is shown as such. An older box
+  keeps the banner in the back's memory, from the commit's own reply and the `confirm-pending` /
+  `confirmed` events (#37).
 - **One account for everyone:** without a certificate, every web user is the same account on the
   Prisma. That is why the back MUST control candidate ownership (`routes/config.rs`). The commit
   MUST carry the user in the comment, and `Confirm`, which applies to the whole account, is only
   accepted from the author or an admin.
-- **Orphaned and idle candidates:** a candidate idle for 25 min (from its last call, under the
-  box's 30) is expired: the next call on it answers `candidate_expired` (410), and it is closed on
-  the next `OpenCandidate`. A `NOT_FOUND` from the box on a candidate gets the same answer. The
+- **Orphaned and idle candidates:** since Prisma 0.149.18 the box says when it closes a candidate
+  (`expires_at` and `idle_seconds` from `OpenCandidate`, a new `expires_at` from each `Edit`), and
+  why a call on a gone one fails (`REASON_CANDIDATE_EXPIRED` or `REASON_CANDIDATE_UNKNOWN`). The
+  back follows that expiry (5 s early) and answers `candidate_expired` (410) only for an expiry; an
+  unknown candidate is a plain 404. The editor shows when the change closes if left idle. On an
+  older box the 25-minute rule applies (from the last call, under the box's 30), and any `NOT_FOUND`
+  on a candidate is taken as an expiry (#11, #37). It is closed on the next `OpenCandidate`. The
   configuration screen closes its own on exit, and after an expiry reopens one and applies the
   same lines again (#11). `prisma-mock-2` closes candidates after 15 s
   (`MOCK_CANDIDATE_IDLE_SECS`) so e2e sees it happen. A crash of the back still leaves candidates open
   on the Prisma until the Prisma discards them (question 1.4 of `prisma-integration.md`).
-- **Stale base:** the box refuses a commit when the running configuration changed since the
-  candidate was opened. Its wording is not part of the contract, so on a `FAILED_PRECONDITION`
-  commit the back compares the candidate's base revision (kept from `OpenCandidate`) with the
-  running one and, when they differ and no commit confirmed is pending, answers `candidate_stale`
-  (409). The review offers to reopen: a new candidate on the current configuration, the same edits
+- **Refusal reasons and stale base:** since Prisma 0.149.18 every refused configuration call
+  carries `Diagnostics.reason` (stale base, gates, confirm pending, grammar, limit…), which reaches
+  the front end by name. A commit refused with `REASON_STALE_BASE` answers `candidate_stale` (409)
+  without reading anything else. On an older box, whose wording is not part of the contract, the
+  back compares the candidate's base revision with the running one on a `FAILED_PRECONDITION`
+  commit, as before (#10, #37). The review offers to reopen: a new candidate on the current configuration, the same edits
   applied again in order, and a new review of the new diff; nothing is committed on the way. A line
   the new base refuses is shown like any edit refusal, with its lines back in the form (#10).
 - **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,

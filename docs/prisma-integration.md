@@ -184,11 +184,11 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.17 | `b08a5a089ff29ecc6c4d44f4cad3f51864d225d3ed210726953eee7a480c3e7a` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.17 | `cea80c55534517b6a8b652ed59ede0ae474e8da5020df0f97d194efb131a5b9f` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.17 | `8414e2af3cae7f38d1763869eede6cf39f1b5b33380a68998aa7b2c89aa0b5f8` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.18 | `8fdfa4978201d4fa54fe5d0b8b368bc3ae95d6ca163d23c2bb0ac303c550ed5d` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.18 | `6572c3d30f43a0ba65d86b549c4b7a69ceba7ebc62d03c58c4c508158e28ebff` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.18 | `bd25c0eff230e38c6017b1416614404bf559cf995c8a47e90b297273d8803fe5` |
 
-Read up to 0.149.17 in `clients.md` and already handled:
+Read up to 0.149.18 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -237,6 +237,12 @@ Read up to 0.149.17 in `clients.md` and already handled:
   every VTY command classified as typed, text or not reachable, with the rpc that serves it, and
   the #558 phases in the order prisma-web asked for (refusal reasons, the pending commit confirmed
   and candidate lifecycle first). It is the map for what prisma-web can type next.
+- 0.149.18 is phase 1 of #558, prisma-web's items 1-3: `Diagnostics.reason` on every refused
+  configuration call (and `CheckResponse.reason`), `GetPendingConfirm` and the candidate lifecycle
+  (`ListCandidates`, `expires_at`). prisma-web uses all three and drops its guesses where the box
+  answers: stale base from the reason, expiry from `expires_at` and the reason, the pending banner
+  from the box, so it survives a restart of the back (#37). Each guess stays as the fallback for a
+  box before 0.149.18, such as the lab box on 0.149.14.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
