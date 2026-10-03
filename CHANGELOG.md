@@ -16,6 +16,18 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.20.0 - Schema positions — 2026-10-03
+
+### Changed
+- On a router with Prisma 0.149.24 or newer, the Settings editor reads the grammar's new shape, where each value says where it stands among the words, so lines such as `neighbor 192.0.2.10 remote-as 65000` and `0.0.0.0/0 next-hop 192.0.2.10` match their statements again. Older routers are read as before (#47).
+
+### Fixed
+- A BGP neighbor's route map or prefix list in a family asks for its direction (`NAME in` or `NAME out`), as the router requires; a bare name was refused at the commit (#47).
+- An OSPF area is added with its type (stub or nssa, optionally without summaries); a bare `area X` is not a statement of the router (#47).
+
+### Internal
+- Client regenerated from the Prisma 0.149.24 contract; integration notes read up to 0.149.24. The simulated Prisma answers the new schema shape and *unimplemented* for the new typed objects (#47).
+
 ## 0.19.0 - Typed configuration — 2026-10-03
 
 ### Changed
