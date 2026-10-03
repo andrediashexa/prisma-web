@@ -56,7 +56,7 @@ pub async fn list(
         "SELECT id, at, user_id, username, action, target, router_id, success, host(ip) AS ip, details
            FROM audit_log
           WHERE ($1::bigint IS NULL OR id < $1)
-            AND ($2::text IS NULL OR action LIKE $2 || '%')
+            AND ($2::text IS NULL OR action LIKE $2 || '%' ESCAPE '\\')
             AND ($3::text IS NULL OR lower(username) = lower($3))
             AND ($4::uuid IS NULL OR router_id = $4)
             -- Entries of a router hidden from the user are hidden too (#6).
@@ -66,7 +66,7 @@ pub async fn list(
           LIMIT $5",
     )
     .bind(q.before)
-    .bind(q.action.filter(|a| !a.is_empty()).map(|a| a.replace(['%', '_'], "")))
+    .bind(q.action.filter(|a| !a.is_empty()).map(|a| like_prefix(&a)))
     .bind(q.username.filter(|u| !u.is_empty()))
     .bind(q.router_id)
     .bind(limit)
@@ -77,4 +77,20 @@ pub async fn list(
 
     let next_before = (items.len() as i64 == limit).then(|| items.last().map(|e| e.id)).flatten();
     Ok(Json(AuditPage { items, next_before }))
+}
+
+/// An action prefix for LIKE: its own `%`, `_` and `\\` matched literally, so
+/// `router.log_watch` finds itself (#49) and nothing else does.
+fn like_prefix(a: &str) -> String {
+    a.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn an_action_prefix_is_matched_literally() {
+        assert_eq!(super::like_prefix("router.log_watch"), r"router.log\_watch");
+        assert_eq!(super::like_prefix("a%b"), r"a\%b");
+        assert_eq!(super::like_prefix(r"a\b"), r"a\\b");
+    }
 }

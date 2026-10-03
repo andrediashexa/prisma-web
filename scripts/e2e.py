@@ -451,6 +451,8 @@ def line_fallback_checks(admin, args):
         check(s.get("system_service") is None, "a box before 0.149.25 has no SystemService: the clears are not offered", s)
         st, b = admin.post(f"{R}/clear", {"target": "interface_counters"})
         check(st == 501, "and Clear answers 501 there", b)
+        st, b = sse(admin, f"{R}/logging/watch?seconds=3")
+        check(st == 501, "and WatchLogging too", b)
     finally:
         admin.delete(R)
 
@@ -480,6 +482,47 @@ def clear_checks(admin, R, router_id):
     items = audit["items"]
     check(any(e["success"] and e["details"].get("command") == f"clear ip bgp {peer} soft in" for e in items)
           and any(not e["success"] for e in items), "every clear is in the change log, refused ones too", items[:3])
+
+
+def sse(client, path):
+    """A Server-Sent Events body read to its end: (status, [(event, data)]) or (status, error JSON)."""
+    req = urllib.request.Request(client.base + "/api" + path)
+    try:
+        with client.opener.open(req, timeout=60) as r:
+            out, event, data = [], "message", []
+            for raw in r:
+                line = raw.decode().rstrip("\n")
+                if not line:
+                    if data:
+                        out.append((event, "\n".join(data)))
+                    event, data = "message", []
+                elif line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:"):
+                    data.append(line[5:].lstrip(" "))
+            return r.status, out
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        return e.code, (json.loads(raw) if raw else None)
+
+
+def log_watch_checks(admin, R, router_id):
+    """TelemetryService.WatchLogging (Prisma 0.149.25, #49) relayed as Server-Sent Events."""
+    st, evs = sse(admin, f"{R}/logging/watch?subscriber=100.64.7.7&event=alloc&seconds=3")
+    check(st == 200 and evs and evs[-1][0] == "end", "a 3 s watch streams and ends by itself", evs[-3:] if isinstance(evs, list) else evs)
+    logs = [json.loads(d) for e, d in evs if e == "log"]
+    check([l["kind"] for l in logs[:2]] == ["STARTED", "BOOT"], "STARTED comes first, then BOOT", logs[:2])
+    allocs = [l for l in logs if l["kind"] == "ALLOC"]
+    check(allocs and all(l["subscriber"] == "100.64.7.7" and l["port_last"] > l["port_first"] for l in allocs)
+          and not any(l["kind"] == "RELEASE" for l in logs), "only the subscriber's allocations, with their port range", allocs[:2])
+    check(all(l["at"] for l in allocs), "each event carries its time", allocs[:1])
+    st, b = sse(admin, f"{R}/logging/watch?pool=no-such-pool&seconds=3")
+    check(st >= 400 and "Unknown pool" in errmsg(b), "a filter the box refuses is answered in its words", b)
+    st, b = sse(admin, f"{R}/logging/watch?port=40000")
+    check(st == 422, "a port without its public address is refused before the box", b)
+    st, audit = admin.get(f"/audit?router_id={router_id}&action=router.log_watch&limit=10")
+    check(any(e["success"] and e["details"].get("subscriber") == "100.64.7.7" and e["details"].get("seconds") == 3 for e in audit["items"])
+          and any(not e["success"] for e in audit["items"]), "each watch is in the audit log with its filters, refused ones too", audit["items"][:2])
 
 
 def log_export_checks(admin, router_id):
@@ -542,6 +585,8 @@ def access_checks(admin, args):
         check(st == 403, "with no grant the global role applies: a viewer cannot open a change", b)
         st, b = v.post(f"/routers/{ra}/clear", {"target": "interface_counters"})
         check(st == 403, "nor clear anything on the router (#48)", b)
+        st, b = sse(v, f"/routers/{ra}/logging/watch?seconds=3")
+        check(st == 403, "nor watch the CGNAT log, which says who had which address (#49)", b)
         st, b = admin.put(f"/users/{made_user}/access/{ra}", {"role": "operator"})
         check(st == 204, "admin raises the viewer to operator on router a", b)
         st, b = admin.put(f"/users/{made_user}/access/{rb}", {"role": "none"})
@@ -788,6 +833,16 @@ def lab(admin, args):
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
         lab_typed_checks(admin, R)
+        # WatchLogging only reads the box's observation ring: a 3 s watch, read-only (#49).
+        if st_lab.get("system_service"):
+            st, evs = sse(admin, f"{R}/logging/watch?seconds=3")
+            if st == 200:
+                kinds = [json.loads(d)["kind"] for e, d in evs if e == "log"]
+                check(kinds[:1] == ["STARTED"] and evs[-1][0] == "end", f"a 3 s live log watch on the real Prisma: {kinds[:6]}", evs[-3:])
+            else:
+                check(st in (403, 502, 409, 422) and errmsg(evs), f"the real Prisma refuses the live log with its words ({st}): {errmsg(evs)}", evs)
+        else:
+            check(True, "no SystemService health: a box before 0.149.25, no clears or live log offered")
         st, pol = admin.get(R + "/policies")
         st2, cnt = admin.get(R + "/policies/counters")
         check(st == 200 and st2 == 200, f"policies and counters of the real Prisma ({len(pol['policies'])} policies, {len(cnt['uses'])} uses)", [pol, cnt])
@@ -920,6 +975,7 @@ def main():
         interface_form_checks(admin, R)
         typed_form_checks(admin, R)
         clear_checks(admin, R, router_id)
+        log_watch_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

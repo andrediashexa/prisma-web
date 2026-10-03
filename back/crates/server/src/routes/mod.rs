@@ -2,6 +2,7 @@ mod audit;
 mod auth;
 pub mod config;
 mod dashboard;
+mod log_watch;
 mod ops;
 mod route_table;
 pub mod routers;
@@ -49,6 +50,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/clear", post(ops::clear))
         .route("/routers/{id}/policies", get(ops::policies))
         .route("/routers/{id}/logging", get(ops::logging))
+        .route("/routers/{id}/logging/watch", get(log_watch::watch))
         .route("/routers/{id}/policies/counters", get(ops::policy_counters))
         .route("/routers/{id}/policies/test", post(ops::test_policy))
         .route("/routers/{id}/routes", get(route_table::list))

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useFleetStatus, useRouterAccess, useRouterRole } from "@/hooks/use-routers"
+import { useHasSystemService, useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, errorMessage } from "@/lib/api"
 import { roleAtLeast, routerApi, type ClearResponse, type ClearTarget } from "@/lib/types"
 
@@ -18,11 +18,10 @@ import { roleAtLeast, routerApi, type ClearResponse, type ClearTarget } from "@/
  * whoever may change the router, the box's account included.
  */
 export function useClears(routerId: string) {
-  const { data: fleet } = useFleetStatus()
+  const has = useHasSystemService(routerId)
   const role = useRouterRole(routerId)
   const { readOnly } = useRouterAccess(routerId)
-  const status = fleet?.find((r) => r.id === routerId)
-  return !!status?.system_service && roleAtLeast(role, "operator") && !readOnly
+  return has && roleAtLeast(role, "operator") && !readOnly
 }
 
 const BGP_MODES = [

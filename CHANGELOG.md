@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.22.0 - Live log — 2026-10-03
+
+### Added
+- On a router with Prisma 0.149.25 or newer, the CGNAT screen has a **Live log**: the port blocks the router hands out and takes back as it exports them (subscriber, public address and ports, pool), filtered by subscriber, public address and port, event or pool, with what each log stream delivered and how many events the page missed. It is an operator's, each watch is recorded in the audit log with its filters, and a watch lasts at most 30 minutes; stopping or leaving the page ends it on the router (#49).
+
+### Fixed
+- The audit log's action filter found nothing for an action with an underscore in its name (#49).
+
+### Internal
+- `GET /api/routers/{id}/logging/watch` relays `TelemetryService.WatchLogging` as Server-Sent Events. The simulated Prisma streams allocations and releases; `--lab` takes a 3 s watch, read only (#49).
+
 ## 0.21.0 - Clears — 2026-10-03
 
 ### Added

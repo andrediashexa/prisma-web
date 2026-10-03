@@ -269,6 +269,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn watch_logging_streams_as_the_monitor() {
+        use prisma_proto::v1::log_event::Kind;
+        let ch = start("prisma-test").await;
+        let mut t = TelemetryServiceClient::new(ch);
+        let req = WatchLoggingRequest { subscriber: "100.64.9.9".into(), event: "alloc".into(), seconds: 3, ..Default::default() };
+        let mut s = t.watch_logging(req).await.unwrap().into_inner();
+        let mut kinds = vec![];
+        while let Some(e) = s.next().await {
+            let e = e.unwrap();
+            if e.kind() == Kind::Alloc {
+                assert_eq!(e.subscriber, "100.64.9.9");
+            }
+            kinds.push(e.kind());
+        }
+        assert_eq!(&kinds[..2], &[Kind::Started, Kind::Boot]);
+        assert!(kinds.contains(&Kind::Alloc) && !kinds.contains(&Kind::Release), "{kinds:?}");
+        let e = t.watch_logging(WatchLoggingRequest { pool: "nope".into(), ..Default::default() }).await.unwrap_err();
+        assert_eq!(e.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
     async fn telemetry_stream() {
         let ch = start("prisma-branch").await;
         let mut tel = TelemetryServiceClient::new(ch.clone());

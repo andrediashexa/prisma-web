@@ -312,6 +312,11 @@ sequenceDiagram
   `front/src/components/clear-action.tsx`, a button with a confirmation that says what the clear
   disrupts, placed where the object is shown (interfaces, BGP sessions, OSPF, IS-IS, a CGNAT
   subscriber). The monitor probes `prisma.v1.SystemService`'s health to know whether a box has it.
+- **Live CGNAT log (#49):** the back end's only streaming route, `routes/log_watch.rs`, relays
+  `WatchLogging` as Server-Sent Events (axum's `Sse`, a keep-alive every 15 s); Caddy passes
+  `text/event-stream` through as it comes. `front/src/components/cgnat/live-log.tsx` reads it with
+  `fetch` (not `EventSource`, so a refusal's JSON and its status reach the page) and an
+  `AbortController` that ends the stream when the panel stops or the page closes.
 - **Forms on the typed configuration (#46):** on a box that answers `GetConfig` for their area
   (Prisma 0.149.20 for interfaces, pools and the log collectors; 0.149.22 for the routing areas),
   the Interfaces, CGNAT and Routing forms read typed and write with `SetConfig` / `DeleteConfig`;

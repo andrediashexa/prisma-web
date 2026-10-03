@@ -353,6 +353,31 @@ export interface RouterStatus {
 /** OperationalService.Clear's targets (Prisma 0.149.25, #48). */
 export type ClearTarget = "interface_counters" | "cgnat_subscriber" | "bgp" | "ospf_process" | "ospf_neighbor" | "isis_adjacency"
 
+/** TelemetryService.WatchLogging's events (Prisma 0.149.25, #49); the kind by name. */
+export interface WatchedLogEvent {
+  kind: "STARTED" | "BOOT" | "ALLOC" | "RELEASE" | "EXHAUSTED" | "DELIVERY" | "LOST" | "KIND_UNSPECIFIED"
+  at: string | null
+  subscriber: string
+  public_address: string
+  port_first: number
+  port_last: number
+  pool: string
+  pool_id: number
+  identity: string
+  stream: string
+  collector: string
+  carrier: string
+  connection: string
+  sent: number
+  lost: number
+  pending_bytes: number
+  boot_time: string | null
+  exported: boolean
+  from_watch_ring: boolean
+  pools_named: boolean
+  text: string
+}
+
 export interface ClearResponse {
   output: string
   command: string
