@@ -11,6 +11,8 @@ use std::sync::LazyLock;
 
 use serde::{Deserialize, Serialize};
 
+pub use prisma_proto::vty::{match_line, parse_syntax, Kind, Tok};
+
 #[derive(Deserialize)]
 struct RawGrammar {
     areas: Vec<RawArea>,
@@ -57,229 +59,6 @@ pub struct Statement {
     pub tokens: Vec<Tok>,
 }
 
-/// One element of a statement's syntax.
-#[derive(Serialize, Clone, Debug, PartialEq)]
-#[serde(tag = "t", rename_all = "lowercase")]
-pub enum Tok {
-    Word { w: String },
-    /// A value: `<A.B.C.D/M>`, `<1-65535>`, `<name>`; `prefix` is a literal
-    /// glued before it (`bond<n>`). `rest` takes every word left (a description).
-    Param { id: usize, label: String, kind: Kind, prefix: String, rest: bool },
-    Opt { items: Vec<Tok> },
-    Alt { options: Vec<Vec<Tok>> },
-}
-
-#[derive(Serialize, Clone, Debug, PartialEq)]
-#[serde(tag = "k", rename_all = "snake_case")]
-pub enum Kind {
-    Text,
-    Int { min: u64, max: u64 },
-    Ipv4,
-    Ipv4Prefix,
-    Ipv6,
-    Ipv6Prefix,
-    /// An IPv4 or IPv6 address.
-    Address,
-    /// An IPv4 or IPv6 prefix.
-    Prefix,
-    Interface,
-}
-
-fn kind_of(label: &str) -> Kind {
-    if let Some((lo, hi)) = label.split_once('-') {
-        if let (Ok(min), Ok(max)) = (lo.parse(), hi.parse()) {
-            return Kind::Int { min, max };
-        }
-    }
-    match label {
-        "A.B.C.D/M" => Kind::Ipv4Prefix,
-        "A.B.C.D" => Kind::Ipv4,
-        "X:X::X:X/M" => Kind::Ipv6Prefix,
-        "X:X::X:X" => Kind::Ipv6,
-        "address" | "neighbour" | "neighbor" | "collector" | "source" | "next-hop" | "nexthop" => Kind::Address,
-        "prefix" | "network" => Kind::Prefix,
-        "interface" | "ifname" => Kind::Interface,
-        "n" | "seq" | "asn" | "MB" | "GB" | "keepalive" | "hold" | "minutes" | "percent" | "metric" | "cost" | "distance" => {
-            Kind::Int { min: 0, max: u32::MAX as u64 }
-        }
-        _ => Kind::Text,
-    }
-}
-
-/// Splits on `sep` outside square brackets.
-fn split_top<'a>(s: &'a str, sep: &str) -> Vec<&'a str> {
-    let (mut out, mut depth, mut start) = (vec![], 0i32, 0usize);
-    let b = s.as_bytes();
-    let mut i = 0;
-    while i < b.len() {
-        match b[i] {
-            b'[' => depth += 1,
-            b']' => depth -= 1,
-            _ if depth == 0 && s[i..].starts_with(sep) => {
-                out.push(&s[start..i]);
-                i += sep.len();
-                start = i;
-                continue;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    out.push(&s[start..]);
-    out
-}
-
-struct Parser {
-    next_id: usize,
-    /// The statement names `ipv6`: the coverage map labels its prefixes
-    /// `<A.B.C.D/M>` too, so they are taken as IPv6 (#39).
-    ipv6: bool,
-}
-
-impl Parser {
-    fn atom(&mut self, a: &str) -> Tok {
-        if let (Some(open), true) = (a.find('<'), a.ends_with('>')) {
-            let label = a[open + 1..a.len() - 1].to_string();
-            let id = self.next_id;
-            self.next_id += 1;
-            let kind = match (kind_of(&label), self.ipv6) {
-                (Kind::Ipv4Prefix, true) => Kind::Ipv6Prefix,
-                (Kind::Ipv4, true) => Kind::Ipv6,
-                (k, _) => k,
-            };
-            return Tok::Param { id, kind, label, prefix: a[..open].to_string(), rest: false };
-        }
-        Tok::Word { w: a.to_string() }
-    }
-
-    fn seq(&mut self, s: &str) -> Vec<Tok> {
-        let mut out = vec![];
-        for part in split_top(s.trim(), " ").into_iter().filter(|p| !p.is_empty()) {
-            if let Some(inner) = part.strip_prefix('[').and_then(|p| p.strip_suffix(']')) {
-                // `[options]` stands for free-form options, not the word "options".
-                if !inner.contains(' ') && !inner.contains('<') && !inner.contains('|') && inner == "options" {
-                    let id = self.next_id;
-                    self.next_id += 1;
-                    out.push(Tok::Opt {
-                        items: vec![Tok::Param { id, label: "options".into(), kind: Kind::Text, prefix: String::new(), rest: true }],
-                    });
-                } else {
-                    out.push(Tok::Opt { items: self.alts(inner) });
-                }
-            } else if part.contains('|') {
-                out.push(Tok::Alt { options: part.split('|').map(|o| vec![self.atom(o)]).collect() });
-            } else {
-                out.push(self.atom(part));
-            }
-        }
-        // A text value at the very end takes the rest of the line (`description <text>`).
-        if let Some(Tok::Param { kind: Kind::Text, rest, .. }) = out.last_mut() {
-            *rest = true;
-        }
-        out
-    }
-
-    /// A syntax with ` | ` alternatives at the top level: the alternatives
-    /// replace the tail after the leading keywords. An alternative that is a
-    /// keyword followed by more (`dhcp-leases <path>`) is a sibling of the last
-    /// keyword (`identity file <path> | dhcp-leases <path>`); a bare word
-    /// (`| disable`) follows the keywords, unless siblings were found.
-    fn alts(&mut self, s: &str) -> Vec<Tok> {
-        let parts = split_top(s, " | ");
-        if parts.len() == 1 {
-            return self.seq(s);
-        }
-        let base = self.seq(parts[0]);
-        let others: Vec<Vec<Tok>> = parts[1..].iter().map(|p| self.seq(p)).collect();
-        let k = base.iter().take_while(|t| matches!(t, Tok::Word { .. })).count();
-        let sibling = |o: &Vec<Tok>| matches!(o.first(), Some(Tok::Word { .. })) && o.len() > 1;
-        let p = if k > 0 && others.iter().any(sibling) { k - 1 } else { k };
-        let mut options = vec![base[p..].to_vec()];
-        options.extend(others);
-        let mut out = base[..p].to_vec();
-        out.push(Tok::Alt { options });
-        out
-    }
-}
-
-pub fn parse_syntax(s: &str) -> Vec<Tok> {
-    Parser { next_id: 0, ipv6: s.split_whitespace().any(|w| w == "ipv6") }.alts(s)
-}
-
-/// The values a line gives a statement's parameters, by id; `None` when the
-/// line is not that statement.
-pub fn match_line(toks: &[Tok], words: &[&str]) -> Option<BTreeMap<usize, String>> {
-    fn go(toks: &[Tok], words: &[&str], vals: &mut BTreeMap<usize, String>) -> bool {
-        let Some((first, rest)) = toks.split_first() else { return words.is_empty() };
-        match first {
-            Tok::Word { w } => words.first() == Some(&w.as_str()) && go(rest, &words[1..], vals),
-            Tok::Param { id, kind, prefix, rest: takes_rest, .. } => {
-                let Some(word) = words.first() else { return false };
-                let Some(v) = word.strip_prefix(prefix.as_str()) else { return false };
-                if !valid(kind, v) {
-                    return false;
-                }
-                if *takes_rest && rest.is_empty() {
-                    vals.insert(*id, words.join(" ").strip_prefix(prefix.as_str()).unwrap_or_default().to_string());
-                    return true;
-                }
-                vals.insert(*id, v.to_string());
-                go(rest, &words[1..], vals) || {
-                    vals.remove(id);
-                    false
-                }
-            }
-            Tok::Opt { items } => {
-                let mut with: Vec<Tok> = items.clone();
-                with.extend_from_slice(rest);
-                let mut tried = vals.clone();
-                if go(&with, words, &mut tried) {
-                    *vals = tried;
-                    return true;
-                }
-                go(rest, words, vals)
-            }
-            Tok::Alt { options } => options.iter().any(|o| {
-                let mut with = o.clone();
-                with.extend_from_slice(rest);
-                let mut tried = vals.clone();
-                go(&with, words, &mut tried) && {
-                    *vals = tried;
-                    true
-                }
-            }),
-        }
-    }
-    let mut vals = BTreeMap::new();
-    go(toks, words, &mut vals).then_some(vals)
-}
-
-/// Whether a word can be the value of a parameter; loose on purpose: the box
-/// has the last word, this only tells statements apart.
-pub fn valid(kind: &Kind, v: &str) -> bool {
-    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-    let prefix = |v: &str, v6: Option<bool>| {
-        v.split_once('/').is_some_and(|(a, l)| {
-            l.parse::<u8>().is_ok()
-                && match v6 {
-                    Some(true) => a.parse::<Ipv6Addr>().is_ok(),
-                    Some(false) => a.parse::<Ipv4Addr>().is_ok(),
-                    None => a.parse::<IpAddr>().is_ok(),
-                }
-        })
-    };
-    match kind {
-        Kind::Text | Kind::Interface => !v.is_empty(),
-        Kind::Int { min, max } => v.parse::<u64>().is_ok_and(|n| n >= *min && n <= *max),
-        Kind::Ipv4 => v.parse::<Ipv4Addr>().is_ok(),
-        Kind::Ipv6 => v.parse::<Ipv6Addr>().is_ok(),
-        Kind::Address => v.parse::<IpAddr>().is_ok(),
-        Kind::Ipv4Prefix => prefix(v, Some(false)),
-        Kind::Ipv6Prefix => prefix(v, Some(true)),
-        Kind::Prefix => prefix(v, None),
-    }
-}
-
 /// Every mode of the grammar, statements of the same path merged in groups.
 pub static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
     let raw: RawGrammar = serde_json::from_str(include_str!("config_grammar.json")).expect("config_grammar.json");
@@ -307,6 +86,89 @@ pub static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
     }
     modes
 });
+
+/// The modes of a box's GetSchema (Prisma 0.149.20), in the same model as the
+/// coverage map's: each statement's words, then its forms as alternatives,
+/// each argument typed by the box (#44).
+pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
+    schema
+        .modes
+        .iter()
+        .map(|m| Mode {
+            key: if m.path.is_empty() { "config".into() } else { m.path.join(" > ") },
+            title: m.mode.clone(),
+            path_tokens: m.path.iter().map(|e| parse_syntax(e)).collect(),
+            path: m.path.clone(),
+            roles: m.roles.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect(),
+            groups: vec![Group { title: m.mode.clone(), statements: m.statements.iter().map(statement_from_schema).collect() }],
+        })
+        .collect()
+}
+
+fn statement_from_schema(s: &prisma_proto::v1::SchemaStatement) -> Statement {
+    let mut next_id = 0usize;
+    let mut tokens: Vec<Tok> = s.words.iter().map(|w| Tok::Word { w: w.clone() }).collect();
+    let mut forms: Vec<Vec<Tok>> = s.forms.iter().map(|f| form_tokens(&f.arguments, &mut next_id)).collect();
+    forms.retain(|f| !f.is_empty() || s.forms.len() > 1);
+    match forms.len() {
+        0 => {}
+        1 => tokens.extend(forms.pop().unwrap()),
+        _ => tokens.push(Tok::Alt { options: forms }),
+    }
+    let syntax = prisma_proto::vty::describe(&tokens);
+    Statement { syntax, class: if s.typed { "typed".into() } else { "text".into() }, tokens }
+}
+
+/// A form's arguments as tokens. An optional keyword takes the optional
+/// values after it with it (`[port <n>]`), as the prompt groups them.
+fn form_tokens(args: &[prisma_proto::v1::SchemaArgument], next_id: &mut usize) -> Vec<Tok> {
+    let mut out: Vec<Tok> = vec![];
+    let mut group: Option<Vec<Tok>> = None;
+    let n = args.len();
+    for (i, a) in args.iter().enumerate() {
+        let tok = arg_token(a, next_id, i + 1 == n);
+        match (a.optional, a.kind.as_str(), &mut group) {
+            (true, "keyword", g) => {
+                if let Some(items) = g.take() {
+                    out.push(Tok::Opt { items });
+                }
+                *g = Some(vec![tok]);
+            }
+            (true, _, Some(items)) => items.push(tok),
+            (true, _, None) => out.push(Tok::Opt { items: vec![tok] }),
+            (false, _, g) => {
+                if let Some(items) = g.take() {
+                    out.push(Tok::Opt { items });
+                }
+                out.push(tok);
+            }
+        }
+    }
+    if let Some(items) = group {
+        out.push(Tok::Opt { items });
+    }
+    out
+}
+
+fn arg_token(a: &prisma_proto::v1::SchemaArgument, next_id: &mut usize, last: bool) -> Tok {
+    let label = a.name.trim_start_matches('<').trim_end_matches('>').to_string();
+    let kind = match a.kind.as_str() {
+        "keyword" => return Tok::Word { w: a.name.clone() },
+        "choice" => return Tok::Alt { options: a.choices.iter().map(|c| vec![Tok::Word { w: c.clone() }]).collect() },
+        "integer" if a.min == 0 && a.max == 0 => Kind::Int { min: 0, max: u32::MAX as u64 },
+        "integer" => Kind::Int { min: a.min.max(0) as u64, max: a.max.max(0) as u64 },
+        "ipv4_prefix" => Kind::Ipv4Prefix,
+        "ipv4_address" => Kind::Ipv4,
+        "ipv6_prefix" => Kind::Ipv6Prefix,
+        "ipv6_address" => Kind::Ipv6,
+        "address" => Kind::Address,
+        "prefix" => Kind::Prefix,
+        _ => Kind::Text,
+    };
+    let id = *next_id;
+    *next_id += 1;
+    Tok::Param { id, label, kind, prefix: String::new(), rest: a.kind == "text" && last }
+}
 
 /// A line of the configuration and the lines under it.
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -365,6 +227,8 @@ pub struct Instance {
 #[derive(Serialize)]
 pub struct Line {
     pub text: String,
+    /// The box's own line (FRR's logging, its VRF), read only on purpose: why (#44).
+    pub owned: Option<String>,
     /// `[group, statement]` in the mode; `None` when no statement matched.
     pub statement: Option<(usize, usize)>,
     pub values: BTreeMap<usize, String>,
@@ -386,9 +250,9 @@ fn specificity(toks: &[Tok]) -> usize {
 }
 
 /// The mode a line enters at `depth` under `parent`, if any.
-fn mode_entered<'a>(parent: &[String], line: &str) -> Option<&'a Mode> {
+fn mode_entered<'a>(modes: &'a [Mode], parent: &[String], line: &str) -> Option<&'a Mode> {
     let w = words(line);
-    MODES
+    modes
         .iter()
         .filter(|m| m.path.len() == parent.len() + 1 && m.path[..parent.len()].iter().zip(parent).all(|(t, c)| element_matches(t, c)))
         .filter(|m| match_line(&m.path_tokens[parent.len()], &w).is_some())
@@ -400,18 +264,18 @@ fn element_matches(template: &str, concrete: &str) -> bool {
 }
 
 /// Every configured instance of every mode, the root first.
-pub fn instances(roots: &[Node]) -> Vec<Instance> {
+pub fn instances(roots: &[Node], modes: &[Mode]) -> Vec<Instance> {
     let mut out = vec![];
-    let root = MODES.iter().find(|m| m.path.is_empty()).expect("the top-level mode");
-    walk(root, vec![], roots, &mut out);
+    let Some(root) = modes.iter().find(|m| m.path.is_empty()) else { return out };
+    walk(modes, root, vec![], roots, &mut out);
     out
 }
 
-fn walk(mode: &Mode, path: Vec<String>, nodes: &[Node], out: &mut Vec<Instance>) {
+fn walk(modes: &[Mode], mode: &Mode, path: Vec<String>, nodes: &[Node], out: &mut Vec<Instance>) {
     let mut lines = vec![];
     let mut nested = vec![];
     for n in nodes {
-        match mode_entered(&path, &n.line) {
+        match mode_entered(modes, &path, &n.line) {
             Some(child) => nested.push((child, n)),
             None => lines.push(classify(mode, &n.line)),
         }
@@ -420,7 +284,7 @@ fn walk(mode: &Mode, path: Vec<String>, nodes: &[Node], out: &mut Vec<Instance>)
     for (child, n) in nested {
         let mut p = path.clone();
         p.push(n.line.clone());
-        walk(child, p, &n.children, out);
+        walk(modes, child, p, &n.children, out);
     }
 }
 
@@ -429,11 +293,11 @@ fn classify(mode: &Mode, line: &str) -> Line {
     for (gi, g) in mode.groups.iter().enumerate() {
         for (si, s) in g.statements.iter().enumerate() {
             if let Some(values) = match_line(&s.tokens, &w) {
-                return Line { text: line.to_string(), statement: Some((gi, si)), values };
+                return Line { text: line.to_string(), owned: None, statement: Some((gi, si)), values };
             }
         }
     }
-    Line { text: line.to_string(), statement: None, values: BTreeMap::new() }
+    Line { text: line.to_string(), owned: None, statement: None, values: BTreeMap::new() }
 }
 
 #[cfg(test)]
@@ -495,7 +359,7 @@ mod tests {
         let t = tree(text);
         assert_eq!(t.iter().map(|n| n.line.as_str()).collect::<Vec<_>>(), ["hostname h", "interface wan0", "nat", "router bgp 65000"]);
         assert_eq!(t[2].children[0].children[0].line, "pool P");
-        let inst = instances(&t);
+        let inst = instances(&t, &MODES);
         let find = |k: &str| inst.iter().find(|i| i.mode == k).unwrap_or_else(|| panic!("{k}"));
         assert_eq!(find("interface <name>").path, ["interface wan0"]);
         assert!(find("interface <name>").lines.iter().all(|l| l.statement.is_some()), "description and mtu are statements");
@@ -503,6 +367,45 @@ mod tests {
         let bgp = find("router bgp <asn>");
         assert!(bgp.lines[0].statement.is_some(), "a neighbor line is a bgp neighbor statement");
         assert!(find("config").lines.iter().any(|l| l.text == "hostname h"));
+    }
+
+    #[test]
+    fn the_boxs_schema_becomes_the_same_model() {
+        use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
+        let arg = |name: &str, kind: &str, optional: bool| SchemaArgument { name: name.into(), kind: kind.into(), optional, ..Default::default() };
+        let schema = ConfigSchema {
+            modes: vec![SchemaMode {
+                mode: "cgnat".into(),
+                path: vec!["nat".into(), "cgnat".into()],
+                roles: "administrator, cgnat-operator".into(),
+                statements: vec![SchemaStatement {
+                    words: vec!["logging".into(), "udp".into()],
+                    forms: vec![
+                        SchemaForm {
+                            arguments: vec![
+                                arg("<collector>", "address", false),
+                                arg("src", "keyword", false),
+                                arg("<source>", "address", false),
+                                arg("port", "keyword", true),
+                                SchemaArgument { name: "<1-65535>".into(), kind: "integer".into(), min: 1, max: 65535, optional: true, ..Default::default() },
+                            ],
+                        },
+                        SchemaForm { arguments: vec![arg("disable", "keyword", false)] },
+                    ],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let m = &from_schema(&schema)[0];
+        assert_eq!((m.key.as_str(), m.roles.len()), ("nat > cgnat", 2));
+        let t = &m.groups[0].statements[0].tokens;
+        assert!(match_line(t, &w("logging udp 192.0.2.52 src 203.0.113.10 port 4739")).is_some());
+        assert!(match_line(t, &w("logging udp 192.0.2.52 src 203.0.113.10")).is_some(), "port is optional");
+        assert!(match_line(t, &w("logging udp 192.0.2.52 src 203.0.113.10 port")).is_none(), "port takes its value with it");
+        assert!(match_line(t, &w("logging udp disable")).is_some());
+        assert!(match_line(t, &w("logging udp 192.0.2.52 src 203.0.113.10 port 70000")).is_none(), "the box's range");
     }
 
     #[test]

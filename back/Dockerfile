@@ -2,10 +2,14 @@
 # One image per workspace binary: BIN=prisma-web-server or BIN=prisma-mock.
 FROM rust:1-bookworm AS build
 ARG BIN
+# The compiled-artifact cache is per compose project: two checkouts building at
+# once share /src/target otherwise, and cargo's mtime fingerprints then mix
+# their sources (a build of one branch reusing another's build-script output).
+ARG CACHE_ID=prisma-web
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/src/target,sharing=locked \
+    --mount=type=cache,id=target-${CACHE_ID},target=/src/target,sharing=locked \
     cargo build --release --locked -p ${BIN} \
  && cp target/release/${BIN} /app
 

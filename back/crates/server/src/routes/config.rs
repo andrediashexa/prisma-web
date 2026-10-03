@@ -5,7 +5,7 @@
 //! candidate (which web user opened it) is tracked here.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::{Path, State};
@@ -420,7 +420,13 @@ pub async fn commit(
     let diff = r.config().compare(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner().diff;
     if adds_syslog_disable(&diff) {
         let release = r.ops().get_version(req(GetVersionRequest {})).await?.into_inner().release;
-        let running = r.config().get_running(req(GetRunningRequest {})).await?.into_inner().text;
+        // The box says whether a syslog collector is configured (Prisma 0.149.20); else read the text.
+        let typed = r.config().get_config(req(GetConfigRequest { areas: vec!["logging".into()], ..Default::default() })).await.ok();
+        let running = match typed.and_then(|c| c.into_inner().logging) {
+            Some(l) if l.collectors.iter().any(|c| c.transport == "syslog" && c.configured) => "logging syslog configured".to_string(),
+            Some(_) => String::new(),
+            None => r.config().get_running(req(GetRunningRequest {})).await?.into_inner().text,
+        };
         if syslog_disable_hazard(&release, &running, &diff) {
             return Err(AppError::Conflict(format!(
                 "refused: on Prisma {release} (before 0.149.8), disabling a syslog that was never enabled stops \
@@ -751,15 +757,40 @@ mod tests {
 
 #[derive(Serialize)]
 pub struct GrammarView {
-    /// "coverage-map" until the box answers GetSchema.
-    source: &'static str,
-    modes: &'static [crate::config_model::Mode],
+    /// "box <release>" when read with GetSchema, "coverage-map" otherwise (#44).
+    source: String,
+    modes: Arc<Vec<crate::config_model::Mode>>,
 }
 
-/// The VTY's configuration grammar, mode by mode, for the structured editor (#39).
+/// A router's grammar and where it came from, kept ten minutes.
+type CachedModes = (Instant, String, Arc<Vec<crate::config_model::Mode>>);
+static GRAMMARS: std::sync::LazyLock<Mutex<HashMap<Uuid, CachedModes>>> = std::sync::LazyLock::new(Default::default);
+const GRAMMAR_TTL: Duration = Duration::from_secs(600);
+
+/// The box's own grammar (GetSchema, Prisma 0.149.20) when it has one; the
+/// vendored coverage map otherwise (#39, #44).
+async fn modes_for(r: &RouterHandle) -> (String, Arc<Vec<crate::config_model::Mode>>) {
+    if let Some((at, source, modes)) = GRAMMARS.lock().unwrap().get(&r.id) {
+        if at.elapsed() < GRAMMAR_TTL {
+            return (source.clone(), modes.clone());
+        }
+    }
+    let (source, modes) = match r.config().get_schema(req(GetSchemaRequest::default())).await {
+        Ok(s) => {
+            let s = s.into_inner();
+            (format!("box {}", s.release), Arc::new(crate::config_model::from_schema(&s)))
+        }
+        Err(_) => ("coverage-map".to_string(), Arc::new(crate::config_model::MODES.clone())),
+    };
+    GRAMMARS.lock().unwrap().insert(r.id, (Instant::now(), source.clone(), modes.clone()));
+    (source, modes)
+}
+
+/// The configuration grammar, mode by mode, for the structured editor (#39, #44).
 pub async fn grammar(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<GrammarView>> {
-    st.routers.get(id).await?;
-    Ok(Json(GrammarView { source: "coverage-map", modes: &crate::config_model::MODES }))
+    let r = st.routers.get(id).await?;
+    let (source, modes) = modes_for(&r).await;
+    Ok(Json(GrammarView { source, modes }))
 }
 
 #[derive(Deserialize)]
@@ -774,7 +805,8 @@ pub struct TreeView {
     instances: Vec<crate::config_model::Instance>,
 }
 
-/// The configuration as instances of modes, each line matched to its statement (#39).
+/// The configuration as instances of modes, each line matched to its statement;
+/// the box's own lines marked read only with its reason (#39, #44).
 pub async fn tree(
     State(st): State<AppState>,
     user: CurrentUser,
@@ -782,13 +814,45 @@ pub async fn tree(
     axum::extract::Query(q): axum::extract::Query<TreeQuery>,
 ) -> AppResult<Json<TreeView>> {
     let r = st.routers.get(id).await?;
-    let text = match q.candidate.filter(|c| !c.is_empty()) {
+    let cid = q.candidate.filter(|c| !c.is_empty());
+    let text = match &cid {
         Some(cid) => {
-            st.candidates.check(id, &cid, &user)?;
-            r.config().show_candidate(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner()
+            st.candidates.check(id, cid, &user)?;
+            r.config().show_candidate(req(cref(cid))).await.map_err(gone(&st, cid))?.into_inner()
         }
         None => r.config().get_running(req(GetRunningRequest {})).await?.into_inner(),
     };
+    let (_, modes) = modes_for(&r).await;
     let nodes = crate::config_model::tree(&text.text);
-    Ok(Json(TreeView { revision: text.revision, instances: crate::config_model::instances(&nodes) }))
+    let mut instances = crate::config_model::instances(&nodes, &modes);
+    let owned_req = GetConfigRequest { candidate_id: cid.unwrap_or_default(), areas: vec!["logging".into()], ..Default::default() };
+    if let Ok(c) = r.config().get_config(req(owned_req)).await {
+        let owned: HashMap<String, String> = c.into_inner().box_owned.into_iter().map(|o| (o.line.trim().to_string(), o.why)).collect();
+        for l in instances.iter_mut().flat_map(|i| i.lines.iter_mut()) {
+            if let Some(why) = owned.get(l.text.trim()) {
+                l.owned = Some(why.clone());
+            }
+        }
+    }
+    Ok(Json(TreeView { revision: text.revision, instances }))
+}
+
+#[derive(Deserialize)]
+pub struct ValidateBody {
+    #[serde(default)]
+    path: Vec<String>,
+    lines: Vec<String>,
+}
+
+/// Lines checked by the VTY in a throwaway candidate (ValidateLines, Prisma
+/// 0.149.20); nothing is staged (#44). Older boxes answer 501.
+pub async fn validate(
+    State(st): State<AppState>,
+    _: CurrentUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ValidateBody>,
+) -> AppResult<Json<ValidateLinesResponse>> {
+    let r = st.routers.get(id).await?;
+    let msg = ValidateLinesRequest { path: body.path, lines: body.lines, ..Default::default() };
+    Ok(Json(r.config().validate_lines(req(msg)).await?.into_inner()))
 }

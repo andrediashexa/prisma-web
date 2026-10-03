@@ -3,7 +3,7 @@
 import { useParams, useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import useSWR from "swr"
-import { PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react"
+import { Loader2Icon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react"
 
 import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useConfigChanges, type ConfigChange } from "@/hooks/use-config-changes"
 import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
-import { fetcher } from "@/lib/api"
+import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import {
   boxAllows,
   buildLine,
@@ -104,7 +104,10 @@ export default function SettingsPage() {
       <Card className="h-fit">
         <CardHeader>
           <CardTitle>Settings</CardTitle>
-          <CardDescription>Every part of the configuration, read from revision {tree.revision}.</CardDescription>
+          <CardDescription>
+            Every part of the configuration, read from revision {tree.revision}.{" "}
+            {grammar.source.startsWith("box") ? `Grammar from the router (${grammar.source.slice(4)}).` : "Grammar from the vendored coverage map."}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="relative">
@@ -150,12 +153,19 @@ export default function SettingsPage() {
               return (
                 <div key={l.text} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
                   <span className="font-mono text-sm">{l.text}</span>
-                  {!st && (
-                    <Badge variant="outline" title="Not in the VTY's grammar: owned by the box, shown read-only.">
-                      read-only
+                  {l.owned ? (
+                    <Badge variant="outline" title={l.owned}>
+                      the box&apos;s own
                     </Badge>
+                  ) : (
+                    !st && (
+                      <Badge variant="outline" title="No statement of the grammar matches it: shown read-only.">
+                        read-only
+                      </Badge>
+                    )
                   )}
-                  {st && editable && (
+                  {l.owned && <span className="text-muted-foreground text-xs">{l.owned}</span>}
+                  {st && !l.owned && editable && (
                     <span className="ml-auto flex gap-1">
                       <Button
                         size="icon"
@@ -230,6 +240,7 @@ export default function SettingsPage() {
         }}
       />
       <StatementDialog
+        routerId={id}
         editing={editing}
         onClose={() => setEditing(null)}
         onSave={(line) => {
@@ -301,21 +312,44 @@ function AddDialog({
 }
 
 function StatementDialog({
+  routerId,
   editing,
   onClose,
   onSave,
 }: {
-  editing: { statement: Statement; form: FormState; old?: string } | null
+  routerId: string
+  editing: { statement: Statement; path: string[]; form: FormState; old?: string } | null
   onClose: () => void
   onSave: (line: string) => void
 }) {
   const [form, setForm] = useState<FormState | null>(null)
   const [shownFor, setShownFor] = useState<typeof editing>(null)
+  // The VTY's own verdict on the line (ValidateLines, Prisma 0.149.20); null until asked.
+  const [verdict, setVerdict] = useState<{ line: string; ok: boolean; message: string } | "unavailable" | null>(null)
+  const [checking, setChecking] = useState(false)
   if (editing !== shownFor) {
     setShownFor(editing)
     setForm(editing?.form ?? null)
+    setVerdict(null)
   }
   const built = editing && form ? buildLine(editing.statement.tokens, form) : null
+  const line = built && "line" in built ? built.line : null
+
+  async function check() {
+    if (!editing || !line) return
+    setChecking(true)
+    try {
+      const r = await api.post<{ verdicts: { line: string; ok: boolean; message: string }[] }>(routerApi(routerId, "/config/validate"), {
+        path: editing.path,
+        lines: [line],
+      })
+      setVerdict(r.verdicts[0] ?? null)
+    } catch (err) {
+      setVerdict(err instanceof ApiError && err.status === 501 ? "unavailable" : { line, ok: false, message: errorMessage(err) })
+    } finally {
+      setChecking(false)
+    }
+  }
   return (
     <Dialog open={!!editing} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-3xl">
@@ -335,11 +369,23 @@ function StatementDialog({
             {"error" in built ? (built.error.endsWith("required") ? `fill in ${built.error.replace(/: required$/, "")}` : built.error) : built.line}
           </p>
         )}
+        {verdict && verdict !== "unavailable" && verdict.line === line && (
+          <p className={cn("text-sm", verdict.ok ? "text-emerald-700 dark:text-emerald-300" : "text-destructive")}>
+            {verdict.ok ? "The router accepts this line." : `The router refuses it: ${verdict.message}`}
+          </p>
+        )}
+        {verdict === "unavailable" && (
+          <p className="text-muted-foreground text-sm">This router cannot check lines before staging them (Prisma before 0.149.20).</p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!built || "error" in built} onClick={() => built && "line" in built && onSave(built.line)}>
+          <Button variant="outline" disabled={!line || checking} onClick={check}>
+            {checking && <Loader2Icon className="animate-spin" />}
+            Check with the router
+          </Button>
+          <Button disabled={!line} onClick={() => line && onSave(line)}>
             Add to the changes
           </Button>
         </DialogFooter>

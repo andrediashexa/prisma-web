@@ -2,6 +2,8 @@
 //! `back/proto/prisma/v1/prisma.proto`. To update, copy Prisma's new proto
 //! there and rebuild.
 
+pub mod vty;
+
 pub mod v1 {
     tonic::include_proto!("prisma.v1");
 }

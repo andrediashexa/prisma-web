@@ -164,17 +164,29 @@ def config_model_checks(admin, R):
     st, g = admin.get(f"{R}/config/grammar")
     keys = {m["key"] for m in (g or {}).get("modes", [])}
     n = sum(len(gr["statements"]) for m in g["modes"] for gr in m["groups"]) if st == 200 else 0
-    check(st == 200 and n > 500 and {"config", "interface <name>", "nat > cgnat > pool <name>", "router bgp <asn>"} <= keys,
+    check(st == 200 and n > 300 and {"config", "interface <name>", "nat > cgnat > pool <name>", "router bgp <asn>"} <= keys,
           f"the VTY's grammar is served mode by mode ({len(keys)} modes, {n} statements)", sorted(keys)[:10])
+    check(g["source"].startswith("box "), f"the grammar comes from the box's GetSchema (Prisma 0.149.20): {g['source']}", g["source"])
     st, t = admin.get(f"{R}/config/tree")
     inst = {i["mode"]: i for i in (t or {}).get("instances", [])}
     pool = inst.get("nat > cgnat > pool <name>")
     check(st == 200 and pool and pool["path"] == ["nat", "cgnat", "pool RFC6598"] and all(l["statement"] for l in pool["lines"]),
           "the running configuration reads as instances, each pool line matched to its statement", pool)
     lines = [l for i in t["instances"] for l in i["lines"]]
-    known = sum(1 for l in lines if l["statement"])
-    check(known >= len(lines) - 1, f"{known} of {len(lines)} configured lines match a statement of the grammar",
-          [l["text"] for l in lines if not l["statement"]])
+    owned = [l for l in lines if l.get("owned")]
+    check({l["text"] for l in owned} == {"log syslog informational", "service integrated-vtysh-config"} and all(l["owned"] for l in owned),
+          "the box's own lines are marked read only, with the box's reason (TypedConfig.box_owned)", owned)
+    mine = [l for l in lines if not l.get("owned")]
+    known = sum(1 for l in mine if l["statement"])
+    check(known >= len(mine) - 1, f"{known} of {len(mine)} of the operator's lines match a statement of the grammar",
+          [l["text"] for l in mine if not l["statement"]])
+    st, v = admin.post(f"{R}/config/validate", {"path": ["nat", "cgnat"], "lines": ["timeout udp 300"]})
+    check(st == 200 and v["verdicts"][0]["ok"], "the VTY accepts a valid line in a throwaway candidate (ValidateLines)", v)
+    st, v = admin.post(f"{R}/config/validate", {"path": ["interface lan0"], "lines": ["mtu 100"]})
+    check(st == 200 and not v["verdicts"][0]["ok"] and v["verdicts"][0]["reason"] == "grammar" and v["verdicts"][0]["message"],
+          "and refuses a wrong one with its reason, staging nothing", v)
+    st, t2 = admin.get(f"{R}/config/tree")
+    check(t2["revision"] == t["revision"], "a check changes nothing on the box")
     bs = next(l for l in pool["lines"] if l["text"].startswith("block-size"))
     check(list(bs["values"].values()) == ["256"], "a matched line gives its values, to fill the form", bs)
 
@@ -420,6 +432,8 @@ def lab(admin, args):
         check(not any(i["name"].startswith("tap") for i in b["interfaces"]), "linux_cp tap* interfaces hidden")
         st, b = admin.get(R + "/config/running")
         check(st == 200 and "interface " in b["text"], "GetRunning from the real Prisma")
+        st, g = admin.get(R + "/config/grammar")
+        check(st == 200 and g["source"], f"the real Prisma's grammar source: {g['source']}", g.get("source"))
         st, t = admin.get(R + "/config/tree")
         lines = [l for i in (t or {}).get("instances", []) for l in i["lines"]]
         known = sum(1 for l in lines if l["statement"])
