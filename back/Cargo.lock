@@ -1443,7 +1443,7 @@ dependencies = [
 
 [[package]]
 name = "prisma-mock"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1461,7 +1461,7 @@ dependencies = [
 
 [[package]]
 name = "prisma-proto"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "chrono",
  "prost",
@@ -1476,7 +1476,7 @@ dependencies = [
 
 [[package]]
 name = "prisma-web-server"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "argon2",

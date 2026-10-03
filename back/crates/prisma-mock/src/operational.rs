@@ -122,13 +122,19 @@ impl OperationalSvc {
             .map(|(peer, asn)| {
                 let v6 = peer.contains(':');
                 let down = v6 && branch;
+                // `neighbor <peer> shutdown` holds the session down, as FRR shows it (#42).
+                let admin_down = st.running.bgp_neighbor_shutdown(&peer);
+                let up = !down && !admin_down;
                 BgpNeighbor {
                     vrf: "default".into(),
                     remote_as: asn,
-                    state: if down { "Active".into() } else { "Established".into() },
-                    uptime_seconds: if down { 0 } else { st.uptime_seconds() - 600 },
-                    prefixes_received: if down { 0 } else if v6 { 201_388 } else { 1_002_117 },
-                    description: if v6 { "IPv6 transit".into() } else { "IPv4 transit".into() },
+                    state: if admin_down { "Idle (Admin)".into() } else if down { "Active".into() } else { "Established".into() },
+                    uptime_seconds: if up { st.uptime_seconds() - 600 } else { 0 },
+                    prefixes_received: if !up { 0 } else if v6 { 201_388 } else { 1_002_117 },
+                    description: st
+                        .running
+                        .bgp_neighbor_description(&peer)
+                        .unwrap_or_else(|| if v6 { "IPv6 transit".into() } else { "IPv4 transit".into() }),
                     peer,
                     ..Default::default()
                 }

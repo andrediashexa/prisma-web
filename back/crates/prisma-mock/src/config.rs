@@ -109,9 +109,24 @@ fn single_key(line: &str) -> Option<String> {
         {
             Some((*k).into())
         }
+        // Routing (#42, #43): the keywords before the value (`bgp router-id`,
+        // `neighbor <peer> remote-as`, a static route's prefix and next hop).
+        [k @ ("distance" | "maximum-paths" | "table-map" | "table-policy" | "export"), ..] => Some((*k).into()),
+        [a @ ("bgp" | "ospf" | "ospf6"), "router-id", ..] => Some(format!("{a} router-id")),
+        ["auto-cost", "reference-bandwidth", ..] => Some("auto-cost".into()),
+        ["neighbor", peer, attr, ..] if NEIGHBOR_SINGLE.contains(attr) => Some(format!("neighbor {peer} {attr}")),
+        ["redistribute", proto, ..] => Some(format!("redistribute {proto}")),
+        ["default-information", "originate", ..] => Some("default-information".into()),
+        [prefix, "next-hop", nh, ..] if prefix.contains('/') => Some(format!("{prefix} {nh}")),
         _ => None,
     }
 }
+
+/// A neighbor's settings that hold one value (`neighbor <peer> remote-as <n>`).
+const NEIGHBOR_SINGLE: &[&str] = &[
+    "remote-as", "description", "password", "update-source", "ebgp-multihop", "timers", "maximum-prefix", "peer-group", "route-map",
+    "prefix-list", "default-originate",
+];
 
 /// Refusal of a line: the VTY message and the matching diagnostic.
 pub struct Refusal {
@@ -143,7 +158,7 @@ impl Config {
             v6: strs(v6),
             extra: vec![],
         };
-        Self {
+        let mut c = Self {
             hostname: hostname.into(),
             interfaces: vec![
                 iface("wan0", "Carrier uplink", 1500, &["203.0.113.10/29"], &["2001:db8:100::2/64"]),
@@ -177,8 +192,27 @@ impl Config {
                         "neighbor 2001:db8:100::1 remote-as 64500",
                     ]),
                 },
+                // Routing seen by the forms of #42 and #43: an IPv6 family,
+                // OSPF on the LAN and a default route per family.
+                Block {
+                    path: strs(&[BGP_PATH[0], "address-family ipv6 unicast"]),
+                    lines: strs(&["neighbor 2001:db8:100::1 activate"]),
+                },
+                Block {
+                    path: strs(&["router ospf"]),
+                    lines: strs(&["ospf router-id 192.168.10.1", "network 192.168.10.0/24 area 0", "passive-interface lan0.20"]),
+                },
+                Block { path: strs(&["router ospf6"]), lines: strs(&["ospf6 router-id 192.168.10.1"]) },
+                Block {
+                    path: strs(&["router static"]),
+                    lines: strs(&["0.0.0.0/0 next-hop 203.0.113.9", "::/0 next-hop 2001:db8:100::1"]),
+                },
             ],
+        };
+        if let Some(lan) = c.interfaces.iter_mut().find(|i| i.name == "lan0") {
+            lan.extra = strs(&["ipv6 ospf6 area 0"]);
         }
+        c
     }
 
     pub fn iface(&self, name: &str) -> Option<&Iface> {
@@ -289,6 +323,23 @@ impl Config {
             .unwrap_or_default()
     }
 
+    /// The lines `neighbor <peer> …` of the BGP process, without the prefix.
+    fn bgp_neighbor_lines(&self, peer: &str) -> Vec<String> {
+        let head = format!("neighbor {peer} ");
+        self.block(&BGP_PATH)
+            .map(|b| b.lines.iter().filter_map(|l| l.strip_prefix(&head)).map(str::to_string).collect())
+            .unwrap_or_default()
+    }
+
+    /// Whether `neighbor <peer> shutdown` is configured (the session is held down).
+    pub fn bgp_neighbor_shutdown(&self, peer: &str) -> bool {
+        self.bgp_neighbor_lines(peer).iter().any(|l| l == "shutdown")
+    }
+
+    pub fn bgp_neighbor_description(&self, peer: &str) -> Option<String> {
+        self.bgp_neighbor_lines(peer).iter().find_map(|l| l.strip_prefix("description ").map(str::to_string))
+    }
+
     /// Text as `show running-config` prints it.
     pub fn render(&self) -> String {
         let mut out = vec![format!("hostname {}", self.hostname), "!".to_string()];
@@ -354,13 +405,20 @@ impl Config {
                     notes.push(note);
                 }
             } else {
-                self.edit_block(path, line);
+                self.edit_block(path, line)?;
             }
         }
         Ok(notes)
     }
 
     fn edit_top(&mut self, line: &str) -> Result<(), Refusal> {
+        // `no router ospf`: the block and everything under it.
+        if let Some(rest) = line.strip_prefix("no ").map(str::trim) {
+            if self.blocks.iter().any(|b| b.path[0] == rest) {
+                self.blocks.retain(|b| b.path[0] != rest);
+                return Ok(());
+            }
+        }
         match line.strip_prefix("hostname ").map(str::trim) {
             Some(h) if !h.is_empty() && !h.contains(char::is_whitespace) => {
                 self.hostname = h.to_string();
@@ -407,6 +465,20 @@ impl Config {
                 }
             }
             ["no", "shutdown"] => i.shutdown = false,
+            // One line per OSPF setting (`ip ospf cost 20` replaces `ip ospf cost 10`, #43).
+            ["ip", "ospf", _, ..] | ["ipv6", "ospf6", _, ..] | ["no", "ip", "ospf", _, ..] | ["no", "ipv6", "ospf6", _, ..] => {
+                let no = words[0] == "no";
+                let stmt = if no { line[2..].trim() } else { line };
+                let key = ospf_key(stmt);
+                if !no {
+                    i.extra.retain(|l| ospf_key(l) != key);
+                    i.extra.push(stmt.to_string());
+                } else if i.extra.iter().any(|l| ospf_key(l) == key) {
+                    i.extra.retain(|l| ospf_key(l) != key);
+                } else {
+                    return Err(refuse(format!("{stmt} is not configured on {name}"), path, line));
+                }
+            }
             [no @ .., fam @ ("ipv4" | "ipv6"), "address", cidr] if no.is_empty() || *no == ["no"] => {
                 let v6 = *fam == "ipv6";
                 if !valid_cidr(cidr, v6) {
@@ -443,21 +515,36 @@ impl Config {
         }
         Ok(())
     }
-    fn edit_block(&mut self, path: &[String], line: &str) {
+    fn edit_block(&mut self, path: &[String], line: &str) -> Result<(), Refusal> {
+        if path.len() == 1 && path[0] == "router static" {
+            check_static(path, line)?;
+        }
         if let Some(rest) = line.strip_prefix("no ").map(str::trim) {
-            // `no pool P` under `nat > cgnat` removes the pool and what is in it.
+            // A mode under this one (`no pool P` under `nat > cgnat`, `no address-family ipv6
+            // unicast` under `router bgp`): the block and everything in it.
             let mut child = path.to_vec();
             child.push(rest.to_string());
             self.blocks.retain(|b| !b.path.starts_with(&child));
+            let words: Vec<&str> = rest.split_whitespace().collect();
+            // `no neighbor <peer>` (or `no neighbor <peer> remote-as …`, as FRR) removes the
+            // neighbor: its lines here and in every address family below.
+            if path[0].starts_with("router bgp ") && path.len() == 1 && matches!(words.as_slice(), ["neighbor", _] | ["neighbor", _, "remote-as", ..]) {
+                let head = format!("neighbor {} ", words[1]);
+                for b in self.blocks.iter_mut().filter(|b| b.path.starts_with(path)) {
+                    b.lines.retain(|l| !l.starts_with(&head));
+                }
+                return Ok(());
+            }
             if let Some(b) = self.blocks.iter_mut().find(|b| b.path == path) {
                 let before = b.lines.len();
                 b.lines.retain(|l| l != rest);
-                // `no max-blocks`, `no interface wan0`: the line whatever its value.
+                // `no max-blocks`, `no interface wan0`, `no bgp router-id`: the line whatever its value.
                 if b.lines.len() == before {
-                    b.lines.retain(|l| !l.starts_with(&format!("{rest} ")));
+                    let key = single_key(rest);
+                    b.lines.retain(|l| !(l.starts_with(&format!("{rest} ")) || key.is_some() && single_key(l) == key));
                 }
             }
-            return;
+            return Ok(());
         }
         let idx = match self.blocks.iter().position(|b| b.path == path) {
             Some(i) => i,
@@ -471,13 +558,45 @@ impl Config {
         if let Some(key) = single_key(line) {
             if let Some(existing) = lines.iter_mut().find(|l| single_key(l).as_deref() == Some(key.as_str())) {
                 *existing = line.to_string();
-                return;
+                return Ok(());
             }
         }
         if !lines.iter().any(|l| l == line) {
             lines.push(line.to_string());
         }
+        Ok(())
     }
+}
+
+/// The keywords that name an interface's OSPF setting (`ip ospf cost`, `ip ospf message-digest-key 1`).
+fn ospf_key(line: &str) -> String {
+    let w: Vec<&str> = line.split_whitespace().collect();
+    let n = if w.get(2) == Some(&"message-digest-key") { 4 } else { 3 };
+    w[..n.min(w.len())].join(" ")
+}
+
+/// `<prefix> next-hop <next-hop> [distance <1-255>] [tag <n>] [description <text>]`: the
+/// prefix must be valid and the next hop, an address of the same family or an interface name.
+fn check_static(path: &[String], line: &str) -> Result<(), Refusal> {
+    let stmt = line.strip_prefix("no ").unwrap_or(line);
+    let w: Vec<&str> = stmt.split_whitespace().collect();
+    let [prefix, "next-hop", nh, rest @ ..] = w.as_slice() else {
+        return Err(refuse(format!("unknown command: {line}"), path, line));
+    };
+    let v6 = prefix.contains(':');
+    if !valid_cidr(prefix, v6) {
+        return Err(refuse(format!("invalid prefix: {prefix}"), path, line));
+    }
+    match nh.parse::<IpAddr>() {
+        Ok(a) if a.is_ipv6() != v6 => return Err(refuse(format!("next hop {nh} is not of the prefix's family"), path, line)),
+        _ => {}
+    }
+    if let Some(d) = rest.iter().position(|w| *w == "distance").and_then(|i| rest.get(i + 1)) {
+        if !d.parse::<u8>().is_ok_and(|d| d >= 1) {
+            return Err(refuse("distance must be between 1 and 255", path, line));
+        }
+    }
+    Ok(())
 }
 
 pub fn is_bundle(name: &str) -> bool {
@@ -721,6 +840,53 @@ mod tests {
         assert!(d.contains("-  mtu 1500"), "{d}");
         assert!(d.contains("+  mtu 9000"), "{d}");
         assert!(compare(&a.render(), &a.render()).is_empty());
+    }
+
+    /// The routing statements of #42 and #43: neighbors render under `router bgp`, a
+    /// single-valued setting replaces its line and `no` removes it.
+    #[test]
+    fn routing_blocks() {
+        let mut c = Config::seed("x");
+        let bgp = p(&BGP_PATH);
+        let v6 = p(&[BGP_PATH[0], "address-family ipv6 unicast"]);
+        c.edit(&bgp, &p(&["neighbor 192.0.2.1 remote-as 64510", "neighbor 192.0.2.1 description Peer A", "bgp router-id 10.0.0.1"])).ok().unwrap();
+        c.edit(&v6, &p(&["neighbor 192.0.2.1 activate", "network 2001:db8:1::/48"])).ok().unwrap();
+        let text = c.render();
+        assert!(text.contains("router bgp 65000\n neighbor 203.0.113.9 remote-as 64500\n"), "{text}");
+        assert!(text.contains(" neighbor 192.0.2.1 description Peer A\n bgp router-id 10.0.0.1\n address-family ipv6 unicast\n"), "{text}");
+        assert!(text.contains("  neighbor 192.0.2.1 activate\n  network 2001:db8:1::/48\n"), "{text}");
+
+        c.edit(&bgp, &p(&["neighbor 192.0.2.1 remote-as 64511", "bgp router-id 10.0.0.2", "neighbor 192.0.2.1 shutdown"])).ok().unwrap();
+        assert_eq!(c.bgp_neighbors().iter().filter(|(n, _)| n == "192.0.2.1").collect::<Vec<_>>(), [&("192.0.2.1".to_string(), 64511)]);
+        assert!(c.render().contains(" bgp router-id 10.0.0.2\n") && !c.render().contains("10.0.0.1"));
+        assert!(c.bgp_neighbor_shutdown("192.0.2.1"));
+        c.edit(&bgp, &p(&["no neighbor 192.0.2.1 shutdown", "no neighbor 192.0.2.1 description"])).ok().unwrap();
+        assert!(!c.bgp_neighbor_shutdown("192.0.2.1") && c.bgp_neighbor_description("192.0.2.1").is_none());
+
+        c.edit(&bgp, &p(&["no neighbor 192.0.2.1"])).ok().unwrap();
+        let text = c.render();
+        assert!(!text.contains("192.0.2.1"), "the neighbor goes from every address family: {text}");
+        c.edit(&bgp, &p(&["no address-family ipv6 unicast"])).ok().unwrap();
+        assert!(!c.render().contains("address-family ipv6"));
+
+        let st = p(&["router static"]);
+        c.edit(&st, &p(&["192.0.2.0/24 next-hop 203.0.113.9 distance 10", "2001:db8:5::/48 next-hop wan0"])).ok().unwrap();
+        c.edit(&st, &p(&["192.0.2.0/24 next-hop 203.0.113.9 distance 20"])).ok().unwrap();
+        let text = c.render();
+        assert!(text.contains("router static\n 0.0.0.0/0 next-hop 203.0.113.9\n ::/0 next-hop 2001:db8:100::1\n 192.0.2.0/24 next-hop 203.0.113.9 distance 20\n 2001:db8:5::/48 next-hop wan0\n"), "{text}");
+        assert!(c.edit(&st, &p(&["192.0.2.0/24 next-hop 2001:db8::1"])).is_err(), "families must match");
+        assert!(c.edit(&st, &p(&["192.0.2.0/33 next-hop 203.0.113.9"])).is_err());
+        c.edit(&st, &p(&["no 192.0.2.0/24 next-hop 203.0.113.9 distance 20"])).ok().unwrap();
+        assert!(!c.render().contains("192.0.2.0/24"));
+
+        c.edit(&p(&["interface wan0"]), &p(&["ip ospf area 0", "ip ospf cost 10", "ip ospf cost 20", "ipv6 ospf6 passive"])).ok().unwrap();
+        assert!(c.render().contains(" description Carrier uplink\n ip ospf area 0\n ip ospf cost 20\n ipv6 ospf6 passive\n"), "{}", c.render());
+        c.edit(&p(&["interface wan0"]), &p(&["no ip ospf cost 20", "no ipv6 ospf6 passive"])).ok().unwrap();
+        assert_eq!(c.iface("wan0").unwrap().extra, ["ip ospf area 0"]);
+        assert!(c.edit(&p(&["interface wan0"]), &p(&["no ip ospf bfd"])).is_err());
+
+        c.edit(&[], &p(&["no router ospf6"])).ok().unwrap();
+        assert!(!c.render().contains("router ospf6"));
     }
 
     #[test]

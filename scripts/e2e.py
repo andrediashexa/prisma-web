@@ -180,6 +180,83 @@ def config_model_checks(admin, R):
     check(list(bs["values"].values()) == ["256"], "a matched line gives its values, to fill the form", bs)
 
 
+def routing_form_checks(admin, R):
+    """Routing forms (#42, #43): the lines they send are accepted, rendered in their modes and removed by `no`."""
+    st, t = admin.get(f"{R}/config/tree")
+    inst = {tuple(i["path"]): i for i in (t or {}).get("instances", [])}
+    bgp = next((p for p in inst if len(p) == 1 and p[0].startswith("router bgp ")), None)
+    check(bgp and (bgp[0], "address-family ipv6 unicast") in inst and ("router static",) in inst and ("router ospf",) in inst
+          and ("router ospf6",) in inst, "BGP with its IPv6 family, OSPF, OSPF6 and static routes read as instances", sorted(inst)[:12])
+    statics = inst[("router static",)]["lines"]
+    check(statics and all(l["statement"] for l in statics), "every static route matches the router static statement", statics)
+
+    st, c = admin.post(f"{R}/config/candidates")
+    cid = c["candidate_id"]
+    C = f"{R}/config/candidates/{cid}"
+    af4, af6 = [bgp[0], "address-family ipv4 unicast"], [bgp[0], "address-family ipv6 unicast"]
+    edits = [
+        (list(bgp), ["neighbor 192.0.2.77 remote-as 64777", "neighbor 192.0.2.77 description e2e peer", "neighbor 192.0.2.77 bfd",
+                     "neighbor 2001:db8:77::1 remote-as 64777", "bgp router-id 203.0.113.10"]),
+        (af4, ["neighbor 192.0.2.77 activate", "neighbor 192.0.2.77 route-map E2E-IN", "network 198.51.100.0/24",
+               "aggregate-address 198.51.100.0/22 summary-only", "redistribute connected"]),
+        (af6, ["neighbor 2001:db8:77::1 activate", "network 2001:db8:77::/48"]),
+        (["router ospf"], ["network 10.77.0.0/16 area 0.0.0.1", "area 0.0.0.1", "passive-interface wan0",
+                           "redistribute static metric 20 metric-type 1"]),
+        (["router ospf6"], ["area 0", "redistribute connected route-map E2E"]),
+        (["interface wan0"], ["ip ospf cost 10", "ipv6 ospf6 area 0", "ipv6 ospf6 passive"]),
+        (["router static"], ["198.51.100.0/24 next-hop 203.0.113.9 distance 200", "2001:db8:77::/48 next-hop wan0"]),
+    ]
+    for path, lines in edits:
+        st, b = admin.post(f"{C}/edit", {"path": path, "lines": lines})
+        check(st == 200, f"the forms' lines are accepted at {' > '.join(path)}", b)
+    st, b = admin.post(f"{C}/edit", {"path": ["router static"], "lines": ["198.51.100.0/24 next-hop 2001:db8::1"]})
+    check(st == 422 and b["error"]["code"] == "router_rejected" and "family" in b["error"]["message"],
+          "a static route through a next hop of the other family is refused", b)
+
+    st, ct = admin.get(f"{R}/config/tree?candidate={cid}")
+    ci = {tuple(i["path"]): i for i in (ct or {}).get("instances", [])}
+    texts = lambda p: [l["text"] for l in ci.get(tuple(p), {"lines": []})["lines"]]
+    check("neighbor 192.0.2.77 description e2e peer" in texts(bgp) and "neighbor 192.0.2.77 activate" in texts(af4)
+          and "network 2001:db8:77::/48" in texts(af6), "neighbors render under router bgp and its families", [texts(bgp), texts(af4)])
+    check("ipv6 ospf6 area 0" in texts(["interface wan0"]) and "2001:db8:77::/48 next-hop wan0" in texts(["router static"]),
+          "interface OSPF lines and static routes render in their modes", texts(["interface wan0"]))
+    matched = [l for p in (bgp, af4, af6, ("router ospf",), ("router ospf6",), ("interface wan0",), ("router static",))
+               for l in ci.get(tuple(p), {"lines": []})["lines"]]
+    # The grammar types a static next hop as an address: the route through an interface is the box's call (#43).
+    matched = [l for l in matched if l["text"] != "2001:db8:77::/48 next-hop wan0"]
+    check(all(l["statement"] for l in matched), f"all {len(matched)} other routing lines match a statement of the grammar",
+          [l["text"] for l in matched if not l["statement"]])
+
+    # A changed single value replaces its line; `no neighbor` takes the neighbor out of every family.
+    admin.post(f"{C}/edit", {"path": list(bgp), "lines": ["neighbor 192.0.2.77 remote-as 64778", "no neighbor 2001:db8:77::1"]})
+    st, ct = admin.get(f"{R}/config/tree?candidate={cid}")
+    ci = {tuple(i["path"]): i for i in (ct or {}).get("instances", [])}
+    check([x for x in texts(bgp) if "remote-as" in x and "192.0.2.77" in x] == ["neighbor 192.0.2.77 remote-as 64778"],
+          "a new remote-as replaces the old one", texts(bgp))
+    check(not any("2001:db8:77::1" in x for p in (bgp, af6) for x in texts(p)), "no neighbor removes it from router bgp and its families",
+          [texts(bgp), texts(af6)])
+    st, b = admin.post(f"{C}/commit", {"comment": "e2e: routing forms", "confirmed_minutes": 0, "acknowledge_remap": True})
+    check(st == 200, "the routing changes commit", b)
+
+    # The live state follows the configuration: a shut-down neighbor is Idle (Admin).
+    st, c = admin.post(f"{R}/config/candidates")
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    admin.post(f"{C}/edit", {"path": list(bgp), "lines": ["neighbor 192.0.2.77 shutdown"]})
+    st, b = admin.post(f"{C}/commit", {"comment": "e2e: shut down", "confirmed_minutes": 0})
+    check(st == 200, "shutting a neighbor down commits", b)
+    st, n = admin.get(f"{R}/bgp")
+    peer = next((x for x in (n or {}).get("neighbors", []) if x["peer"] == "192.0.2.77"), None)
+    check(peer and peer["state"] == "Idle (Admin)" and peer["remote_as"] == 64778 and peer["description"] == "e2e peer",
+          "ListBgpNeighbors shows the configured neighbor, held down by shutdown", peer)
+
+    st, c = admin.post(f"{R}/config/candidates", {"from_revision": 2})
+    st, b = admin.post(f"{R}/config/candidates/{c['candidate_id']}/commit",
+                       {"comment": "e2e: undo routing", "confirmed_minutes": 0, "acknowledge_remap": True, "acknowledge_diverge": True})
+    check(st == 200, "the routing changes are rolled back", b)
+    st, n = admin.get(f"{R}/bgp")
+    check(not any(x["peer"] == "192.0.2.77" for x in n["neighbors"]), "the neighbor is gone after the rollback", n)
+
+
 def interface_form_checks(admin, R):
     """Interfaces form (#40): the port and bundle lines it writes are accepted, refused and read back as statements."""
     st, c = admin.post(f"{R}/config/candidates")
@@ -604,6 +681,7 @@ def main():
         check(f["version"] and f["system"] and f["sessions"] is not None, "status carries GetVersion, GetSystem and GetSessionsSummary", f)
         health_checks(admin, router_id)
         config_model_checks(admin, R)
+        routing_form_checks(admin, R)
         interface_form_checks(admin, R)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
