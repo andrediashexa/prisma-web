@@ -129,6 +129,12 @@ for tag in tags:
     if not re.fullmatch(r"0\.\d+\.\d+", tag):
         fail("git tag", f"'{tag}' is not in the X.Y.Z format with major version 0")
 
+# ---- the structured editor's grammar matches the vendored coverage map (#39)
+import subprocess
+_g = subprocess.run([sys.executable, str(ROOT / "scripts/config-grammar.py"), "--check"], capture_output=True, text=True)
+if _g.returncode != 0:
+    fail("back/crates/server/src/config_grammar.json", (_g.stderr or _g.stdout).strip())
+
 # ---- exceptions that no longer exist (the lists must not keep dead entries)
 for p in EXC + GENERATED:
     base = p[:-3] if p.endswith("/**") else p

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 const TABS = [
   { href: "", label: "Dashboard" },
   { href: "/interfaces", label: "Interfaces" },
+  { href: "/settings", label: "Settings" },
   { href: "/config", label: "Configuration" },
   { href: "/cgnat", label: "CGNAT" },
   { href: "/routing", label: "Routing" },

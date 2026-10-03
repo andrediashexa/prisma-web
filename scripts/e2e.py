@@ -159,6 +159,26 @@ def candidate_expiry_checks(admin, R):
     check(st == 404, "the expired candidate is forgotten by the back", b)
 
 
+def config_model_checks(admin, R):
+    """Structured configuration (#39): the grammar and the running configuration as instances of modes."""
+    st, g = admin.get(f"{R}/config/grammar")
+    keys = {m["key"] for m in (g or {}).get("modes", [])}
+    n = sum(len(gr["statements"]) for m in g["modes"] for gr in m["groups"]) if st == 200 else 0
+    check(st == 200 and n > 500 and {"config", "interface <name>", "nat > cgnat > pool <name>", "router bgp <asn>"} <= keys,
+          f"the VTY's grammar is served mode by mode ({len(keys)} modes, {n} statements)", sorted(keys)[:10])
+    st, t = admin.get(f"{R}/config/tree")
+    inst = {i["mode"]: i for i in (t or {}).get("instances", [])}
+    pool = inst.get("nat > cgnat > pool <name>")
+    check(st == 200 and pool and pool["path"] == ["nat", "cgnat", "pool RFC6598"] and all(l["statement"] for l in pool["lines"]),
+          "the running configuration reads as instances, each pool line matched to its statement", pool)
+    lines = [l for i in t["instances"] for l in i["lines"]]
+    known = sum(1 for l in lines if l["statement"])
+    check(known >= len(lines) - 1, f"{known} of {len(lines)} configured lines match a statement of the grammar",
+          [l["text"] for l in lines if not l["statement"]])
+    bs = next(l for l in pool["lines"] if l["text"].startswith("block-size"))
+    check(list(bs["values"].values()) == ["256"], "a matched line gives its values, to fill the form", bs)
+
+
 def log_export_checks(admin, router_id):
     """CGNAT log export (Prisma 0.149.15, #34) on prisma-mock-2, which has all three streams."""
     R = f"/routers/{router_id}"
@@ -364,6 +384,12 @@ def lab(admin, args):
         check(not any(i["name"].startswith("tap") for i in b["interfaces"]), "linux_cp tap* interfaces hidden")
         st, b = admin.get(R + "/config/running")
         check(st == 200 and "interface " in b["text"], "GetRunning from the real Prisma")
+        st, t = admin.get(R + "/config/tree")
+        lines = [l for i in (t or {}).get("instances", []) for l in i["lines"]]
+        known = sum(1 for l in lines if l["statement"])
+        check(st == 200 and lines and known / len(lines) >= 0.8,
+              f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
+              [l["text"] for l in lines if not l["statement"]])
         st, pol = admin.get(R + "/policies")
         st2, cnt = admin.get(R + "/policies/counters")
         check(st == 200 and st2 == 200, f"policies and counters of the real Prisma ({len(pol['policies'])} policies, {len(cnt['uses'])} uses)", [pol, cnt])
@@ -456,6 +482,7 @@ def main():
         f = fleet[0]
         check(f["version"] and f["system"] and f["sessions"] is not None, "status carries GetVersion, GetSystem and GetSessionsSummary", f)
         health_checks(admin, router_id)
+        config_model_checks(admin, R)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
               "a box with no log export lists three unconfigured streams", lg)

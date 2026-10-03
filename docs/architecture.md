@@ -229,6 +229,17 @@ sequenceDiagram
   commit, as before (#10, #37). The review offers to reopen: a new candidate on the current configuration, the same edits
   applied again in order, and a new review of the new diff; nothing is committed on the way. A line
   the new base refuses is shown like any edit refusal, with its lines back in the form (#10).
+- **Structured configuration (#39):** the **Settings** tab reaches every statement of the VTY's
+  configuration without typing it. The grammar comes from the vendored coverage map, which Prisma
+  generates from the VTY's own grammar (#558): `scripts/config-grammar.py` extracts it to
+  `back/crates/server/src/config_grammar.json` (`check-docs.py` fails when it is stale), and
+  `config_model.rs` parses each statement's syntax (keywords, typed values with their ranges,
+  optional parts, choices). The running configuration is read as a tree and every line matched to
+  its statement, which also gives the values to prefill a form. Forms are generated from the syntax;
+  changes accumulate and are applied as lines to one candidate, then go through the usual review.
+  A line no statement matches (FRR's own, the backplane VRF) is shown read-only. The box account's
+  role decides what is editable (a cgnat-operator only the CGNAT modes). When the box answers
+  `GetSchema` (Prisma 0.149.20) it replaces the coverage map as the source; the model stays.
 - **Interface grammar:** `front/src/lib/vty.ts` is the only place that knows the `description`,
   `mtu` and `shutdown` lines. They are an assumption until the Prisma confirms them.
 

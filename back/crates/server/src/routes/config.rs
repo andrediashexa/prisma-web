@@ -748,3 +748,47 @@ mod tests {
         assert_eq!(read_only(None, "HQ"), None, "an older box without WhoAmI is not refused");
     }
 }
+
+#[derive(Serialize)]
+pub struct GrammarView {
+    /// "coverage-map" until the box answers GetSchema.
+    source: &'static str,
+    modes: &'static [crate::config_model::Mode],
+}
+
+/// The VTY's configuration grammar, mode by mode, for the structured editor (#39).
+pub async fn grammar(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Json<GrammarView>> {
+    st.routers.get(id).await?;
+    Ok(Json(GrammarView { source: "coverage-map", modes: &crate::config_model::MODES }))
+}
+
+#[derive(Deserialize)]
+pub struct TreeQuery {
+    /// A candidate of the requester's, to see its configuration instead of the running one.
+    candidate: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct TreeView {
+    revision: String,
+    instances: Vec<crate::config_model::Instance>,
+}
+
+/// The configuration as instances of modes, each line matched to its statement (#39).
+pub async fn tree(
+    State(st): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+    axum::extract::Query(q): axum::extract::Query<TreeQuery>,
+) -> AppResult<Json<TreeView>> {
+    let r = st.routers.get(id).await?;
+    let text = match q.candidate.filter(|c| !c.is_empty()) {
+        Some(cid) => {
+            st.candidates.check(id, &cid, &user)?;
+            r.config().show_candidate(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner()
+        }
+        None => r.config().get_running(req(GetRunningRequest {})).await?.into_inner(),
+    };
+    let nodes = crate::config_model::tree(&text.text);
+    Ok(Json(TreeView { revision: text.revision, instances: crate::config_model::instances(&nodes) }))
+}
