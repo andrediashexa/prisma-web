@@ -126,10 +126,17 @@ pub fn logging(cgnat_lines: &[String]) -> LoggingConfig {
         .iter()
         .map(|t| {
             let line = find(t);
+            let w: Vec<&str> = line.map(|l| l.split_whitespace().collect()).unwrap_or_default();
+            let after = |k: &str| w.iter().position(|x| *x == k).and_then(|i| w.get(i + 1)).and_then(|v| v.parse::<u32>().ok());
             LogCollectorConfig {
                 transport: (*t).into(),
                 configured: line.is_some(),
-                collector: line.and_then(|l| l.split_whitespace().nth(2)).unwrap_or_default().into(),
+                collector: w.get(2).copied().unwrap_or_default().into(),
+                port: after("port").unwrap_or(0),
+                source: w.iter().position(|x| *x == "src").and_then(|i| w.get(i + 1)).copied().unwrap_or_default().into(),
+                enterprise: after("enterprise").unwrap_or(0),
+                facility: after("facility"),
+                severity: after("severity"),
                 ..Default::default()
             }
         })

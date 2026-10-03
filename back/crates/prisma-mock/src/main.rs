@@ -12,6 +12,7 @@ mod session;
 mod route_service;
 mod state;
 mod telemetry;
+mod typed;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

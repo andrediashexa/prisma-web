@@ -16,6 +16,19 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.19.0 - Typed configuration — 2026-10-03
+
+### Changed
+- On a router with Prisma 0.149.20 or newer, the interface, pool and log collector forms read and write the configuration as fields; from 0.149.22 the static route and BGP neighbor forms too. The review shows the lines the router wrote for them. Routers without those calls keep the line forms (#46).
+- A BGP neighbor is removed the way the router removes it cleanly: with the typed call where it has one, statement by statement on 0.149.20 to 0.149.22, and a plain `no neighbor` before or from 0.149.23 (#46).
+- What a routing block holds that no form field takes is shown read only (#46).
+
+### Fixed
+- A BGP password is never read or shown; leaving the field empty keeps the current one (#46).
+
+### Internal
+- Client regenerated from the Prisma 0.149.22 contract (additions only); integration notes read up to 0.149.23. A third simulated Prisma without the typed calls keeps the line forms tested (#46).
+
 ## 0.18.1 - Real box grammar — 2026-10-03
 
 ### Fixed

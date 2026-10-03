@@ -2,14 +2,17 @@
  * The CGNAT configuration for the CGNAT forms (#41): read from the running
  * configuration as a tree (#39) and written as VTY lines under `nat > cgnat`.
  *
- * This is the only place that knows those lines. When the box answers the
- * typed GetConfig and SetPool/SetLogging (Prisma 0.149.20), readCgnat() and
- * the *Changes() functions are what switch to them; the forms keep the shapes
- * below.
+ * This is the only place that knows those lines. On a box that answers the
+ * typed GetConfig for pools and logging (Prisma 0.149.20, #46), the pools and
+ * the collectors are read from it (`readCgnatTyped`) and written with
+ * SetConfig naming the fields that change, a pool removed with DeleteConfig;
+ * the global settings are not typed and stay lines. The forms keep the shapes
+ * below either way.
  */
 
 import type { ConfigChange } from "@/hooks/use-config-changes"
 import { invalid, type Instance, type Kind } from "@/lib/config-model"
+import { describeSet, n2s, s2n, typedSet, type TypedCollector, type TypedConfig, type TypedPool } from "@/lib/typed-config"
 
 export const CGNAT_PATH = ["nat", "cgnat"]
 export const poolPath = (name: string) => [...CGNAT_PATH, `pool ${name}`]
@@ -49,6 +52,9 @@ export interface LogTarget {
   enterprise: string
   /** syslog: the rest of the line. */
   options: string
+  /** syslog, typed: kept as read (unset: the box's defaults). */
+  facility?: number | null
+  severity?: number | null
 }
 
 export interface CgnatLogging {
@@ -322,7 +328,8 @@ export function disablesNeverEnabledSyslog(a: CgnatLogging, b: CgnatLogging) {
 export const SYSLOG_DISABLE_WARNING =
   "Syslog was never enabled on this router. Before Prisma 0.149.8, `logging syslog disable` then stops the dataplane until the box is rebooted, so prisma-web refuses to commit it on those releases."
 
-export function loggingChanges(a: CgnatLogging, b: CgnatLogging): ConfigChange[] {
+export function loggingChanges(a: CgnatLogging, b: CgnatLogging, typed = false): ConfigChange[] {
+  if (typed) return loggingChangesTyped(a, b)
   const lines: string[] = []
   for (const k of LOG_KINDS) {
     const line = targetLine(k, b.targets[k])
@@ -355,7 +362,8 @@ export const remapWarning = (what: string) =>
   `Changing the ${what} remaps subscribers: they get a different public address or port block. The review asks you to acknowledge it.`
 
 /** The lines that take a pool from `a` (null: a new pool) to `b`. */
-export function poolChanges(a: PoolConfig | null, b: PoolConfig): ConfigChange[] {
+export function poolChanges(a: PoolConfig | null, b: PoolConfig, typed = false): ConfigChange[] {
+  if (typed) return poolChangesTyped(a, b)
   const was = a ?? emptyPool(b.name)
   const lines: string[] = []
   const list = (key: string, from: string[], to: string[]) => {
@@ -388,11 +396,168 @@ export function poolChanges(a: PoolConfig | null, b: PoolConfig): ConfigChange[]
   ]
 }
 
-export function poolRemoval(p: PoolConfig): ConfigChange {
+export function poolRemoval(p: PoolConfig, typed = false): ConfigChange {
   return {
     path: CGNAT_PATH,
-    lines: [`no pool ${p.name}`],
+    lines: typed ? [] : [`no pool ${p.name}`],
+    ...(typed && { typed: [{ remove: { area: "pools" as const, name: p.name } }], summary: [`remove pool ${p.name}`] }),
     label: `remove pool ${p.name}`,
     warning: "Removing the pool remaps its subscribers. The review asks you to acknowledge it.",
   }
+}
+
+// --- Typed (Prisma 0.149.20, #46) ----------------------------------------------
+
+function poolFromTyped(t: TypedPool, other: string[]): PoolConfig {
+  const p = emptyPool(t.name)
+  p.inside = [...t.prefix_inside]
+  p.outside = [...t.prefix_outside]
+  p.scalars["block-size"] = n2s(t.block_size)
+  p.scalars.mode = t.mode
+  p.scalars.policy = t.policy
+  p.scalars["max-blocks"] = n2s(t.max_blocks, 1)
+  p.scalars.ports = t.port_first || t.port_last ? `${t.port_first} ${t.port_last}` : ""
+  p.scalars["initial-allocation"] = n2s(t.initial_allocation)
+  p.scalars["utilisation-alarm"] = n2s(t.utilisation_alarm)
+  p.scalars["max-sessions"] = n2s(t.max_sessions)
+  p.scalars["max-session-rate"] = n2s(t.max_session_rate)
+  p.scalars.filter = t.filter
+  p.scalars["tcp-mss"] = t.tcp_mss
+  for (const a of ALGS) if (a in (t.algs ?? {})) p.algs[a] = t.algs[a] ? "on" : "off"
+  p.other = other
+  return p
+}
+
+function targetFromTyped(c: TypedCollector | undefined): LogTarget {
+  const t = emptyTarget()
+  // `configured` false is both "disabled" and "never set": the box does not tell them apart.
+  if (!c?.configured) return t
+  return {
+    ...t,
+    state: "collector",
+    collector: c.collector,
+    port: n2s(c.port),
+    source: c.source,
+    enterprise: n2s(c.enterprise),
+    facility: c.facility,
+    severity: c.severity,
+  }
+}
+
+/**
+ * The CGNAT configuration with the pools and collectors from GetConfig; the
+ * global settings (not typed) and each pool's statements the form does not
+ * cover (listed read only) from the tree.
+ */
+export function readCgnatTyped(typed: TypedConfig, instances: Instance[]): CgnatConfig {
+  const base = readCgnat(instances)
+  const pools = typed.pools.map((t) => poolFromTyped(t, base.pools.find((p) => p.name === t.name)?.other ?? []))
+  const by = (k: LogKind) => typed.logging?.collectors.find((c) => c.transport === k)
+  const logging: CgnatLogging = {
+    export: typed.logging?.enabled ? "enable" : "",
+    targets: { syslog: targetFromTyped(by("syslog")), tcp: targetFromTyped(by("tcp")), udp: targetFromTyped(by("udp")) },
+  }
+  return { ...base, pools, logging }
+}
+
+/** A form's pool statement and its field in the contract. */
+const POOL_FIELD: Record<PoolScalar, string> = {
+  "block-size": "block_size",
+  mode: "mode",
+  policy: "policy",
+  "max-blocks": "max_blocks",
+  ports: "ports",
+  "initial-allocation": "initial_allocation",
+  "utilisation-alarm": "utilisation_alarm",
+  "max-sessions": "max_sessions",
+  "max-session-rate": "max_session_rate",
+  filter: "filter",
+  "tcp-mss": "tcp_mss",
+}
+
+export function toTypedPool(b: PoolConfig): Partial<TypedPool> & { name: string } {
+  const v = (k: PoolScalar) => b.scalars[k].trim().replace(/\s+/g, " ")
+  const [lo = "", hi = ""] = v("ports").split(" ")
+  return {
+    name: b.name.trim(),
+    prefix_inside: b.inside.map((x) => x.trim()).filter(Boolean),
+    prefix_outside: b.outside.map((x) => x.trim()).filter(Boolean),
+    block_size: s2n(v("block-size")),
+    mode: v("mode"),
+    policy: v("policy"),
+    max_blocks: s2n(v("max-blocks"), 1),
+    port_first: s2n(lo),
+    port_last: s2n(hi),
+    initial_allocation: s2n(v("initial-allocation")),
+    utilisation_alarm: s2n(v("utilisation-alarm")),
+    max_sessions: s2n(v("max-sessions")),
+    max_session_rate: s2n(v("max-session-rate")),
+    filter: v("filter"),
+    tcp_mss: v("tcp-mss"),
+    algs: Object.fromEntries(ALGS.filter((a) => b.algs[a]).map((a) => [a, b.algs[a] === "on"])),
+  }
+}
+
+/** The pool's fields that differ from `a` (null: a new pool), by their names in the contract. */
+export function typedPoolFields(a: PoolConfig | null, b: PoolConfig): string[] {
+  const was = a ?? emptyPool(b.name)
+  const same = (x: string[], y: string[]) => x.length === y.length && x.every((v) => y.includes(v))
+  const out: string[] = []
+  if (!same(was.inside, b.inside.map((x) => x.trim()).filter(Boolean))) out.push("prefix_inside")
+  if (!same(was.outside, b.outside.map((x) => x.trim()).filter(Boolean))) out.push("prefix_outside")
+  for (const k of POOL_SCALARS) {
+    const v = b.scalars[k].trim().replace(/\s+/g, " ")
+    if (v === was.scalars[k]) continue
+    // No `no` form on the VTY for these: they are changed, never cleared (#41).
+    if (!v && NO_UNSET.includes(k)) continue
+    out.push(POOL_FIELD[k])
+  }
+  if (ALGS.some((g) => b.algs[g] !== was.algs[g])) out.push("algs")
+  return out
+}
+
+function poolChangesTyped(a: PoolConfig | null, b: PoolConfig): ConfigChange[] {
+  const fields = typedPoolFields(a, b)
+  if (!fields.length) return []
+  const object = toTypedPool(b)
+  const remap = remapReasons(a, b)
+  const shown = { ...object, ports: object.port_first || object.port_last ? `${object.port_first} ${object.port_last}` : "" }
+  return [
+    {
+      path: poolPath(b.name.trim()),
+      lines: [],
+      typed: [typedSet({ pool: object }, fields)],
+      summary: describeSet(fields, shown as Record<string, unknown>),
+      label: a ? `pool ${b.name}` : `new pool ${b.name}`,
+      warning: remap.length ? remapWarning(remap.join(" and ")) : undefined,
+    },
+  ]
+}
+
+function toTypedCollector(kind: LogKind, t: LogTarget): TypedCollector {
+  return {
+    transport: kind,
+    configured: t.state === "collector",
+    collector: t.state === "collector" ? t.collector.trim() : "",
+    port: s2n(t.port),
+    source: kind === "udp" ? t.source.trim() : "",
+    enterprise: kind === "syslog" ? s2n(t.enterprise) : 0,
+    facility: t.facility ?? null,
+    severity: t.severity ?? null,
+  }
+}
+
+/** The collectors that change, listed (one listed not configured is disabled), and the export switch. */
+function loggingChangesTyped(a: CgnatLogging, b: CgnatLogging): ConfigChange[] {
+  const collectors = LOG_KINDS.filter((k) => b.targets[k].state && targetLine(k, b.targets[k]) !== targetLine(k, a.targets[k])).map((k) =>
+    toTypedCollector(k, b.targets[k]),
+  )
+  const fields = [...(collectors.length ? ["collectors"] : []), ...(b.export && b.export !== a.export ? ["enabled"] : [])]
+  if (!fields.length) return []
+  const object = { enabled: b.export === "enable", collectors }
+  const summary = [
+    ...collectors.map((c) => `${c.transport} ${c.configured ? `${c.collector}${c.port ? ` port ${c.port}` : ""}${c.source ? ` src ${c.source}` : ""}` : "disabled"}`),
+    ...(fields.includes("enabled") ? [`export ${object.enabled ? "enabled" : "disabled"}`] : []),
+  ]
+  return [{ path: CGNAT_PATH, lines: [], typed: [typedSet({ logging: object }, fields)], summary, label: "CGNAT log export" }]
 }

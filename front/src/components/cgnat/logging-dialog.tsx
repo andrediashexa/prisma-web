@@ -32,8 +32,11 @@ export function LoggingDialog({
   open,
   onClose,
   onStage,
+  typed = false,
 }: {
   current: CgnatLogging
+  /** The box answers SetConfig for the log export (#46): fields, not lines. */
+  typed?: boolean
   open: boolean
   onClose: () => void
   onStage: (changes: ConfigChange[]) => void
@@ -45,7 +48,7 @@ export function LoggingDialog({
     if (open) setForm(current)
   }
   const errors = loggingErrors(form)
-  const changes = Object.keys(errors).length ? [] : loggingChanges(current, form)
+  const changes = Object.keys(errors).length ? [] : loggingChanges(current, form, typed)
   const setTarget = (k: LogKind, patch: Partial<LogTarget>) =>
     setForm((f) => ({ ...f, targets: { ...f.targets, [k]: { ...f.targets[k], ...patch } } }))
 
@@ -91,7 +94,7 @@ export function LoggingDialog({
                     {k === "udp" && (
                       <TextField label="Source address" value={t.source} placeholder="203.0.113.10" error={errors[`${k} source`]} onChange={(source) => setTarget(k, { source })} />
                     )}
-                    {k === "syslog" && (
+                    {k === "syslog" && !typed && (
                       <TextField label="Options" value={t.options} hint="The rest of the line, as the VTY takes it" onChange={(options) => setTarget(k, { options })} className="sm:col-span-2" />
                     )}
                   </>
@@ -109,8 +112,9 @@ export function LoggingDialog({
           className="sm:w-1/3"
         />
 
-        {disablesNeverEnabledSyslog(current, form) && <Callout>{SYSLOG_DISABLE_WARNING}</Callout>}
-        <LinesPreview lines={changes.flatMap((c) => c.lines)} empty={Object.keys(errors).length ? "Fix the fields above first." : "Nothing changes yet."} />
+        {/* A box with the typed calls is past 0.149.8, where this is harmless (#31). */}
+        {!typed && disablesNeverEnabledSyslog(current, form) && <Callout>{SYSLOG_DISABLE_WARNING}</Callout>}
+        <LinesPreview typed={typed} lines={changes.flatMap((c) => [...c.lines, ...(c.summary ?? [])])} empty={Object.keys(errors).length ? "Fix the fields above first." : "Nothing changes yet."} />
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel

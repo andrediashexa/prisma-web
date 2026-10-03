@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { PencilIcon, PlusIcon } from "lucide-react"
 
+import { OtherStatements } from "@/components/config/other-statements"
 import { PlacedRow } from "@/components/routing/bgp-config"
 import { firstProblem, SwitchField, TextField } from "@/components/routing/fields"
 import { Badge } from "@/components/ui/badge"
@@ -187,6 +188,12 @@ function OspfVersionPanel({ c, editable, stage }: { c: OspfConfig; editable: boo
           </Table>
         </div>
       </section>
+
+      {c.other && c.other.length > 0 && (
+        <div className="lg:col-span-2">
+          <OtherStatements title={`Other statements of ${c.path[0]}`} lines={c.other} />
+        </div>
+      )}
 
       <InterfaceDialog
         c={c}

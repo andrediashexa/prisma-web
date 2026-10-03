@@ -12,6 +12,7 @@ use tonic::{Request, Response, Status};
 use prisma_proto::v1::diagnostics::Reason;
 
 use crate::config::{self, diag, Config, BGP_PATH};
+use crate::typed;
 use crate::state::{timestamp, Candidate, Pending, SharedRef, State};
 
 pub struct ConfigSvc(pub SharedRef);
@@ -130,6 +131,36 @@ fn gates(running: &Config, candidate: &Config, subscribers: u64) -> Gates {
         }
     }
     g
+}
+
+fn usage(u: typed::Usage) -> Status {
+    refused(tonic::Code::InvalidArgument, u.0, vec![], Reason::Usage)
+}
+
+/// A typed edit's lines staged exactly as Edit stages them; the reply shows them,
+/// a password masked. A line the VTY refuses leaves the candidate as Edit leaves it.
+fn stage(config: &mut Config, plan: typed::Plan) -> Result<Response<SetConfigResponse>, Status> {
+    let mut diagnostics = vec![];
+    for (path, lines) in &plan.steps {
+        match config.edit(path, lines) {
+            Ok(d) => diagnostics.extend(d),
+            Err(r) => {
+                let mut d = r.diagnostic;
+                d.line = typed::mask(&d.line);
+                return Err(refused(tonic::Code::InvalidArgument, typed::mask(&r.message), vec![d], Reason::Grammar));
+            }
+        }
+    }
+    let output = if plan.shown.is_empty() { "nothing to change".to_string() } else { plan.shown.iter().map(|l| format!("staged: {l}")).collect::<Vec<_>>().join("\n") };
+    Ok(Response::new(SetConfigResponse {
+        path: plan.path,
+        lines: plan.shown,
+        diagnostics,
+        output,
+        last_activity: Some(timestamp(Utc::now())),
+        expires_at: expiry(),
+        ..Default::default()
+    }))
 }
 
 impl ConfigSvc {
@@ -439,6 +470,9 @@ impl ConfigService for ConfigSvc {
     }
 
     async fn get_config(&self, req: Request<GetConfigRequest>) -> R<TypedConfig> {
+        if typed::disabled() {
+            return Err(Status::unimplemented("GetConfig (MOCK_NO_TYPED: a box before 0.149.20)"));
+        }
         let req = req.into_inner();
         let mut st = self.0.state.lock().unwrap();
         let (config, source) = if req.candidate_id.is_empty() {
@@ -446,15 +480,63 @@ impl ConfigService for ConfigSvc {
         } else {
             (cand(&mut st, &req.candidate_id)?.config.clone(), "candidate")
         };
-        let cgnat: Vec<String> = config.blocks.iter().find(|b| b.path == ["nat", "cgnat"]).map(|b| b.lines.clone()).unwrap_or_default();
+        let t = typed::read(&config, &req.areas).map_err(usage)?;
         Ok(Response::new(TypedConfig {
             source: source.into(),
             revision: if source == "running" { format!("r{}", st.revision()) } else { String::new() },
             candidate_id: req.candidate_id,
-            logging: Some(crate::schema::logging(&cgnat)),
-            box_owned: crate::schema::box_owned(&config.render()),
-            ..Default::default()
+            ..t
         }))
+    }
+
+    async fn set_config(&self, req: Request<SetConfigRequest>) -> R<SetConfigResponse> {
+        use prisma_proto::v1::set_config_request::Object;
+        if typed::disabled() {
+            return Err(Status::unimplemented("SetConfig (MOCK_NO_TYPED: a box before 0.149.20)"));
+        }
+        let who = crate::session::identity(&crate::session::account_of(&req));
+        let req = req.into_inner();
+        let Some(object) = &req.object else { return Err(usage(typed::Usage("no object to set".into()))) };
+        if !who.can_configure && !typed::is_cgnat(object) {
+            return Err(refused(tonic::Code::PermissionDenied, format!("account {} is {}: it cannot change this", who.account, who.role), vec![], Reason::Permission));
+        }
+        let mut st = self.0.state.lock().unwrap();
+        let cand = cand(&mut st, &req.candidate_id)?;
+        let c = &cand.config;
+        let plan = match object {
+            Object::Interface(i) => typed::set_interface(c, i, &req.fields),
+            Object::Pool(p) => typed::set_pool(c, p, &req.fields),
+            Object::Logging(l) => typed::set_logging(c, l, &req.fields),
+            Object::StaticRoute(r) => typed::set_static(c, r, &req.fields),
+            Object::BgpNeighbor(n) => typed::set_bgp_neighbor(c, n, &req.fields),
+        }
+        .map_err(usage)?;
+        stage(&mut cand.config, plan)
+    }
+
+    async fn delete_config(&self, req: Request<DeleteConfigRequest>) -> R<SetConfigResponse> {
+        if typed::disabled() {
+            return Err(Status::unimplemented("DeleteConfig (MOCK_NO_TYPED: a box before 0.149.20)"));
+        }
+        let who = crate::session::identity(&crate::session::account_of(&req));
+        let req = req.into_inner();
+        if !who.can_configure && !matches!(req.area.as_str(), "pools" | "logging") {
+            return Err(refused(tonic::Code::PermissionDenied, format!("account {} is {}: it cannot change this", who.account, who.role), vec![], Reason::Permission));
+        }
+        let mut st = self.0.state.lock().unwrap();
+        let cand = cand(&mut st, &req.candidate_id)?;
+        if req.area == "bgp" {
+            // A peer-group a member still names is refused, as its `no neighbor` is (0.149.23).
+            let path = [if req.vrf.is_empty() { format!("router bgp {}", req.asn) } else { format!("router bgp {} vrf {}", req.asn, req.vrf) }];
+            let members = cand.config.peer_group_members(&path, &req.name);
+            if !members.is_empty() {
+                let message = format!("peer-group {} is still used by {}: take them out of it first", req.name, members.join(", "));
+                let d = diag(Severity::Error, message.clone(), &path, &format!("no neighbor {}", req.name));
+                return Err(refused(tonic::Code::InvalidArgument, message, vec![d], Reason::Grammar));
+            }
+        }
+        let plan = typed::delete(&cand.config, &req).map_err(usage)?;
+        stage(&mut cand.config, plan)
     }
 
     async fn validate_lines(&self, req: Request<ValidateLinesRequest>) -> R<ValidateLinesResponse> {

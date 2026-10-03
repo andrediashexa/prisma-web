@@ -59,6 +59,10 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/config/grammar", get(config::grammar))
         .route("/routers/{id}/config/tree", get(config::tree))
         .route("/routers/{id}/config/validate", post(config::validate))
+        // The configuration as fields (Prisma 0.149.20/0.149.22, #46).
+        .route("/routers/{id}/config/typed", get(config::typed))
+        .route("/routers/{id}/config/typed/{cid}/set", post(config::typed_set))
+        .route("/routers/{id}/config/typed/{cid}/delete", post(config::typed_delete))
         .route("/routers/{id}/config/revisions", get(config::revisions))
         .route("/routers/{id}/config/pending", get(config::pending))
         .route("/routers/{id}/config/confirm", post(config::confirm))

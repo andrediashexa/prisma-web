@@ -3,6 +3,7 @@
 import { Loader2Icon, PlayIcon, TriangleAlertIcon, Undo2Icon } from "lucide-react"
 
 import { DiagnosticsList } from "@/components/config/diagnostics"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { useConfigChanges } from "@/hooks/use-config-changes"
@@ -22,7 +23,12 @@ export function StagedChanges({ cc }: { cc: ReturnType<typeof useConfigChanges> 
           <div key={n} data-staged className={cn("space-y-1 rounded-md border px-3 py-2 text-sm", cc.refusal?.change === e && "border-destructive")}>
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground shrink-0 font-mono text-xs">{e.path.length ? e.path.join(" › ") : "top"}</span>
-              <span className="min-w-0 font-mono break-words">{e.lines.join(" ; ")}</span>
+              <span className="min-w-0 font-mono break-words">{[...e.lines, ...(e.summary ?? [])].join(" ; ")}</span>
+              {e.typed && (
+                <Badge variant="outline" className="shrink-0 text-[10px]" title="Sent as fields (SetConfig / DeleteConfig); the router writes the lines">
+                  fields
+                </Badge>
+              )}
               <Button size="icon" variant="ghost" className="ml-auto size-7 shrink-0" aria-label="Drop this change" onClick={() => cc.unstage(n)}>
                 <Undo2Icon />
               </Button>
@@ -37,7 +43,10 @@ export function StagedChanges({ cc }: { cc: ReturnType<typeof useConfigChanges> 
         ))}
         {cc.refusal && (
           <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-lg border p-3">
-            <p className="text-destructive text-sm font-medium">The VTY rejected a change</p>
+            {/* Which change, and the VTY's own words: a peer-group still named by members says which (0.149.23). */}
+            <p className="text-destructive text-sm font-medium" data-testid="refusal">
+              The VTY rejected a change: {cc.refusal.change.label}
+            </p>
             {cc.refusal.items.length > 0 ? (
               <DiagnosticsList items={cc.refusal.items} />
             ) : (

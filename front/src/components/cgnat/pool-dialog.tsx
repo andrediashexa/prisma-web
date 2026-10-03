@@ -34,8 +34,11 @@ export function PoolDialog({
   taken,
   onClose,
   onStage,
+  typed = false,
 }: {
   routerId: string
+  /** The box answers SetConfig for pools (#46): fields, not lines. */
+  typed?: boolean
   /** The configured pool; null for a new one. */
   pool: PoolConfig | null
   open: boolean
@@ -53,7 +56,7 @@ export function PoolDialog({
     if (open) setForm(pool ?? emptyPool())
   }
   const errors = poolErrors(pool, form, taken)
-  const changes = Object.keys(errors).length ? [] : poolChanges(pool, form)
+  const changes = Object.keys(errors).length ? [] : poolChanges(pool, form, typed)
   const remap = remapReasons(pool, form)
   const scalar = (k: PoolScalar) => form.scalars[k]
   const setScalar = (k: PoolScalar, v: string) => setForm((f) => ({ ...f, scalars: { ...f.scalars, [k]: v } }))
@@ -212,7 +215,7 @@ export function PoolDialog({
         )}
 
         {remap.length > 0 && <Callout>{remapWarning(remap.join(" and "))}</Callout>}
-        <LinesPreview lines={changes.flatMap((c) => c.lines)} empty={Object.keys(errors).length ? "Fix the fields above first." : "Nothing changes yet."} />
+        <LinesPreview typed={typed} lines={changes.flatMap((c) => [...c.lines, ...(c.summary ?? [])])} empty={Object.keys(errors).length ? "Fix the fields above first." : "Nothing changes yet."} />
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel

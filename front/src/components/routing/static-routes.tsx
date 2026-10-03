@@ -10,21 +10,37 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { invalid } from "@/lib/config-model"
-import { invalidInt, invalidNextHop, STATIC_PATH, staticEdits, staticLine, type StagedEdit, type StaticRoute } from "@/lib/routing-config"
+import {
+  invalidInt,
+  invalidNextHop,
+  STATIC_PATH,
+  staticEdits,
+  staticEditsTyped,
+  staticLine,
+  staticRemoveEditsTyped,
+  type StagedEdit,
+  type StaticRoute,
+} from "@/lib/routing-config"
 
 type Stage = (...e: StagedEdit[]) => void
 
-/** Static routes (#43): `router static`, IPv4 and IPv6, through a next hop or an interface. */
+/**
+ * Static routes (#43): `router static`, IPv4 and IPv6, through a next hop or an interface.
+ * `typed` (Prisma 0.149.22, #46): written with SetConfig / DeleteConfig; a VRF's own
+ * routes are listed read only, as the box sets them only as lines of their `vrf` block.
+ */
 export function StaticRoutesPanel({
   routes,
   interfaces,
   editable,
   stage,
+  typed = false,
 }: {
   routes: StaticRoute[]
   interfaces: string[]
   editable: boolean
   stage: Stage
+  typed?: boolean
 }) {
   const [editing, setEditing] = useState<{ route?: StaticRoute } | null>(null)
   return (
@@ -57,19 +73,27 @@ export function StaticRoutesPanel({
             </TableHeader>
             <TableBody>
               {routes.map((r) => (
-                <TableRow key={r.line} data-route={r.prefix}>
+                <TableRow key={`${r.vrf ?? ""} ${r.line}`} data-route={r.prefix} data-vrf={r.vrf}>
                   <TableCell className="pl-6 font-mono text-sm">
                     {r.prefix}
                     <Badge variant="outline" className="ml-2 text-[10px]">
                       IPv{r.family}
                     </Badge>
+                    {r.vrf && (
+                      <Badge variant="secondary" className="ml-1 text-[10px]" title="A VRF's route: a line of its vrf block, edited on the Settings page">
+                        VRF {r.vrf}
+                      </Badge>
+                    )}
                   </TableCell>
-                  <TableCell className="font-mono text-sm">{r.nextHop}</TableCell>
+                  <TableCell className="font-mono text-sm">
+                    {r.nextHop}
+                    {r.extra && <span className="text-muted-foreground ml-1 text-xs">{r.extra.join(" ")}</span>}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">{r.distance ?? "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.tag ?? "—"}</TableCell>
                   <TableCell className="text-sm">{r.description}</TableCell>
                   <TableCell className="pr-6">
-                    {editable && (
+                    {editable && !r.vrf && (
                       <span className="flex justify-end gap-1">
                         <Button size="icon" variant="ghost" className="size-7" aria-label={`Edit route ${r.prefix} via ${r.nextHop}`} onClick={() => setEditing({ route: r })}>
                           <PencilIcon />
@@ -79,7 +103,7 @@ export function StaticRoutesPanel({
                           variant="ghost"
                           className="size-7"
                           aria-label={`Remove route ${r.prefix} via ${r.nextHop}`}
-                          onClick={() => stage({ path: STATIC_PATH, lines: [`no ${r.line}`] })}
+                          onClick={() => stage(...(typed ? staticRemoveEditsTyped(r) : [{ path: STATIC_PATH, lines: [`no ${r.line}`] }]))}
                         >
                           <Trash2Icon />
                         </Button>
@@ -93,6 +117,7 @@ export function StaticRoutesPanel({
         </div>
       )}
       <RouteDialog
+        typed={typed}
         editing={editing}
         interfaces={interfaces}
         onClose={() => setEditing(null)}
@@ -110,7 +135,9 @@ function RouteDialog({
   interfaces,
   onClose,
   onSave,
+  typed,
 }: {
+  typed: boolean
   editing: { route?: StaticRoute } | null
   interfaces: string[]
   onClose: () => void
@@ -168,7 +195,22 @@ function RouteDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!!problem || line === editing?.route?.line} onClick={() => onSave(staticEdits(editing?.route, line))}>
+          <Button
+            disabled={!!problem || line === editing?.route?.line}
+            onClick={() =>
+              onSave(
+                typed
+                  ? staticEditsTyped(editing?.route, {
+                      prefix: s.prefix.trim(),
+                      nextHop: s.nextHop.trim(),
+                      distance: s.distance.trim(),
+                      tag: s.tag.trim(),
+                      description: s.description.trim(),
+                    })
+                  : staticEdits(editing?.route, line),
+              )
+            }
+          >
             Add to the changes
           </Button>
         </DialogFooter>

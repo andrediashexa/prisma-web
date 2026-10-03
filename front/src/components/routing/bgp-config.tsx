@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { PencilIcon, PlusIcon, PowerIcon, SettingsIcon, Trash2Icon } from "lucide-react"
 
+import { OtherStatements } from "@/components/config/other-statements"
 import { firstProblem, SwitchField, TextField } from "@/components/routing/fields"
 import { BgpStateBadge } from "@/components/widgets/bgp-widget"
 import { Badge } from "@/components/ui/badge"
@@ -25,8 +26,13 @@ import {
   bgpRedistributeEdits,
   invalidInt,
   neighborEdits,
+  neighborEditsTyped,
   neighborRemoveEdits,
+  neighborRemoveEditsTyped,
   neighborShutdownEdits,
+  neighborShutdownEditsTyped,
+  typedNeighborForm,
+  type TypedNeighborForm,
   networkLine,
   removeLineEdits,
   type StagedEdit,
@@ -52,11 +58,14 @@ export function BgpPanel({
   live,
   editable,
   stage,
+  release,
 }: {
   bgp: BgpConfig | null | undefined
   live?: BgpNeighbor[]
   editable: boolean
   stage: Stage
+  /** The box's release: whether the line form may remove a neighbor with a bare `no neighbor` (0.149.23). */
+  release?: string
 }) {
   const [editing, setEditing] = useState<{ neighbor?: BgpNeighborConfig } | null>(null)
   const [global, setGlobal] = useState(false)
@@ -123,7 +132,14 @@ export function BgpPanel({
                 return (
                   <TableRow key={n.address} data-neighbor={n.address}>
                     <TableCell className="pl-6">
-                      <div className="font-mono text-sm">{n.address}</div>
+                      <div className="font-mono text-sm">
+                        {n.address}
+                        {n.typed?.is_peer_group && (
+                          <Badge variant="outline" className="ml-2 font-sans text-[10px]">
+                            peer group
+                          </Badge>
+                        )}
+                      </div>
                       {(n.attrs.description ?? l?.description) && (
                         <div className="text-muted-foreground text-xs">{n.attrs.description ?? l?.description}</div>
                       )}
@@ -165,7 +181,7 @@ export function BgpPanel({
                             className="size-7"
                             aria-label={`${down ? "Enable" : "Shut down"} ${n.address}`}
                             title={down ? "Enable the session" : "Shut the session down"}
-                            onClick={() => stage(...neighborShutdownEdits(bgp, n, !down))}
+                            onClick={() => stage(...(bgp.typed ? neighborShutdownEditsTyped : neighborShutdownEdits)(bgp, n, !down))}
                           >
                             <PowerIcon className={down ? "text-emerald-600" : undefined} />
                           </Button>
@@ -174,7 +190,7 @@ export function BgpPanel({
                             variant="ghost"
                             className="size-7"
                             aria-label={`Remove ${n.address}`}
-                            onClick={() => stage(...neighborRemoveEdits(bgp, n))}
+                            onClick={() => stage(...(bgp.typed ? neighborRemoveEditsTyped(bgp, n) : neighborRemoveEdits(bgp, n, release)))}
                           >
                             <Trash2Icon />
                           </Button>
@@ -207,7 +223,8 @@ export function BgpPanel({
       )}
 
       {bgp && (
-        <CardContent className="pb-6">
+        <CardContent className="space-y-4 pb-6">
+          <OtherStatements title={`Other statements of ${bgp.path[0]}`} lines={bgp.other} />
           <Tabs defaultValue="ipv4">
             <TabsList>
               {AFIS.map((f) => (
@@ -225,7 +242,19 @@ export function BgpPanel({
         </CardContent>
       )}
 
-      {bgp && (
+      {bgp?.typed && (
+        <TypedNeighborDialog
+          bgp={bgp}
+          editing={editing}
+          live={editing?.neighbor && liveOf(editing.neighbor.address)}
+          onClose={() => setEditing(null)}
+          onSave={(edits) => {
+            stage(...edits)
+            setEditing(null)
+          }}
+        />
+      )}
+      {bgp && !bgp.typed && (
         <NeighborDialog
           bgp={bgp}
           editing={editing}
@@ -534,6 +563,170 @@ function NeighborDialog({
   )
 }
 
+/**
+ * The neighbor form on a box with typed BGP (Prisma 0.149.22, #46): sent as
+ * one SetConfig naming the fields that change. The password is write only:
+ * the box never shows it, the field starts empty and is sent only when typed.
+ * Per family the route maps and prefix lists each way, next-hop-self and the
+ * prefix limit are the family's own, as the box types them.
+ */
+function TypedNeighborDialog({
+  bgp,
+  editing,
+  live,
+  onClose,
+  onSave,
+}: {
+  bgp: BgpConfig
+  editing: { neighbor?: BgpNeighborConfig } | null
+  live?: BgpNeighbor
+  onClose: () => void
+  onSave: (e: StagedEdit[]) => void
+}) {
+  const [s, setS] = useState<TypedNeighborForm>(typedNeighborForm(bgp))
+  const [shownFor, setShownFor] = useState<typeof editing>(null)
+  if (editing !== shownFor) {
+    setShownFor(editing)
+    setS(typedNeighborForm(bgp, editing?.neighbor))
+  }
+  const n = editing?.neighbor
+  const isNew = !n
+  const set = (patch: Partial<TypedNeighborForm>) => setS((x) => ({ ...x, ...patch }))
+  const setFam = (f: Afi, patch: Partial<TypedNeighborForm["families"][Afi]>) =>
+    setS((x) => ({ ...x, families: { ...x.families, [f]: { ...x.families[f], ...patch } } }))
+  const optInt = (v: string, min: number, max: number) => (v.trim() ? invalidInt(v.trim(), min, max) : null)
+  const checks: [string, string | null][] = [
+    [
+      "Address",
+      invalid({ k: "address" }, s.address) ?? (isNew && bgp.neighbors.some((x) => x.address === s.address.trim()) ? "already a neighbor" : null),
+    ],
+    [
+      "Remote AS",
+      !s.remoteAs.trim() && !s.peerGroup.trim()
+        ? "required (or a peer group)"
+        : s.remoteAs.trim() && !["internal", "external"].includes(s.remoteAs.trim())
+          ? invalidInt(s.remoteAs.trim(), 1, 4294967295) && "a number from 1 to 4294967295, internal or external"
+          : null,
+    ],
+    ["eBGP multihop", optInt(s.ebgpMultihop, 1, 255)],
+    ["Keepalive", optInt(s.keepalive, 0, 65535) ?? (!s.keepalive.trim() && s.hold.trim() ? "required with the hold time" : null)],
+    ["Hold time", optInt(s.hold, 0, 65535) ?? (s.keepalive.trim() && !s.hold.trim() ? "required with the keepalive" : null)],
+    ...AFIS.map((f) => [`Maximum prefixes (${f})`, optInt(s.families[f].maximumPrefix, 1, 4294967295)] as [string, string | null]),
+  ]
+  const problem = firstProblem(checks)
+  const why = Object.fromEntries(checks)
+  const edits = problem ? [] : neighborEditsTyped(bgp, n, { ...s, address: s.address.trim() })
+  const empty = edits.every((e) => !e.typed?.length)
+
+  return (
+    <Dialog open={!!editing} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{isNew ? "Add a neighbor" : `Neighbor ${n?.address}`}</DialogTitle>
+          <DialogDescription>
+            {live ? (
+              <span className="inline-flex items-center gap-2">
+                Now <BgpStateBadge state={live.state} />
+                {live.uptime_seconds > 0 && <>for {formatUptime(live.uptime_seconds)}</>} · {formatNumber(live.prefixes_received)} prefixes received
+              </span>
+            ) : (
+              `In ${bgp.path[0]}; sent as fields, the router writes the lines and the review shows them.`
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <TextField
+            label="Address"
+            value={s.address}
+            onChange={(address) => {
+              const v6 = address.includes(":")
+              setS((x) => ({
+                ...x,
+                address,
+                // A new neighbor is activated in its own address's family.
+                families: isNew ? { ipv4: { ...x.families.ipv4, activate: !v6 }, ipv6: { ...x.families.ipv6, activate: v6 } } : x.families,
+              }))
+            }}
+            placeholder="192.0.2.1 or 2001:db8::1"
+            error={why.Address}
+            disabled={!isNew}
+          />
+          <TextField label="Remote AS" value={s.remoteAs} onChange={(remoteAs) => set({ remoteAs })} placeholder="64500, internal, external" error={why["Remote AS"]} />
+          <TextField label="Peer group" value={s.peerGroup} onChange={(peerGroup) => set({ peerGroup })} />
+          <TextField label="Description" value={s.description} onChange={(description) => set({ description })} className="sm:col-span-2" />
+          <div className="space-y-1">
+            <TextField
+              label="Password"
+              type="password"
+              value={s.password}
+              onChange={(password) => set({ password })}
+              placeholder={n?.typed?.password_set ? "unchanged" : "none"}
+              hint={n?.typed?.password_set ? "A password is set. The router never shows it; type one to replace it, leave empty to keep it." : "TCP MD5. The router never shows it back."}
+            />
+            {n?.typed?.password_set && (
+              <Badge variant="secondary" data-testid="password-set">
+                password set
+              </Badge>
+            )}
+          </div>
+          <TextField label="Update source" value={s.updateSource} onChange={(updateSource) => set({ updateSource })} placeholder="lo or an address" />
+          <TextField label="eBGP multihop" value={s.ebgpMultihop} onChange={(ebgpMultihop) => set({ ebgpMultihop })} placeholder="1-255" error={why["eBGP multihop"]} />
+          <TextField label="Keepalive (s)" value={s.keepalive} onChange={(keepalive) => set({ keepalive })} placeholder="60" error={why.Keepalive} />
+          <TextField label="Hold time (s)" value={s.hold} onChange={(hold) => set({ hold })} placeholder="180" error={why["Hold time"]} />
+        </div>
+        <div className="flex flex-wrap gap-6">
+          <SwitchField label="BFD" checked={s.bfd} onChange={(bfd) => set({ bfd })} />
+          <SwitchField label="Shut down" checked={s.shutdown} onChange={(shutdown) => set({ shutdown })} />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {AFIS.map((f) => (
+            <div key={f} className="space-y-3 rounded-lg border p-3" data-family={f}>
+              <div className="text-sm font-medium">{AFI_TITLE[f]}</div>
+              <SwitchField label={`Activate in ${AFI_TITLE[f]}`} checked={s.families[f].activate} onChange={(activate) => setFam(f, { activate })} />
+              {f === "ipv4" && bgp.defaultIpv4Unicast && (
+                <p className="text-muted-foreground text-xs">bgp default ipv4-unicast is on: a neighbor is active here without an activate line.</p>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <TextField label={`Route map in (${f})`} value={s.families[f].routeMapIn} onChange={(routeMapIn) => setFam(f, { routeMapIn })} />
+                <TextField label={`Route map out (${f})`} value={s.families[f].routeMapOut} onChange={(routeMapOut) => setFam(f, { routeMapOut })} />
+                <TextField label={`Prefix list in (${f})`} value={s.families[f].prefixListIn} onChange={(prefixListIn) => setFam(f, { prefixListIn })} />
+                <TextField label={`Prefix list out (${f})`} value={s.families[f].prefixListOut} onChange={(prefixListOut) => setFam(f, { prefixListOut })} />
+                <TextField
+                  label={`Maximum prefixes (${f})`}
+                  value={s.families[f].maximumPrefix}
+                  onChange={(maximumPrefix) => setFam(f, { maximumPrefix })}
+                  error={why[`Maximum prefixes (${f})`]}
+                />
+              </div>
+              <SwitchField label={`Next hop self (${f})`} checked={s.families[f].nextHopSelf} onChange={(nextHopSelf) => setFam(f, { nextHopSelf })} />
+              <SwitchField
+                label={`Soft reconfiguration inbound (${f})`}
+                checked={s.families[f].softReconfiguration}
+                onChange={(softReconfiguration) => setFam(f, { softReconfiguration })}
+              />
+            </div>
+          ))}
+        </div>
+        <OtherStatements title="Other statements of this neighbor" lines={n?.other} />
+        {!problem && !empty && (
+          <pre className="bg-muted/40 rounded-md border px-3 py-2 font-mono text-xs whitespace-pre-wrap" data-testid="neighbor-fields">
+            {edits.flatMap((e) => e.summary ?? []).join("\n")}
+          </pre>
+        )}
+        {problem && s.address && <p className="text-muted-foreground text-sm">{problem}</p>}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={!!problem || empty} onClick={() => onSave(edits)}>
+            Add to the changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function FamilyPanel({
   bgp,
   family: f,
@@ -618,6 +811,12 @@ function FamilyPanel({
           </div>
         )}
       </section>
+
+      {f.other && f.other.length > 0 && (
+        <div className="lg:col-span-2">
+          <OtherStatements title={`Other statements of address-family ${f.afi} unicast`} lines={f.other} />
+        </div>
+      )}
 
       <section className="space-y-2">
         <h3 className="text-sm font-medium">Aggregates</h3>

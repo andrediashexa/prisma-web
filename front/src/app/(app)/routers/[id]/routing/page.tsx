@@ -21,11 +21,12 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useConfigChanges } from "@/hooks/use-config-changes"
-import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
+import { useFleetStatus, useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import { boxAllows, type Grammar, type Instance } from "@/lib/config-model"
 import { formatDateTime, formatNumber, formatUptime } from "@/lib/format"
-import { readRouting, toChange, type StagedEdit } from "@/lib/routing-config"
+import { readRouting, readRoutingTyped, toChange, type StagedEdit } from "@/lib/routing-config"
+import { useTypedConfig } from "@/lib/typed-config"
 import {
   roleAtLeast,
   routerApi,
@@ -62,18 +63,25 @@ export default function RoutingPage() {
   // The routing configuration (#42, #43), read from the running configuration's tree.
   const { data: tree, mutate: mutateTree } = useSWR<{ revision: string; instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
   const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
-  const routing = useMemo(() => (tree ? readRouting(tree.instances) : undefined), [tree])
+  // Typed on a box that answers GetConfig's routing areas (Prisma 0.149.22, #46); the tree otherwise.
+  const typed = useTypedConfig(id, ["static", "bgp", "ospf", "ospf6", "interface_routing", "interfaces"])
+  const routing = useMemo(
+    () => (typed.config ? readRoutingTyped(typed.config) : typed.typed === false && tree ? readRouting(tree.instances) : undefined),
+    [tree, typed.config, typed.typed],
+  )
   const cc = useConfigChanges(id)
   const stage = (...edits: StagedEdit[]) => edits.forEach((e) => cc.stage(toChange(e)))
   const myRole = useRouterRole(id)
   const { access, readOnly } = useRouterAccess(id)
+  const release = useFleetStatus().data?.find((r) => r.id === id)?.version?.release
   // The routing modes' roles come from the grammar (administrator today).
   const roles = grammar?.modes.find((m) => m.key === "router bgp <asn>")?.roles ?? ["administrator"]
   const editable = !!routing && roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, { roles })
 
   return (
     <>
-      <BgpPanel bgp={routing ? routing.bgp : undefined} live={bgp?.neighbors} editable={editable} stage={stage} />
+      {typed.error && <p className="text-destructive text-sm">Could not read the typed configuration: {typed.error.message}</p>}
+      <BgpPanel bgp={routing ? routing.bgp : undefined} live={bgp?.neighbors} editable={editable} stage={stage} release={release} />
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Section title="OSPF / OSPFv3 neighbors" loading={!ospf} empty={ospf?.neighbors.length === 0}>
@@ -186,7 +194,7 @@ export default function RoutingPage() {
       </div>
 
       {routing && <OspfPanel ospf={routing.ospf} ospf6={routing.ospf6} editable={editable} stage={stage} />}
-      {routing && <StaticRoutesPanel routes={routing.statics} interfaces={routing.interfaces} editable={editable} stage={stage} />}
+      {routing && <StaticRoutesPanel routes={routing.statics} interfaces={routing.interfaces} editable={editable} stage={stage} typed={!!routing.typed} />}
 
       <Routes routerId={id} />
 
@@ -201,9 +209,11 @@ export default function RoutingPage() {
         defaultComment={cc.reviewed.map((c) => c.label).join("; ")}
         onClose={cc.closeReview}
         onStale={cc.reopen}
+        staged={cc.staged}
         onCommitted={() => {
           cc.committed()
           void mutateTree()
+          void typed.mutate()
           void mutateBgp()
         }}
       />

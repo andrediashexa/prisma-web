@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch"
 import {
   addressProblem,
   fieldProblems,
-  interfaceLines,
+  interfaceChange,
   type InterfaceConfig,
 } from "@/lib/interface-config"
 import { MTU_MAX, MTU_MIN } from "@/lib/types"
@@ -40,8 +40,11 @@ export function InterfaceForm({
   all,
   onClose,
   onSave,
+  typedBox = false,
 }: {
   routerId: string
+  /** The box answers SetConfig for interfaces (#46): the form sends fields, not lines. */
+  typedBox?: boolean
   editing: InterfaceEditing | null
   /** Every interface, for overlaps and bundle members. */
   all: InterfaceConfig[]
@@ -60,7 +63,8 @@ export function InterfaceForm({
 
   const set = (p: Partial<InterfaceConfig>) => setCur({ ...cur, ...p })
   const problems = fieldProblems(cur)
-  const lines = interfaceLines(editing.running, cur)
+  const change = interfaceChange(editing.running, cur, typedBox)
+  const lines = [...change.lines, ...(change.summary ?? [])]
   const pendingTyped = typed.ipv4.trim() || typed.ipv6.trim()
   const blocked = Object.keys(problems).length > 0 || !!pendingTyped
   // Ports that can join this bundle: not a bundle, the loopback or a VLAN, nor in another bundle.
@@ -239,11 +243,13 @@ export function InterfaceForm({
         </div>
 
         <div className="rounded-md border px-3 py-2">
-          <div className="text-muted-foreground mb-1 text-xs">Lines for interface {cur.name}</div>
+          <div className="text-muted-foreground mb-1 text-xs">
+            {typedBox ? `Fields for interface ${cur.name}: the router writes the lines, shown in the review` : `Lines for interface ${cur.name}`}
+          </div>
           {lines.length === 0 ? (
             <p className="text-muted-foreground text-sm">Nothing changed yet.</p>
           ) : (
-            <pre data-testid="interface-lines" className="font-mono text-xs whitespace-pre-wrap">
+            <pre data-testid={typedBox ? "interface-fields" : "interface-lines"} className="font-mono text-xs whitespace-pre-wrap">
               {lines.join("\n")}
             </pre>
           )}

@@ -305,6 +305,152 @@ def interface_form_checks(admin, R):
         admin.delete(C)
 
 
+TYPED_SECRET = "e2e-Secret-46"
+
+
+def errmsg(b):
+    """The refusal's message and its diagnostics' messages, as one text."""
+    e = (b or {}).get("error") or {}
+    return " ".join([e.get("message", "")] + [d.get("message", "") for d in (e.get("diagnostics") or {}).get("items", [])])
+
+
+def typed_form_checks(admin, R):
+    """The configuration as fields (Prisma 0.149.20/0.149.22, #46): GetConfig, SetConfig and
+    DeleteConfig through the back end, staged in a candidate like Edit, a BGP password never shown."""
+    st, t = admin.get(f"{R}/config/typed")
+    check(st == 200 and t["source"] == "running" and t["interfaces"] and t["pools"] and t["logging"]["collectors"]
+          and t["static_routes"] and t["bgp"] and t["ospf"] and t["ospf6"] and t["interface_routing"],
+          "GetConfig answers every area, the routing half included (Prisma 0.149.22)", sorted(k for k, v in (t or {}).items() if v))
+    st, t = admin.get(f"{R}/config/typed?areas=static,bgp")
+    check(st == 200 and t["static_routes"] and t["bgp"] and not t["interfaces"] and not t["pools"],
+          "GetConfig with areas answers only those", sorted(k for k, v in (t or {}).items() if v))
+    bgp = t["bgp"][0]
+    check(bgp["asn"] == "65000" and bgp["default_ipv4_unicast"] and any(n["address"] == "203.0.113.9" for n in bgp["neighbors"]),
+          "the BGP process reads typed: its asn, neighbors and default ipv4-unicast", bgp)
+    st, b = admin.get(f"{R}/config/typed?areas=nope")
+    check(st == 422, "an unknown area is refused before the box", b)
+
+    revisions = lambda: len(admin.get(f"{R}/config/revisions")[1]["revisions"])
+    before = revisions()
+    st, c = admin.post(f"{R}/config/candidates")
+    cid = c["candidate_id"]
+    T = f"{R}/config/typed/{cid}"
+    try:
+        st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "mtu": 9000}, "fields": []})
+        check(st == 422 and "empty mask" in b["error"]["message"], "a SetConfig without fields is refused: an empty mask sets every field", b)
+        st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "mtu": 9000}, "fields": ["mtu"]})
+        check(st == 200 and b["lines"] == ["mtu 9000"] and b["path"] == ["interface lan0"],
+              "SetConfig sets only the field named and answers the lines it staged (the description is kept)", b)
+        st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "mtu": 100}, "fields": ["mtu"]})
+        check(st == 422 and b["error"]["code"] == "router_rejected", "a value the VTY refuses is refused as at the prompt", b)
+        st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "colour": 1}, "fields": ["colour"]})
+        check(st == 422 and (b["error"].get("diagnostics") or {}).get("reason") == "usage", "an unknown field is REASON_USAGE", b)
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E46", "prefix_inside": ["10.46.0.0/16"], "prefix_outside": ["198.51.100.32/28"],
+                                                   "block_size": 512, "algs": {"sip": False}}, "fields": ["prefix_inside", "prefix_outside", "block_size", "algs"]})
+        check(st == 200 and b["path"] == ["nat", "cgnat", "pool E2E46"] and "block-size 512" in b["lines"] and "alg sip off" in b["lines"],
+              "a new pool is set as fields", b)
+        st, b = admin.post(f"{T}/set", {"logging": {"collectors": [{"transport": "tcp", "configured": True, "collector": "192.0.2.46", "port": 4746}]},
+                                        "fields": ["collectors"]})
+        check(st == 200 and b["lines"] == ["logging tcp 192.0.2.46 port 4746"], "a collector is set as fields", b)
+        st, b = admin.post(f"{T}/set", {"static_route": {"prefix": "198.51.100.0/24", "next_hop": "203.0.113.9", "distance": 200, "description": "e2e 46"},
+                                        "fields": ["distance", "description"]})
+        check(st == 200 and b["lines"] == ["198.51.100.0/24 next-hop 203.0.113.9 distance 200 description e2e 46"], "a static route is set as one line", b)
+        st, b = admin.post(f"{T}/set", {"static_route": {"prefix": "10.0.0.0/8", "next_hop": "203.0.113.9", "vrf": "blue"}, "fields": ["distance"]})
+        check(st == 422 and (b["error"].get("diagnostics") or {}).get("reason") == "usage", "a VRF's static route is refused with REASON_USAGE", b)
+        nb = {"asn": "65000", "neighbor": {"address": "192.0.2.46", "remote_as": "64746", "description": "e2e typed"}, "password": TYPED_SECRET,
+              "families": [{"afi": "ipv4", "safi": "unicast", "settings": {"activate": True, "route_map_in": "E2E-IN", "route_map_out": "E2E-OUT"}}]}
+        st, b = admin.post(f"{T}/set", {"bgp_neighbor": nb, "fields": ["remote_as", "description", "password", "families"]})
+        check(st == 200 and b["lines"][0] == "neighbor 192.0.2.46 remote-as 64746" and "neighbor 192.0.2.46 password <set, not shown>" in b["lines"]
+              and "address-family ipv4 unicast" in b["lines"] and " neighbor 192.0.2.46 route-map E2E-OUT out" in b["lines"],
+              "a BGP neighbor is set as fields: router level first, then its family entered and left", b)
+        check(TYPED_SECRET not in json.dumps(b), "the reply never echoes the password")
+        st, b = admin.post(f"{T}/set", {"bgp_neighbor": {**nb, "password": ""}, "fields": ["password"]})
+        check(st == 200 and b["lines"] == [], "an empty password, even named, never clears the one set", b)
+
+        st, ct = admin.get(f"{R}/config/typed?areas=bgp,static,pools&candidate={cid}")
+        n = next((x for x in ct["bgp"][0]["neighbors"] if x["address"] == "192.0.2.46"), None)
+        fam = next(f for f in ct["bgp"][0]["families"] if f["afi"] == "ipv4")
+        nf = next((x for x in fam["neighbors"] if x["neighbor"] == "192.0.2.46"), None)
+        check(ct["source"] == "candidate" and n and n["password_set"] and nf and nf["route_map_in"] == "E2E-IN" and nf["route_map_out"] == "E2E-OUT"
+              and any(p["name"] == "E2E46" for p in ct["pools"]), "the candidate reads typed with what was set: password_set, both route maps", [n, nf])
+        check(TYPED_SECRET not in json.dumps(ct), "a password is never read back")
+        st, cmp = admin.get(f"{R}/config/candidates/{cid}/compare")
+        d = cmp["diff"]
+        added = [l[1:].strip() for l in d.splitlines() if l.startswith("+")]
+        check({"mtu 9000", "pool E2E46", "neighbor 192.0.2.46 password <set, not shown>"} <= set(added) and TYPED_SECRET not in d,
+              "the typed edits are in the candidate's diff like any edit, the password masked", d)
+        st, chk = admin.post(f"{R}/config/candidates/{cid}/check")
+        check(st == 200 and chk["passed"], "the candidate with typed edits passes the check", chk)
+        st, b = admin.post(f"{R}/config/candidates/{cid}/commit", {"comment": "e2e: typed forms", "confirmed_minutes": 0})
+        check(st == 200, "the typed edits commit", b)
+        st, aud = admin.get(f"/audit?action=config.commit&limit=5")
+        check(TYPED_SECRET not in json.dumps(aud), "the commit's diff in the log carries no password")
+
+        st, c = admin.post(f"{R}/config/candidates")
+        cid = c["candidate_id"]
+        T = f"{R}/config/typed/{cid}"
+        st, b = admin.post(f"{T}/delete", {"area": "bgp", "name": "192.0.2.46", "asn": "65000"})
+        lines = b.get("lines", []) if st == 200 else []
+        check(st == 200 and lines[0] == "address-family ipv4 unicast" and lines[-1] == "no neighbor 192.0.2.46 remote-as 64746"
+              and "no neighbor 192.0.2.46" not in lines and "no neighbor 192.0.2.46 password <set, not shown>" in lines,
+              "DeleteConfig removes the neighbor statement by statement, family first and remote-as last, never a bare no neighbor", b)
+        check(TYPED_SECRET not in json.dumps(b), "the removal's lines mask the password too")
+        # A peer-group its members still name is refused, nothing staged (Prisma 0.149.23).
+        admin.post(f"{R}/config/candidates/{cid}/edit", {"path": ["router bgp 65000"], "lines": [
+            "neighbor E2E-GROUP peer-group", "neighbor E2E-GROUP remote-as 64746", "neighbor 192.0.2.47 peer-group E2E-GROUP"]})
+        st, b = admin.post(f"{T}/delete", {"area": "bgp", "name": "E2E-GROUP", "asn": "65000"})
+        check(st == 422 and (b["error"].get("diagnostics") or {}).get("reason") == "grammar" and "192.0.2.47" in errmsg(b),
+              "removing a peer-group a member still names is refused, the message naming the member", b)
+        st, b = admin.post(f"{R}/config/candidates/{cid}/edit", {"path": ["router bgp 65000"], "lines": ["no neighbor E2E-GROUP"]})
+        check(st == 422 and "192.0.2.47" in errmsg(b), "and so is its bare no neighbor as a line", b)
+        admin.post(f"{R}/config/candidates/{cid}/edit", {"path": ["router bgp 65000"], "lines": ["no neighbor 192.0.2.47", "no neighbor E2E-GROUP"]})
+        st, b = admin.post(f"{T}/delete", {"area": "static", "prefix": "198.51.100.0/24", "next_hop": "203.0.113.9"})
+        check(st == 200 and b["lines"] == ["no 198.51.100.0/24 next-hop 203.0.113.9 distance 200 description e2e 46"], "a static route is removed by prefix and next hop", b)
+        st, b = admin.post(f"{T}/delete", {"area": "pools", "name": "E2E46"})
+        check(st == 200 and b["lines"] == ["no pool E2E46"], "a pool is removed with DeleteConfig", b)
+        st, chk = admin.post(f"{R}/config/candidates/{cid}/check")
+        check(chk["remap"] and chk["diverge"], "the gates still apply to typed removals (remap for the pool, diverge for the neighbor)", chk)
+        st, b = admin.post(f"{R}/config/candidates/{cid}/commit", {"comment": "e2e: typed removal", "acknowledge_remap": True, "acknowledge_diverge": True})
+        check(st == 200, "the typed removals commit once acknowledged", b)
+        st, running = admin.get(f"{R}/config/running")
+        check("neighbor 192.0.2.46" not in running["text"] and "E2E46" not in running["text"] and "198.51.100.0/24 next-hop" not in running["text"],
+              "the neighbor, the pool and the route are gone", running["text"])
+    finally:
+        admin.delete(f"{R}/config/candidates/{cid}")
+        # Back to the configuration before these commits, even when a check failed.
+        made = revisions() - before
+        if made:
+            st, c = admin.post(f"{R}/config/candidates", {"from_revision": made})
+            admin.post(f"{R}/config/candidates/{c['candidate_id']}/commit",
+                       {"comment": "e2e: undo typed", "acknowledge_remap": True, "acknowledge_diverge": True})
+    st, running = admin.get(f"{R}/config/running")
+    check("mtu 9000" not in running["text"] and "logging tcp" not in running["text"], "configuration back to before the typed checks")
+
+
+def line_fallback_checks(admin, args):
+    """A box without the typed calls (MOCK_NO_TYPED, prisma-mock-lines): the back end answers 501
+    and the forms keep writing lines, which still work (#46)."""
+    st, r = admin.post("/routers", {"name": f"e2e-lines-{uuid.uuid4().hex[:6]}", "api_url": args.lines_mock})
+    check(st == 201, "router on the mock without the typed configuration registered", r)
+    R = f"/routers/{r['id']}"
+    try:
+        wait_for(lambda: (lambda s: (bool(s) and s[0]["online"], s))([x for x in admin.get("/routers/status")[1] if x["id"] == r["id"]]),
+                 "the line-only mock is online")
+        st, b = admin.get(f"{R}/config/typed?areas=interfaces")
+        check(st == 501 and b["error"]["code"] == "router_unimplemented", "GetConfig answers 501 there: the forms use lines", b)
+        st, c = admin.post(f"{R}/config/candidates")
+        C = f"{R}/config/candidates/{c['candidate_id']}"
+        st, b = admin.post(f"{R}/config/typed/{c['candidate_id']}/set", {"interface": {"name": "lan0", "mtu": 9000}, "fields": ["mtu"]})
+        check(st == 501, "and SetConfig too", b)
+        st, b = admin.post(f"{C}/edit", {"path": ["router bgp 65000"], "lines": ["neighbor 192.0.2.47 remote-as 64747"]})
+        check(st == 200, "a line edit still works on it", b)
+        st, cmp = admin.get(f"{C}/compare")
+        check(any(l.startswith("+") and l[1:].strip() == "neighbor 192.0.2.47 remote-as 64747" for l in cmp["diff"].splitlines()), "and reaches the diff", cmp)
+        admin.delete(C)
+    finally:
+        admin.delete(R)
+
+
 def log_export_checks(admin, router_id):
     """CGNAT log export (Prisma 0.149.15, #34) on prisma-mock-2, which has all three streams."""
     R = f"/routers/{router_id}"
@@ -608,6 +754,7 @@ def lab(admin, args):
         check(st == 200 and lines and known / len(lines) >= 0.8,
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
+        lab_typed_checks(admin, R)
         st, pol = admin.get(R + "/policies")
         st2, cnt = admin.get(R + "/policies/counters")
         check(st == 200 and st2 == 200, f"policies and counters of the real Prisma ({len(pol['policies'])} policies, {len(cnt['uses'])} uses)", [pol, cnt])
@@ -651,11 +798,46 @@ def lab(admin, args):
         admin.delete(R)
 
 
+def lab_typed_checks(admin, R):
+    """Read-only typed reads of a real box (#46): GetConfig where it answers, the line fallback where it does not.
+    No candidate is opened: SetConfig and DeleteConfig are never called on a real box."""
+    st, t = admin.get(f"{R}/config/typed")
+    if st == 501:
+        check(t["error"]["code"] == "router_unimplemented", "real Prisma without GetConfig (before 0.149.20): 501, the forms keep the lines", t)
+        return
+    check(st == 200 and t["source"] == "running" and t["revision"], f"GetConfig on the real Prisma: revision {t.get('revision')}", t.get("revision"))
+    st, run = admin.get(f"{R}/config/running")
+    text = run["text"]
+    names = [i["name"] for i in t["interfaces"]]
+    check(names and all(f"interface {n}" in text for n in names), f"typed interfaces are the running configuration's ({', '.join(names)})", names)
+    check([c["transport"] for c in t["logging"]["collectors"]] == ["udp", "tcp", "syslog"],
+          f"typed log collectors: the three, in order ({sum(c['configured'] for c in t['logging']['collectors'])} configured)", t["logging"])
+    check(all(f"pool {p['name']}" in text for p in t["pools"]), f"typed pools are the running configuration's ({len(t['pools'])})", [p["name"] for p in t["pools"]])
+    st, rt = admin.get(f"{R}/config/typed?areas=static,bgp,ospf,ospf6,isis,interface_routing")
+    if st == 501:
+        check(rt["error"]["code"] == "router_unimplemented", "real Prisma without the typed routing areas (before 0.149.22): 501, the routing forms keep the lines", rt)
+        return
+    statics, bgp = rt["static_routes"], rt["bgp"]
+    neighbors = [n for b in bgp for n in b["neighbors"]]
+    check(st == 200, f"typed routing reads on the real Prisma: {len(statics)} static routes, {len(bgp)} BGP processes, {len(neighbors)} neighbors, "
+          f"{len(rt['ospf'])}+{len(rt['ospf6'])} OSPF, {len(rt['isis'])} IS-IS, {len(rt['interface_routing'])} interfaces with IGP settings", None)
+    check(all(r["prefix"] in text for r in statics if not r["vrf"]), "each top-level static route is in the running configuration", [r["line"] for r in statics])
+    check(all(f"router bgp {b['asn']}" in text for b in bgp), "each router bgp is in the running configuration", [b["asn"] for b in bgp])
+    check(all(f"neighbor {n['address']} " in text for n in neighbors), "each typed neighbor is in the running configuration", [n["address"] for n in neighbors])
+    # A password is never read: no field carries one, whatever password_set says.
+    secrets = [l for l in text.splitlines() if " password " in l and "<set, not shown>" not in l and "neighbor" in l]
+    flat = json.dumps(rt)
+    check(all(l.split(" password ", 1)[1].strip() not in flat for l in secrets), f"no BGP password in the typed read ({sum(n['password_set'] for n in neighbors)} set)")
+    others = sum(len(b["other"]) + sum(len(f["other"]) for f in b["families"]) for b in bgp)
+    check(True, f"read-only `other` statements kept per block: {others} in BGP")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default=os.environ.get("E2E_BASE", "http://[::1]"))
     ap.add_argument("--mock", default=os.environ.get("E2E_MOCK_URL", "http://prisma-mock:50051"))
     ap.add_argument("--tls-mock", default="https://prisma-mock-2:50051", help="mock with mTLS")
+    ap.add_argument("--lines-mock", default="http://prisma-mock-lines:50051", help="mock without the typed configuration (MOCK_NO_TYPED)")
     ap.add_argument("--lab", help="real Prisma; runs only the read checks")
     ap.add_argument("--lab-profile", default="host/prisma-api")
     ap.add_argument("--server-name", default="prisma-api")
@@ -703,6 +885,8 @@ def main():
         config_model_checks(admin, R)
         routing_form_checks(admin, R)
         interface_form_checks(admin, R)
+        typed_form_checks(admin, R)
+        line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
               "a box with no log export lists three unconfigured streams", lg)

@@ -856,3 +856,252 @@ pub async fn validate(
     let msg = ValidateLinesRequest { path: body.path, lines: body.lines, ..Default::default() };
     Ok(Json(r.config().validate_lines(req(msg)).await?.into_inner()))
 }
+
+// --- The configuration as fields (Prisma 0.149.20 and 0.149.22, #46) -----------
+
+/// The areas GetConfig answers since 0.149.22; anything else is refused here.
+const TYPED_AREAS: [&str; 9] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing"];
+
+#[derive(Deserialize)]
+pub struct TypedQuery {
+    /// Comma-separated areas; empty is every area (as on the box since 0.149.22).
+    #[serde(default)]
+    areas: String,
+    /// A candidate of the requester's, to read it instead of the running configuration.
+    candidate: Option<String>,
+}
+
+fn typed_areas(list: &str) -> AppResult<Vec<String>> {
+    let areas: Vec<String> = list.split(',').map(str::trim).filter(|a| !a.is_empty()).map(str::to_string).collect();
+    match areas.iter().find(|a| !TYPED_AREAS.contains(&a.as_str())) {
+        Some(a) => Err(AppError::BadRequest(format!("unknown area {a}; one of {}", TYPED_AREAS.join(", ")))),
+        None => Ok(areas),
+    }
+}
+
+/// A box that does not type the area: before 0.149.20 the rpc is UNIMPLEMENTED,
+/// and a 0.149.20/21 box refuses a routing area as an unknown one (REASON_USAGE).
+/// Both answer 501, so the front keeps the line form for that area (#46).
+fn not_typed(s: tonic::Status) -> AppError {
+    let usage = s.code() == tonic::Code::InvalidArgument && reason_of(&s).is_none_or(|r| r == Reason::Usage);
+    if usage {
+        return AppError::Prisma(Box::new(tonic::Status::unimplemented(format!("the box does not type this area: {}", s.message()))));
+    }
+    s.into()
+}
+
+/// GetConfig: the areas asked, from the running configuration or a candidate of the requester's (#46).
+pub async fn typed(
+    State(st): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<Uuid>,
+    axum::extract::Query(q): axum::extract::Query<TypedQuery>,
+) -> AppResult<Json<TypedConfig>> {
+    let areas = typed_areas(&q.areas)?;
+    let cid = q.candidate.filter(|c| !c.is_empty());
+    if let Some(cid) = &cid {
+        st.candidates.check(id, cid, &user)?;
+    }
+    let r = st.routers.get(id).await?;
+    let msg = GetConfigRequest { candidate_id: cid.clone().unwrap_or_default(), areas, ..Default::default() };
+    let resp = r.config().get_config(crate::grpc::req_with(msg, crate::grpc::RUNNING_TIMEOUT)).await;
+    let mut c = match (resp, &cid) {
+        (Ok(c), _) => c.into_inner(),
+        (Err(s), Some(cid)) if s.code() == tonic::Code::NotFound => return Err(gone(&st, cid)(s)),
+        (Err(s), _) => return Err(not_typed(s)),
+    };
+    // A password is never read (0.149.22); nothing here would carry one, but a box
+    // that answered `other` with one would not reach the browser either.
+    for b in &mut c.bgp {
+        scrub(&mut b.other);
+        for n in &mut b.neighbors {
+            scrub(&mut n.other);
+        }
+    }
+    Ok(Json(c))
+}
+
+/// The object of a SetConfig: exactly one of them, and the fields it changes.
+#[derive(Deserialize)]
+pub struct SetBody {
+    interface: Option<InterfaceConfig>,
+    pool: Option<PoolConfig>,
+    logging: Option<LoggingConfig>,
+    static_route: Option<StaticRouteConfig>,
+    bgp_neighbor: Option<BgpNeighborEdit>,
+    #[serde(default)]
+    fields: Vec<String>,
+}
+
+impl SetBody {
+    fn into_request(self, cid: &str) -> AppResult<SetConfigRequest> {
+        use set_config_request::Object;
+        let objects: Vec<Object> = [
+            self.interface.map(Object::Interface),
+            self.pool.map(Object::Pool),
+            self.logging.map(Object::Logging),
+            self.static_route.map(Object::StaticRoute),
+            self.bgp_neighbor.map(Object::BgpNeighbor),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let [object] = <[Object; 1]>::try_from(objects).map_err(|_| {
+            AppError::BadRequest("send exactly one object: interface, pool, logging, static_route or bgp_neighbor".into())
+        })?;
+        // An empty mask sets EVERY field to the value sent, clearing what a partial
+        // object leaves out (docs/prisma-api.md): this server never sends one.
+        let fields: Vec<String> = self.fields.into_iter().map(|f| f.trim().to_string()).filter(|f| !f.is_empty()).collect();
+        if fields.is_empty() {
+            return Err(AppError::BadRequest("name the fields to change: an empty mask would set every field".into()));
+        }
+        Ok(SetConfigRequest { candidate_id: cid.to_string(), object: Some(object), fields, ..Default::default() })
+    }
+}
+
+/// `password <secret>` in a line, masked as the box masks it. The box never echoes one
+/// (0.149.22); this keeps an older or misbehaving answer from reaching the browser.
+fn mask_password(line: &str) -> String {
+    let w: Vec<&str> = line.split_whitespace().collect();
+    match w.iter().position(|x| *x == "password") {
+        Some(i) if w.get(i + 1).is_some_and(|v| !v.starts_with('<')) => format!("{} password <set, not shown>", w[..i].join(" ")),
+        _ => line.to_string(),
+    }
+}
+
+fn scrub(lines: &mut [String]) {
+    for l in lines.iter_mut() {
+        *l = mask_password(l);
+    }
+}
+
+fn scrub_reply(mut resp: SetConfigResponse) -> SetConfigResponse {
+    scrub(&mut resp.lines);
+    resp.output = resp.output.lines().map(mask_password).collect::<Vec<_>>().join("\n");
+    resp
+}
+
+/// SetConfig: one object set to the fields named, staged in the candidate as
+/// lines, which the reply lists (the preview). Like Edit: the candidate's owner
+/// only, and the commit is what the audit log records (#46).
+pub async fn typed_set(
+    State(st): State<AppState>,
+    user: CurrentUser,
+    Path((id, cid)): Path<(Uuid, String)>,
+    Json(body): Json<SetBody>,
+) -> AppResult<Json<SetConfigResponse>> {
+    user.require(Role::Operator)?;
+    st.candidates.check(id, &cid, &user)?;
+    let msg = body.into_request(&cid)?;
+    let r = st.routers.get(id).await?;
+    require_can_change(&st, &r).await?;
+    let resp = r.config().set_config(req(msg)).await.map_err(gone(&st, &cid))?.into_inner();
+    st.candidates.set_expiry(&cid, ts(resp.expires_at));
+    Ok(Json(scrub_reply(resp)))
+}
+
+#[derive(Deserialize)]
+pub struct DeleteBody {
+    area: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    transport: String,
+    #[serde(default)]
+    prefix: String,
+    #[serde(default)]
+    next_hop: String,
+    #[serde(default)]
+    asn: String,
+    #[serde(default)]
+    vrf: String,
+}
+
+/// DeleteConfig: an interface, pool, collector, static route or BGP neighbor
+/// removed, statement by statement as the box reads them off the candidate (#46).
+pub async fn typed_delete(
+    State(st): State<AppState>,
+    user: CurrentUser,
+    Path((id, cid)): Path<(Uuid, String)>,
+    Json(b): Json<DeleteBody>,
+) -> AppResult<Json<SetConfigResponse>> {
+    user.require(Role::Operator)?;
+    st.candidates.check(id, &cid, &user)?;
+    if !["interfaces", "pools", "logging", "static", "bgp"].contains(&b.area.as_str()) {
+        return Err(AppError::BadRequest("area is one of interfaces, pools, logging, static, bgp".into()));
+    }
+    let r = st.routers.get(id).await?;
+    require_can_change(&st, &r).await?;
+    let msg = DeleteConfigRequest {
+        candidate_id: cid.clone(),
+        area: b.area,
+        name: b.name,
+        transport: b.transport,
+        prefix: b.prefix,
+        next_hop: b.next_hop,
+        asn: b.asn,
+        vrf: b.vrf,
+        ..Default::default()
+    };
+    let resp = r.config().delete_config(req(msg)).await.map_err(gone(&st, &cid))?.into_inner();
+    st.candidates.set_expiry(&cid, ts(resp.expires_at));
+    Ok(Json(scrub_reply(resp)))
+}
+
+#[cfg(test)]
+mod typed_tests {
+    use super::*;
+
+    #[test]
+    fn a_set_names_one_object_and_its_fields() {
+        let body = |v: serde_json::Value| serde_json::from_value::<SetBody>(v).unwrap().into_request("c1");
+        let ok = body(json!({ "interface": { "name": "lan0", "mtu": 9000 }, "fields": ["mtu"] })).unwrap();
+        assert_eq!(ok.fields, ["mtu"]);
+        match ok.object {
+            Some(set_config_request::Object::Interface(i)) => assert_eq!((i.name.as_str(), i.mtu, i.description.as_str()), ("lan0", 9000, "")),
+            _ => panic!("an interface"),
+        }
+        assert!(matches!(body(json!({ "interface": { "name": "lan0" }, "fields": [] })), Err(AppError::BadRequest(m)) if m.contains("empty mask")));
+        assert!(matches!(body(json!({ "interface": { "name": "lan0" }, "fields": [" "] })), Err(AppError::BadRequest(_))), "a blank field is no field");
+        assert!(body(json!({ "fields": ["mtu"] })).is_err(), "no object");
+        assert!(body(json!({ "interface": {}, "pool": {}, "fields": ["mtu"] })).is_err(), "two objects");
+        let n = body(json!({ "bgp_neighbor": { "asn": "65000", "neighbor": { "address": "192.0.2.1", "remote_as": "64500" }, "password": "s3cret",
+            "families": [{ "afi": "ipv4", "safi": "unicast", "settings": { "activate": true, "route_map_in": "IN" } }] }, "fields": ["remote_as", "password", "families"] })).unwrap();
+        match n.object {
+            Some(set_config_request::Object::BgpNeighbor(e)) => {
+                assert_eq!(e.password, "s3cret");
+                assert_eq!(e.families[0].settings.as_ref().unwrap().route_map_in, "IN");
+            }
+            _ => panic!("a neighbor"),
+        }
+        let p = body(json!({ "pool": { "name": "P", "vrf": 0, "algs": { "ftp": true }, "timeouts": {} }, "fields": ["vrf", "algs"] })).unwrap();
+        match p.object {
+            Some(set_config_request::Object::Pool(p)) => assert_eq!((p.vrf, p.outside_vrf, p.algs["ftp"]), (Some(0), None, true), "VRF 0 is not every VRF"),
+            _ => panic!("a pool"),
+        }
+    }
+
+    #[test]
+    fn a_password_never_reaches_the_browser() {
+        assert_eq!(mask_password("neighbor 192.0.2.1 password s3cret"), "neighbor 192.0.2.1 password <set, not shown>");
+        assert_eq!(mask_password("neighbor 192.0.2.1 password <set, not shown>"), "neighbor 192.0.2.1 password <set, not shown>");
+        assert_eq!(mask_password("neighbor 192.0.2.1 remote-as 64500"), "neighbor 192.0.2.1 remote-as 64500");
+        let r = scrub_reply(SetConfigResponse {
+            lines: vec!["neighbor 192.0.2.1 password hunter2".into()],
+            output: "staged: neighbor 192.0.2.1 password hunter2".into(),
+            ..Default::default()
+        });
+        assert!(!format!("{r:?}").contains("hunter2"));
+    }
+
+    #[test]
+    fn areas_are_checked_and_an_untyped_area_falls_back() {
+        assert_eq!(typed_areas("bgp, static").unwrap(), ["bgp", "static"]);
+        assert!(typed_areas("").unwrap().is_empty(), "every area");
+        assert!(typed_areas("bgp,nope").is_err());
+        let usage = prisma_proto::with_diagnostics(tonic::Status::invalid_argument("unknown area bgp"), &Diagnostics { reason: Reason::Usage as i32, ..Default::default() });
+        assert!(matches!(not_typed(usage), AppError::Prisma(s) if s.code() == tonic::Code::Unimplemented));
+        assert!(matches!(not_typed(tonic::Status::unimplemented("x")), AppError::Prisma(s) if s.code() == tonic::Code::Unimplemented));
+        assert!(matches!(not_typed(tonic::Status::unavailable("x")), AppError::Prisma(s) if s.code() == tonic::Code::Unavailable), "a box down is not a box without the call");
+    }
+}

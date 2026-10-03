@@ -2,15 +2,18 @@
  * An interface's configuration as the Interfaces form edits it (#40), and the
  * VTY lines that turn one state into another.
  *
- * Reads come from the running configuration as a tree (`/config/tree`, #39);
- * writes are lines in `interface <name>` through a candidate. Prisma 0.149.20
- * adds typed `GetConfig` / `SetInterface` (#558 phase 2): only
- * `readInterfaces` and `interfaceChange` change then, the form stays.
+ * Two implementations behind the same shapes. On a box that answers the
+ * typed GetConfig for interfaces (Prisma 0.149.20, #46), the fields are read
+ * from it (`readInterfacesTyped`) and written with SetConfig naming the fields
+ * that change; a bundle's members, LACP and load balancing are not typed yet
+ * and stay lines. Otherwise reads come from the running configuration as a
+ * tree (`/config/tree`, #39) and writes are lines in `interface <name>`.
  */
 
 import { isIpv4, isIpv6, type Instance } from "@/lib/config-model"
 import { MTU_MAX, MTU_MIN } from "@/lib/types"
 import type { ConfigChange } from "@/hooks/use-config-changes"
+import { describeSet, n2s, s2n, typedSet, type TypedInterface } from "@/lib/typed-config"
 
 export const PORT_MODE = "interface <name>"
 export const BUNDLE_MODE = "interface bond<n>"
@@ -189,9 +192,122 @@ export function interfaceLines(old: InterfaceConfig, cur: InterfaceConfig): stri
   return out
 }
 
-/** The staged change for one interface; staging it again replaces it. */
-export function interfaceChange(old: InterfaceConfig, cur: InterfaceConfig): ConfigChange {
+/** The staged change for one interface; staging it again replaces it. `typed`: the box answers SetConfig (#46). */
+export function interfaceChange(old: InterfaceConfig, cur: InterfaceConfig, typed = false): ConfigChange {
+  if (typed) return interfaceChangeTyped(old, cur)
   return { path: interfacePath(cur.name), lines: interfaceLines(old, cur), label: `edit ${cur.name}`, key: `interface ${cur.name}` }
+}
+
+// --- Typed (Prisma 0.149.20, #46) ----------------------------------------------
+
+/**
+ * The ports and bundles from GetConfig's interfaces, over what the tree says
+ * for the statements GetConfig does not type yet (a bundle's members, LACP,
+ * load balancing, and the OSPF, IS-IS and VRRP lines listed as others).
+ */
+export function readInterfacesTyped(typed: TypedInterface[], instances: Instance[]): InterfaceConfig[] {
+  const fromTree = readInterfaces(instances)
+  return typed.map((t) => {
+    const base = fromTree.find((c) => c.name === t.name) ?? emptyInterface(t.name)
+    const c: InterfaceConfig = { ...base, ...typedFields(t), bundle: t.kind === "bundle" || base.bundle }
+    // The tree's lines the typed fields cover are not "others".
+    c.others = base.others.filter((l) => !TYPED_LINE.test(l))
+    return c
+  })
+}
+
+/** Lines GetConfig types: they never show among an interface's others in the typed form. */
+const TYPED_LINE = /^(no )?(description|mtu|shutdown|ipv[46] address|vrf|cgnat|urpf|vlan|linux-name|mac-address|ipv6 nd suppress-ra)\b/
+
+function typedFields(t: TypedInterface) {
+  return {
+    description: t.description,
+    mtu: n2s(t.mtu),
+    shutdown: t.shutdown,
+    ipv4: [...t.ipv4],
+    ipv6: [...t.ipv6],
+    vrf: n2s(t.vrf),
+    cgnat: (t.cgnat_role || "") as CgnatRole,
+    urpf: (t.urpf || "") as Urpf,
+    // `router_advertisements` is `no ipv6 nd suppress-ra`; the form asks the opposite.
+    suppressRa: !t.router_advertisements,
+    vlan: n2s(t.vlan_outer),
+    vlanInner: n2s(t.vlan_inner),
+    linuxName: t.linux_name,
+    macAddress: t.mac_address,
+  }
+}
+
+/** The InterfaceConfig fields of the box that differ between `a` and `b`, by their names in the contract. */
+export function typedInterfaceFields(a: InterfaceConfig, b: InterfaceConfig): string[] {
+  const same = (x: string[], y: string[]) => x.length === y.length && x.every((v, i) => v === y[i])
+  const out: string[] = []
+  if (b.description.trim() !== a.description) out.push("description")
+  if (b.mtu !== a.mtu) out.push("mtu")
+  if (b.shutdown !== a.shutdown) out.push("shutdown")
+  if (!same(a.ipv4, b.ipv4)) out.push("ipv4")
+  if (!same(a.ipv6, b.ipv6)) out.push("ipv6")
+  if (b.vrf !== a.vrf) out.push("vrf")
+  if (b.cgnat !== a.cgnat) out.push("cgnat_role")
+  if (urpfTyped(b.urpf) !== urpfTyped(a.urpf)) out.push("urpf")
+  if (b.suppressRa !== a.suppressRa) out.push("router_advertisements")
+  if (b.vlan !== a.vlan || b.vlanInner !== a.vlanInner) out.push("vlan")
+  if (b.linuxName.trim() !== a.linuxName) out.push("linux_name")
+  if (b.macAddress.trim().toLowerCase() !== a.macAddress) out.push("mac_address")
+  return out
+}
+
+/** The box types uRPF as "", "strict" or "loose": "off" is its "". */
+const urpfTyped = (u: Urpf) => (u === "off" ? "" : u)
+
+export function toTypedInterface(c: InterfaceConfig): Partial<TypedInterface> & { name: string } {
+  return {
+    name: c.name,
+    description: c.description.trim(),
+    mtu: s2n(c.mtu),
+    shutdown: c.shutdown,
+    ipv4: c.ipv4,
+    ipv6: c.ipv6,
+    vrf: s2n(c.vrf),
+    cgnat_role: c.cgnat,
+    urpf: urpfTyped(c.urpf),
+    router_advertisements: !c.suppressRa,
+    vlan_outer: s2n(c.vlan),
+    vlan_inner: s2n(c.vlanInner),
+    linux_name: c.linuxName.trim(),
+    mac_address: c.macAddress.trim().toLowerCase(),
+  }
+}
+
+/**
+ * One SetConfig naming the fields that changed, and the bundle's untyped
+ * statements as lines (sent first: a new bundle's `member` creates it).
+ */
+function interfaceChangeTyped(old: InterfaceConfig, cur: InterfaceConfig): ConfigChange {
+  const fields = typedInterfaceFields(old, cur)
+  const lines: string[] = []
+  if (cur.bundle) {
+    lists(lines, old.members, cur.members, (m) => `member ${m}`)
+    swap(lines, old.lacpMode, cur.lacpMode, (v) => `lacp mode ${v}`)
+    swap(lines, old.lacpRate, cur.lacpRate, (v) => `lacp rate ${v}`)
+    swap(lines, old.loadBalance, cur.loadBalance, (v) => `load-balance ${v}`)
+  }
+  const object = toTypedInterface(cur)
+  return {
+    path: interfacePath(cur.name),
+    lines,
+    typed: fields.length ? [typedSet({ interface: object }, fields)] : [],
+    summary: describeSet(fields, object as Record<string, unknown>),
+    label: `edit ${cur.name}`,
+    key: `interface ${cur.name}`,
+  }
+}
+
+/** Shut down or enable at once: one field. */
+export function shutdownChange(name: string, down: boolean, typed: boolean): ConfigChange {
+  const label = `${down ? "shut down" : "enable"} ${name}`
+  if (!typed) return { path: interfacePath(name), lines: [down ? "shutdown" : "no shutdown"], label }
+  return { path: interfacePath(name), lines: [], typed: [typedSet({ interface: { name, shutdown: down } }, ["shutdown"])], summary: [`shutdown ${down}`], label }
 }
 
 // --- Validation: what the form refuses before anything reaches the box. ---
