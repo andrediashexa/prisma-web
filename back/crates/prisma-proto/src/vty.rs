@@ -116,6 +116,9 @@ impl Parser {
                 } else {
                     out.push(Tok::Opt { items: self.alts(inner) });
                 }
+            } else if let Some(words) = part.strip_prefix('<').and_then(|p| p.strip_suffix('>')).filter(|p| p.contains('|')) {
+                // `<on|off>`: a choice of keywords written as a value (#41).
+                out.push(Tok::Alt { options: words.split('|').map(|w| vec![Tok::Word { w: w.to_string() }]).collect() });
             } else if part.contains('|') {
                 out.push(Tok::Alt { options: part.split('|').map(|o| vec![self.atom(o)]).collect() });
             } else {
