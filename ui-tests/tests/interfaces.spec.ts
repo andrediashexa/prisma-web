@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
-import { routerId } from "./helpers"
+// On the line-only mock: the forms' line implementation, kept for boxes before the typed calls (#46).
+import { linesRouterId as routerId } from "./helpers"
 
 const revisions = async (page: Page) =>
   (await (await page.request.get(`/api/routers/${routerId()}/config/revisions`)).json()).revisions.length

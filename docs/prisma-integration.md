@@ -184,11 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.21 | `4cdfee65edf97ae1239d5c4a18648250b04a0d08ff4d4b6106b117e47ea86c09` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.21 | `6d1a3803982b1c72e004c024ca7b0fd1f0b842089a963da7c27919e81a9b9df3` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.21 | `f0bc0dc8898389700ba1725a82882a3dc374cabb8e59ac3d1776f86e2c102397` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.22 | `11163ea9328b3a12c8cf90d28af4e75ce9972b3c45a9f06842de62544b8a4d01` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.22 | `d54d1ee07c43cc79261b1b6d8b7dc834404dec99eedb27ad0d8a73f43cf42992` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.22 | `9b0479feee2c3c1095f4ad0c26ded71cb01ec2644db60c8965269c05e6e856de` |
 
-Read up to 0.149.21 in `clients.md` and already handled:
+0.149.23 changes none of the three: the files above are also its contract and guide.
+
+Read up to 0.149.23 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -250,12 +252,41 @@ Read up to 0.149.21 in `clients.md` and already handled:
   `GetSchema` when the box has it (the coverage map otherwise), shows the box's own lines read only
   with the box's reason, and checks a setting with `ValidateLines` before staging it; the 0.149.8
   guard reads `configured` from `GetConfig` (#44). The dedicated forms (#40, #41, #42/#43) still
-  write lines through `Edit`; moving interfaces, pools and collectors to `SetConfig` is its own issue.
+  wrote lines through `Edit` then; #46 moved interfaces, pools and collectors to `SetConfig`.
   The coverage map also gained `<A.B.C.D|X:X::X:X>` for a value of either family.
 - 0.149.21 fixes two box-side bugs. An account with no configuration role waited about 90 s for any
   read of the running configuration; prisma-web gives those reads (`GetRunning`, `GetConfig`) a
   120 s deadline, as `clients.md` asks for older boxes (#44). And `no mtu` now really returns an
   interface to the default MTU; the running configuration still names an MTU for every interface.
+- 0.149.22 is phase 3 of #558 (additions only): GetConfig's routing areas (`static`, `bgp`,
+  `ospf`, `ospf6`, `isis`, `interface_routing`, each block's leftovers in `other`) and typed edits
+  of a static route and a BGP neighbor (`SetConfig`), removed with `DeleteConfig`. prisma-web's
+  Interfaces, CGNAT and Routing forms read with GetConfig and write with SetConfig/DeleteConfig
+  where the box answers GetConfig for their area, and keep their lines where it answers 501 (#46).
+  Every SetConfig names its fields: an empty mask sets every field, so the back end refuses one
+  (422) before it reaches the box. A BGP password is write-only: the form starts empty, sends it
+  only when typed (`password` named only then, so an empty field never clears it), and no reply or
+  read shows it (the back end also masks any `password <secret>` in a reply's lines). A family
+  listed for a neighbor is set whole, so the form lists only the families that changed, each built
+  from what the box read (a `default-originate` the form does not show is kept). A neighbor is
+  removed with `DeleteConfig`, statement by statement as the box reads them, never a bare
+  `no neighbor` (refused by frr-reload next to family statements there). `default_ipv4_unicast`
+  decides whether a neighbor with no IPv4 `activate` line is active in IPv4 unicast. A VRF's static
+  route is listed read only (`REASON_USAGE` on SetConfig: a line of its `vrf` block). OSPF and
+  OSPF6 are read typed and still written as lines; IS-IS has no form.
+- 0.149.23 (contract and guide unchanged) makes an `Edit` with `no neighbor X` at a `router bgp`
+  path remove the neighbor and every statement naming it, and commit clean; a peer-group a member
+  still names is refused (`REASON_GRAMMAR`, nothing staged, the message naming the members), and
+  `no <statement>` removes it in the block of the path it is sent at. The routing forms' line
+  implementation therefore removes a neighbor with a bare `no neighbor` before 0.149.20 (as always)
+  and from 0.149.23, and statement by statement (families first, `remote-as` last) on 0.149.20 to
+  0.149.22; a box that types BGP (0.149.22 on) gets `DeleteConfig`. The refusal of a peer-group is
+  shown with the change it came from and the box's message; the mock refuses it the same way (#46).
+- On 2026-10-03 the read-only checks ran against 192.0.2.198 on 0.149.22 (typed reads of every
+  area, held to its running configuration) and on 192.0.2.166 on 0.149.14 (GetConfig answers 501:
+  the forms keep the lines). After .198's upgrade to 0.149.24 the typed reads still pass there; the
+  #45 check that every operator line matches its GetSchema fails on two lines with 0.149.24's new
+  schema, which prisma-web follows in the issue that adopts 0.149.24.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

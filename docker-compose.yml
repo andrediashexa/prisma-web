@@ -137,6 +137,22 @@ services:
     group_add: ["${PRISMA_TLS_GID:-1000}"]
     networks: [internal]
 
+  # A box before the typed configuration (Prisma 0.149.20): no GetConfig, SetConfig or
+  # DeleteConfig, so the forms keep their line implementation (#46). http://prisma-mock-lines:50051.
+  prisma-mock-lines:
+    profiles: [mock]
+    image: ${COMPOSE_PROJECT_NAME:-prisma-web}-prisma-mock
+    pull_policy: never
+    depends_on:
+      prisma-mock:
+        condition: service_started
+    restart: unless-stopped
+    environment:
+      BIND_ADDR: "[::]:50051"
+      MOCK_HOSTNAME: prisma-lines
+      MOCK_NO_TYPED: "1"
+    networks: [internal]
+
 networks:
   # Both networks are dual-stack. ULA prefixes (fd00::/8) are only valid inside the host.
   edge:

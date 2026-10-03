@@ -84,10 +84,12 @@ export function ChoiceField<T extends string>({
 }
 
 /** The lines a form will stage, or why it cannot yet. */
-export function LinesPreview({ lines, empty = "Nothing changes yet." }: { lines: string[]; empty?: string }) {
+export function LinesPreview({ lines, empty = "Nothing changes yet.", typed = false }: { lines: string[]; empty?: string; typed?: boolean }) {
   return (
     <div className="bg-muted/40 rounded-md border px-3 py-2">
-      <p className="text-muted-foreground mb-1 text-xs">Lines for the review</p>
+      <p className="text-muted-foreground mb-1 text-xs">
+        {typed ? "Fields for the router: it writes the lines, shown in the review" : "Lines for the review"}
+      </p>
       {lines.length === 0 ? (
         <p className="text-muted-foreground text-sm">{empty}</p>
       ) : (

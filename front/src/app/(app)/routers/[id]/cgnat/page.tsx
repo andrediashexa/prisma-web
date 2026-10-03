@@ -27,12 +27,14 @@ import {
   LOG_KINDS,
   poolRemoval,
   readCgnat,
+  readCgnatTyped,
   targetLine,
   type CgnatConfig,
   type PoolConfig,
 } from "@/lib/cgnat-config"
 import { boxAllows, type Instance } from "@/lib/config-model"
 import { formatNumber } from "@/lib/format"
+import { useTypedConfig } from "@/lib/typed-config"
 import { roleAtLeast, routerApi, type Pool, type RouterInterface, type Subscriber } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -49,7 +51,12 @@ export default function CgnatPage() {
   const cc = useConfigChanges(id)
   const [editing, setEditing] = useState<"global" | "logging" | { pool: PoolConfig | null } | null>(null)
 
-  const config = useMemo(() => (tree ? readCgnat(tree.instances) : null), [tree])
+  // Pools and collectors typed on a box that answers GetConfig for them (Prisma 0.149.20, #46).
+  const typed = useTypedConfig(id, ["pools", "logging"])
+  const config = useMemo(
+    () => (!tree || typed.typed === undefined ? null : typed.config ? readCgnatTyped(typed.config, tree.instances) : readCgnat(tree.instances)),
+    [tree, typed.typed, typed.config],
+  )
   const canChange = roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, CGNAT_ROLES)
   const staged = (key: string) => cc.changes.some((c) => c.key === key)
   // Each form stages at most one change, keyed so that editing it again replaces it.
@@ -67,6 +74,7 @@ export default function CgnatPage() {
 
   return (
     <>
+      {typed.error && <p className="text-destructive text-sm">Could not read the typed configuration: {typed.error.message}</p>}
       <StagedChanges cc={cc} />
       <CgnatWidget routerId={id} title="Sessions and subscribers" />
 
@@ -185,7 +193,7 @@ export default function CgnatPage() {
                               variant="ghost"
                               className="text-destructive size-8"
                               aria-label={`Remove pool ${name}`}
-                              onClick={() => cc.stage({ ...poolRemoval(pc), key: `pool:${name}` })}
+                              onClick={() => cc.stage({ ...poolRemoval(pc, !!typed.typed), key: `pool:${name}` })}
                             >
                               <Trash2Icon />
                             </Button>
@@ -214,6 +222,7 @@ export default function CgnatPage() {
           />
           <LoggingDialog
             current={config.logging}
+            typed={!!typed.typed}
             open={editing === "logging"}
             onClose={() => setEditing(null)}
             onStage={(c) => stageAs("cgnat-logging", c)}
@@ -223,6 +232,7 @@ export default function CgnatPage() {
             pool={typeof editing === "object" && editing ? editing.pool : null}
             open={typeof editing === "object" && !!editing}
             taken={config.pools.map((p) => p.name)}
+            typed={!!typed.typed}
             onClose={() => setEditing(null)}
             onStage={(c) => c[0] && stageAs(`pool:${c[0].path.at(-1)!.slice("pool ".length)}`, c)}
           />
@@ -235,6 +245,7 @@ export default function CgnatPage() {
         onClose={cc.closeReview}
         onStale={cc.reopen}
         onCommitted={cc.committed}
+        staged={cc.staged}
       />
     </>
   )

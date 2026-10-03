@@ -65,6 +65,7 @@ export function ChangeReview({
   onCommitted,
   onStale,
   keepCandidateOnCancel = false,
+  staged = [],
 }: {
   routerId: string
   candidateId: string | null
@@ -76,6 +77,8 @@ export function ChangeReview({
   keepCandidateOnCancel?: boolean
   /** The running configuration moved since the candidate was opened: reopen and apply the same lines again (#10). */
   onStale?: () => void
+  /** The lines the box staged for typed edits (SetConfig / DeleteConfig, #46), shown as their preview. */
+  staged?: { path: string[]; lines: string[] }[]
 }) {
   const { mutate } = useSWRConfig()
   const [compare, setCompare] = useState<CompareResponse | null>(null)
@@ -176,6 +179,20 @@ export function ChangeReview({
               ) : (
                 <p className="text-muted-foreground text-sm">Nothing changes compared to the running configuration.</p>
               )}
+            </section>
+          )}
+
+          {staged.some((s) => s.lines.length > 0) && (
+            <section className="space-y-2" data-testid="typed-staged">
+              <h3 className="text-sm font-medium">Lines the router wrote for the typed changes</h3>
+              {staged
+                .filter((s) => s.lines.length > 0)
+                .map((s, n) => (
+                  <div key={n} className="bg-muted/40 rounded-md border px-3 py-2">
+                    <p className="text-muted-foreground font-mono text-xs">{s.path.length ? s.path.join(" › ") : "top"}</p>
+                    <pre className="overflow-x-auto font-mono text-xs leading-5">{s.lines.join("\n")}</pre>
+                  </div>
+                ))}
             </section>
           )}
 

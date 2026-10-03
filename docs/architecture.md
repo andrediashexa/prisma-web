@@ -268,16 +268,15 @@ sequenceDiagram
   one that overlaps a prefix of another interface in the same VRF. Saving stages the lines (removals
   first, so an address can be replaced) with `use-config-changes.ts`, the staging the Settings page
   uses too; they go to one candidate and the usual review. `front/src/lib/interface-config.ts` is
-  the only place that knows the interface lines, and the place typed `GetConfig` / `SetInterface`
-  (Prisma 0.149.20) will replace. There is no statement to delete a bundle in the grammar, so the
+  the only place that knows the interface lines, and holds the typed implementation too (#46). There is no statement to delete a bundle in the grammar, so the
   form does not offer it.
 - **CGNAT forms (#41):** the **CGNAT** tab edits `nat > cgnat` without the generic editor: the
   global settings (timeouts, block hold-down, inside and outside interfaces, subscriber identity,
   session table and memory), the pools (create, edit, remove; prefixes, block size, mode, policy,
   limits, filtering and ALGs, the rest of a pool through a link to Settings) and the log collectors
   (syslog, IPFIX over TCP and UDP, each sent to a collector or disabled). `front/src/lib/cgnat-config.ts`
-  is the only place that reads those lines from the tree and writes them, so the typed GetConfig and
-  SetPool/SetLogging (Prisma 0.149.20) replace it alone. Changes are staged with
+  is the only place that reads those lines from the tree and writes them, and holds the typed
+  GetConfig/SetConfig implementation beside them (#46). Changes are staged with
   `use-config-changes.ts`, keyed by form so editing again replaces them, each with an optional
   warning shown in the staged list, and go through ChangeReview, which keeps the gates. A form MUST say before the review what the gates
   will ask: a new block size, a prefix change or a removed pool remaps subscribers, and disabling
@@ -293,15 +292,50 @@ sequenceDiagram
   and OSPF6 (router ID, areas, OSPFv2 networks, redistribution, and per interface the area, cost
   and passive switch) and static routes (IPv4 and IPv6, next hop or interface, distance, tag).
   `front/src/lib/routing-config.ts` is the only place that reads these statements (from
-  `/config/tree`) and builds their lines, with the syntax of `config_grammar.json`; typed routing
-  reads (#558 phase 9) MUST replace only its reader. Changes are staged with
+  `/config/tree`) and builds their lines, with the syntax of `config_grammar.json`, and the typed
+  reads and edits of Prisma 0.149.22 beside them (#46). Changes are staged with
   `front/src/hooks/use-config-changes.ts`, shared with the other configuration tabs, and go through the same
   candidate and review. A changed `remote-as` is sent as the new line alone, because FRR's
   `no neighbor … remote-as` removes the whole neighbor; `no neighbor <address>` is how a neighbor
-  is removed. OSPF6 has no `network` statement: an interface joins an area with
+  is removed as a line before Prisma 0.149.20 and from 0.149.23, and statement by statement in
+  between (#46). OSPF6 has no `network` statement: an interface joins an area with
   `ipv6 ospf6 area`. The grammar types a static route's next hop as an address; the form also takes
   an interface name, as the issue asks, and the box has the last word in the review. The forms are
   offered to operators and above whose box account can change the routing modes (administrator).
+- **Forms on the typed configuration (#46):** on a box that answers `GetConfig` for their area
+  (Prisma 0.149.20 for interfaces, pools and the log collectors; 0.149.22 for the routing areas),
+  the Interfaces, CGNAT and Routing forms read typed and write with `SetConfig` / `DeleteConfig`;
+  a box that answers 501 keeps the line implementation of #40-#43. Each data layer
+  (`front/src/lib/interface-config.ts`, `cgnat-config.ts`, `routing-config.ts`, with the shapes in
+  `typed-config.ts`) holds both implementations behind the same form shapes, and the page picks
+  one with `useTypedConfig`, which returns the line form only on a 501, so a typed box that failed
+  to answer is never handed lines it would take differently. A typed change is staged in the same
+  `use-config-changes.ts` list as a line change, carrying its `SetConfig` / `DeleteConfig` calls;
+  they are made against the one candidate when the review opens (lines first, so a new bundle's
+  `member` creates it), and the lines the box answers are shown in ChangeReview above the diff,
+  which, with the check and the gates, is unchanged. The back end serves
+  `GET /api/routers/{id}/config/typed?areas=…[&candidate=…]` (GetConfig; an area the box does not
+  type, or a box without the rpc, answers 501 `router_unimplemented`),
+  `POST /api/routers/{id}/config/typed/{cid}/set` (one object, `interface`, `pool`, `logging`,
+  `static_route` or `bgp_neighbor`, and `fields`) and `POST /api/routers/{id}/config/typed/{cid}/delete`
+  (DeleteConfig's `area`, `name`, `transport`, `prefix`, `next_hop`, `asn`, `vrf`), with Edit's
+  checks: the candidate's owner, an operator, and a box account that can change something; like an
+  Edit, neither is in the change log, whose commit entry keeps the diff. The back end refuses a
+  `set` without fields (422), because an empty mask sets every field and clears what a partial
+  object leaves out, and masks any `password <secret>` in a reply. What the box does not type yet
+  stays lines: a bundle's members, LACP and load balancing, the CGNAT global settings, BGP's global
+  settings, networks, aggregates and redistribution, and OSPF. Each routing block's `other`
+  statements are listed read only, a BGP password is write only (sent when typed, never read), and a
+  VRF's static route is read only. The mock types every area off its configuration and writes the
+  lines an operator would type through the same `Config::edit` as Edit; `prisma-mock-lines`
+  (`MOCK_NO_TYPED=1`) answers `UNIMPLEMENTED` for the three rpcs, and the browser tests run the
+  forms' line specs against it and `typed-forms.spec.ts` against `prisma-mock`.
+
+| Decision | Rejected | Why |
+|---|---|---|
+| Both implementations in each data layer, chosen per area by whether GetConfig answers | Typed only, or a version check | Boxes before 0.149.20 (the lab box is on 0.149.14) and 0.149.20/21 boxes without the routing areas stay in the fleet; the answer is the box's own, not a version table. |
+| Typed calls made when the review opens, the box's lines shown there | Calling SetConfig at "Add to the changes" | One candidate per review, as for lines: nothing reaches the box before the review, and a reopened change (#10) applies the same calls again. |
+| A third mock with `MOCK_NO_TYPED=1` | A per-test switch on one mock | The mock has no control plane, and a box either has the calls or not: two registered routers keep both paths under test in the same run. |
 
 ## Errors
 

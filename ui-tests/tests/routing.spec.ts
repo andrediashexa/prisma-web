@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test"
 
-import { routerId, undoLastCommit } from "./helpers"
+// On the line-only mock: the forms' line implementation, kept for boxes before the typed calls (#46).
+import { linesRouterId as routerId, undoLastCommit } from "./helpers"
 
 // Routing forms (#42, #43): every change is staged, reviewed and committed
 // through ChangeReview; the tests commit only what they undo.
@@ -156,7 +157,7 @@ test("OSPF and OSPF6 networks, areas, passive interfaces and redistribution reac
     await expect(v2.getByText("network 10.88.0.0/16 area 0.0.0.1")).toBeVisible()
     await expect(v2.locator('tr[data-interface="wan0"]')).toContainText("passive")
   } finally {
-    await undoLastCommit(page.request)
+    await undoLastCommit(page.request, routerId())
   }
 })
 

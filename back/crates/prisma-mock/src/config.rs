@@ -114,6 +114,8 @@ fn single_key(line: &str) -> Option<String> {
         [k @ ("distance" | "maximum-paths" | "table-map" | "table-policy" | "export"), ..] => Some((*k).into()),
         [a @ ("bgp" | "ospf" | "ospf6"), "router-id", ..] => Some(format!("{a} router-id")),
         ["auto-cost", "reference-bandwidth", ..] => Some("auto-cost".into()),
+        // One route-map and one prefix-list each way (#46).
+        ["neighbor", peer, attr @ ("route-map" | "prefix-list"), _, dir] => Some(format!("neighbor {peer} {attr} {dir}")),
         ["neighbor", peer, attr, ..] if NEIGHBOR_SINGLE.contains(attr) => Some(format!("neighbor {peer} {attr}")),
         ["redistribute", proto, ..] => Some(format!("redistribute {proto}")),
         ["default-information", "originate", ..] => Some("default-information".into()),
@@ -331,6 +333,21 @@ impl Config {
             .unwrap_or_default()
     }
 
+    /// The neighbours of the `router bgp` at `path` that name `group` as their peer-group.
+    pub fn peer_group_members(&self, path: &[String], group: &str) -> Vec<String> {
+        let tail = format!(" peer-group {group}");
+        self.blocks
+            .iter()
+            .find(|b| b.path == path)
+            .map(|b| {
+                b.lines
+                    .iter()
+                    .filter_map(|l| l.strip_suffix(&tail).and_then(|h| h.strip_prefix("neighbor ")).filter(|p| !p.contains(' ')).map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Whether `neighbor <peer> shutdown` is configured (the session is held down).
     pub fn bgp_neighbor_shutdown(&self, peer: &str) -> bool {
         self.bgp_neighbor_lines(peer).iter().any(|l| l == "shutdown")
@@ -384,7 +401,8 @@ impl Config {
         let indent = " ".repeat(depth);
         out.push(format!("{indent}{}", path.last().expect("non-empty path")));
         if let Some(b) = self.blocks.iter().find(|b| b.path == path) {
-            out.extend(b.lines.iter().map(|l| format!("{indent} {l}")));
+            // A BGP password is masked as the box masks it (#46).
+            out.extend(b.lines.iter().map(|l| format!("{indent} {}", crate::typed::mask(l))));
         }
         for child in self.children(path) {
             let mut p = path.to_vec();
@@ -532,6 +550,15 @@ impl Config {
             // `no neighbor <peer>` (or `no neighbor <peer> remote-as …`, as FRR) removes the
             // neighbor: its lines here and in every address family below.
             if path[0].starts_with("router bgp ") && path.len() == 1 && matches!(words.as_slice(), ["neighbor", _] | ["neighbor", _, "remote-as", ..]) {
+                // As Prisma 0.149.23: a peer-group a member still names is refused, nothing staged.
+                let members = self.peer_group_members(path, words[1]);
+                if !members.is_empty() {
+                    return Err(refuse(
+                        format!("peer-group {} is still used by {}: take them out of it first", words[1], members.join(", ")),
+                        path,
+                        line,
+                    ));
+                }
                 let head = format!("neighbor {} ", words[1]);
                 for b in self.blocks.iter_mut().filter(|b| b.path.starts_with(path)) {
                     b.lines.retain(|l| !l.starts_with(&head));
@@ -866,6 +893,11 @@ mod tests {
         c.edit(&bgp, &p(&["no neighbor 192.0.2.1 shutdown", "no neighbor 192.0.2.1 description"])).ok().unwrap();
         assert!(!c.bgp_neighbor_shutdown("192.0.2.1") && c.bgp_neighbor_description("192.0.2.1").is_none());
 
+        // A peer-group a member still names is refused (Prisma 0.149.23), nothing staged.
+        c.edit(&bgp, &p(&["neighbor UPSTREAM peer-group", "neighbor 192.0.2.9 peer-group UPSTREAM"])).ok().unwrap();
+        let err = c.edit(&bgp, &p(&["no neighbor UPSTREAM"])).err().unwrap();
+        assert!(err.message.contains("192.0.2.9"), "{}", err.message);
+        c.edit(&bgp, &p(&["no neighbor 192.0.2.9", "no neighbor UPSTREAM"])).ok().unwrap();
         c.edit(&bgp, &p(&["no neighbor 192.0.2.1"])).ok().unwrap();
         let text = c.render();
         assert!(!text.contains("192.0.2.1"), "the neighbor goes from every address family: {text}");

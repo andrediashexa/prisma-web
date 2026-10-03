@@ -16,6 +16,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .field_attribute("prisma.v1.Diagnostics.reason", "#[serde(serialize_with = \"crate::ser::reason\")]")
         .field_attribute("prisma.v1.CheckResponse.reason", "#[serde(serialize_with = \"crate::ser::reason\")]")
         .field_attribute("prisma.v1.LineVerdict.reason", "#[serde(serialize_with = \"crate::ser::reason\")]");
+    // The typed objects a client sends to SetConfig (Prisma 0.149.20/0.149.22, #46): the
+    // front end posts them as JSON, a field left out at its default.
+    for m in [
+        "InterfaceConfig", "PoolConfig", "PortForwardConfig", "LogCollectorConfig", "LoggingConfig",
+        "StaticRouteConfig", "BgpNeighborEdit", "BgpNeighborConfig", "BgpNeighborFamilyEdit", "BgpNeighborFamilyConfig",
+    ] {
+        cfg = cfg.type_attribute(format!(".prisma.v1.{m}"), "#[derive(serde::Deserialize)] #[serde(default)]");
+    }
     for ts in [
         "prisma.v1.Revision.committed_at",
         "prisma.v1.CommitResponse.confirm_deadline",

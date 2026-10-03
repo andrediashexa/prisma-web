@@ -30,16 +30,20 @@ import {
   emptyInterface,
   INTERFACE_ROLES,
   interfaceChange,
-  interfacePath,
   readInterfaces,
+  readInterfacesTyped,
+  shutdownChange,
   type InterfaceConfig,
 } from "@/lib/interface-config"
+import { useTypedConfig } from "@/lib/typed-config"
 import { roleAtLeast, routerApi, type RouterInterface } from "@/lib/types"
 
 export default function InterfacesPage() {
   const { id } = useParams<{ id: string }>()
   const { data } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(id, "/interfaces"), fetcher, { refreshInterval: 10_000 })
   const { data: tree } = useSWR<{ instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
+  // Typed on a box that answers GetConfig for interfaces (Prisma 0.149.20, #46); lines otherwise.
+  const typed = useTypedConfig(id, ["interfaces"])
   const { data: rates } = useInterfaceRates(id, data?.interfaces)
   const { access, readOnly } = useRouterAccess(id)
   const myRole = useRouterRole(id)
@@ -51,7 +55,9 @@ export default function InterfacesPage() {
   // The form's state behind each staged change, so editing again continues from it.
   const [drafts, setDrafts] = useState<Record<string, InterfaceConfig>>({})
 
-  const configs = tree ? readInterfaces(tree.instances) : []
+  // Read once the box has said whether it types interfaces.
+  const ready = !!tree && typed.typed !== undefined
+  const configs = !tree || typed.typed === undefined ? [] : typed.config ? readInterfacesTyped(typed.config.interfaces, tree.instances) : readInterfaces(tree.instances)
   const staged = (name: string) => cc.changes.some((c) => c.key === `interface ${name}`)
   // Interfaces as the form sees them: staged state over the running one, bundles being created included.
   const known = new Set(configs.map((c) => c.name))
@@ -68,13 +74,7 @@ export default function InterfacesPage() {
 
   /** Shut down or enable at once: one line, straight to the review. */
   function toggle(i: RouterInterface) {
-    void cc.review([
-      {
-        path: interfacePath(i.name),
-        lines: [i.admin_up ? "shutdown" : "no shutdown"],
-        label: `${i.admin_up ? "shut down" : "enable"} ${i.name}`,
-      },
-    ])
+    void cc.review([shutdownChange(i.name, i.admin_up, !!typed.typed)])
   }
 
   const reviewTitle =
@@ -97,7 +97,7 @@ export default function InterfacesPage() {
                   <Badge variant="outline">staged</Badge>
                 </Button>
               ))}
-            <Button variant="outline" size="sm" disabled={!tree} onClick={() => setCreating(true)}>
+            <Button variant="outline" size="sm" disabled={!ready} onClick={() => setCreating(true)}>
               <BoxesIcon /> New bundle
             </Button>
           </div>
@@ -204,7 +204,7 @@ export default function InterfacesPage() {
                               )}
                             </Button>
                           )}
-                          <Button variant="ghost" size="icon" disabled={!tree} onClick={() => edit(i.name)} aria-label={`Edit ${i.name}`}>
+                          <Button variant="ghost" size="icon" disabled={!ready} onClick={() => edit(i.name)} aria-label={`Edit ${i.name}`}>
                             <PencilIcon />
                           </Button>
                         </div>
@@ -218,15 +218,17 @@ export default function InterfacesPage() {
         </div>
       </Card>
 
+      {typed.error && <p className="text-destructive text-sm">Could not read the typed configuration: {typed.error.message}</p>}
       <StagedChanges cc={cc} />
 
       <InterfaceForm
         routerId={id}
         editing={editing}
         all={all}
+        typedBox={!!typed.typed}
         onClose={() => setEditing(null)}
         onSave={(running, cur) => {
-          cc.stage(interfaceChange(running, cur))
+          cc.stage(interfaceChange(running, cur, !!typed.typed))
           setDrafts((d) => ({ ...d, [cur.name]: cur }))
           setEditing(null)
         }}
@@ -248,6 +250,7 @@ export default function InterfacesPage() {
         onClose={cc.closeReview}
         onStale={cc.reopen}
         onCommitted={cc.committed}
+        staged={cc.staged}
       />
     </>
   )
