@@ -46,6 +46,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/vrrp", get(ops::vrrp))
         .route("/routers/{id}/bundles", get(ops::bundles))
         .route("/routers/{id}/show", post(ops::show))
+        .route("/routers/{id}/clear", post(ops::clear))
         .route("/routers/{id}/policies", get(ops::policies))
         .route("/routers/{id}/logging", get(ops::logging))
         .route("/routers/{id}/policies/counters", get(ops::policy_counters))

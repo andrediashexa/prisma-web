@@ -23,6 +23,7 @@ use prisma_proto::v1::operational_service_server::OperationalServiceServer;
 use prisma_proto::v1::session_service_server::SessionServiceServer;
 use prisma_proto::v1::route_service_server::RouteServiceServer;
 use prisma_proto::v1::telemetry_service_server::TelemetryServiceServer;
+use prisma_proto::v1::system_service_server::SystemServiceServer;
 use tokio::sync::broadcast;
 use tonic_health::pb::health_server::HealthServer;
 use tonic_health::server::HealthService;
@@ -107,7 +108,14 @@ fn router_with(mut builder: Server, shared: SharedRef, hostname: String) -> Rout
         .add_service(SessionServiceServer::new(session::SessionSvc))
         .add_service(HealthServer::new(HealthService::from_health_reporter(shared.health.clone())))
         .add_service(RouteServiceServer::new(route_service::RouteSvc::default()))
+        // 0.149.25 (#48): every call answers unimplemented until its own issue.
+        .add_optional_service((!typed::disabled()).then(|| SystemServiceServer::new(SystemSvc)))
 }
+
+struct SystemSvc;
+
+#[tonic::async_trait]
+impl prisma_proto::v1::system_service_server::SystemService for SystemSvc {}
 
 /// Advances the simulation every second.
 async fn ticker(shared: SharedRef) {
@@ -239,6 +247,25 @@ mod tests {
         assert!(err.message().starts_with("not an operational command"));
         let r6 = op.show(ShowRequest { command: "show ipv6 route".into(), ..Default::default() }).await.unwrap().into_inner().text;
         assert!(r6.contains("C>* 2001:db8:200:10::/64 is directly connected, lan0"), "{r6}");
+    }
+
+    #[tokio::test]
+    async fn clear_answers_as_the_box() {
+        use prisma_proto::v1::clear_request::{BgpMode, Target};
+        let ch = start("prisma-test").await;
+        let mut op = OperationalServiceClient::new(ch);
+        let peer = op.list_bgp_neighbors(ListBgpNeighborsRequest {}).await.unwrap().into_inner().neighbors.remove(0).peer;
+        let clear = |target: Target, name: &str, bgp: BgpMode| ClearRequest { target: target as i32, name: name.into(), bgp: bgp as i32, ..Default::default() };
+        let r = op.clear(clear(Target::Bgp, &peer, BgpMode::BgpSoftIn)).await.unwrap().into_inner();
+        assert_eq!(r.command, format!("clear ip bgp {peer} soft in"));
+        op.clear(clear(Target::Bgp, &peer, BgpMode::BgpHard)).await.unwrap();
+        let n = op.list_bgp_neighbors(ListBgpNeighborsRequest {}).await.unwrap().into_inner().neighbors.into_iter().find(|n| n.peer == peer).unwrap();
+        assert!(n.uptime_seconds < 5, "a hard clear restarts the session: {}", n.uptime_seconds);
+        let e = op.clear(clear(Target::Bgp, "192.0.2.254", BgpMode::BgpHard)).await.unwrap_err();
+        assert_eq!(e.code(), tonic::Code::FailedPrecondition);
+        let e = op.clear(clear(Target::InterfaceCounters, "two words", BgpMode::BgpHard)).await.unwrap_err();
+        assert_eq!(e.code(), tonic::Code::InvalidArgument);
+        assert_eq!(op.clear(clear(Target::InterfaceCounters, "", BgpMode::BgpHard)).await.unwrap().into_inner().command, "clear interface counters");
     }
 
     #[tokio::test]

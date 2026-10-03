@@ -5,6 +5,7 @@ import { useMemo, useState } from "react"
 import useSWR from "swr"
 import { Loader2Icon, PencilIcon, PlusIcon, SearchIcon, SettingsIcon, Trash2Icon } from "lucide-react"
 
+import { ClearAction, useClears } from "@/components/clear-action"
 import { GlobalDialog } from "@/components/cgnat/global-dialog"
 import { LOG_KIND_LABEL, LoggingDialog } from "@/components/cgnat/logging-dialog"
 import { PoolDialog } from "@/components/cgnat/pool-dialog"
@@ -348,6 +349,7 @@ function CollectorsCard({ config, canChange, staged, onEdit }: { config: CgnatCo
 }
 
 function SubscriberLookup({ routerId }: { routerId: string }) {
+  const clears = useClears(routerId)
   const [address, setAddress] = useState("")
   const [result, setResult] = useState<Subscriber | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -397,6 +399,16 @@ function SubscriberLookup({ routerId }: { routerId: string }) {
                   <span className="text-muted-foreground">Sessions </span>
                   {formatNumber(result.sessions)}
                 </span>
+                {clears && (
+                  <ClearAction
+                    routerId={routerId}
+                    target="cgnat_subscriber"
+                    name={result.address}
+                    title={`the sessions of ${result.address}`}
+                    label="Clear sessions"
+                    disrupts="Every session of this subscriber ends at once. Its port blocks stay with it until the router's hold-down passes, as when sessions expire."
+                  />
+                )}
               </div>
               <Table>
                 <TableHeader>

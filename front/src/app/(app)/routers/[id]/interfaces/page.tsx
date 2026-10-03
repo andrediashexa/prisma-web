@@ -6,6 +6,7 @@ import useSWR from "swr"
 import { BoxesIcon, Loader2Icon, PencilIcon, PowerIcon, PowerOffIcon } from "lucide-react"
 
 import { AddressList } from "@/components/address-list"
+import { ClearAction, useClears } from "@/components/clear-action"
 import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
 import { InterfaceForm, type InterfaceEditing } from "@/components/interface-form"
@@ -40,7 +41,8 @@ import { roleAtLeast, routerApi, type RouterInterface } from "@/lib/types"
 
 export default function InterfacesPage() {
   const { id } = useParams<{ id: string }>()
-  const { data } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(id, "/interfaces"), fetcher, { refreshInterval: 10_000 })
+  const { data, mutate } = useSWR<{ interfaces: RouterInterface[] }>(routerApi(id, "/interfaces"), fetcher, { refreshInterval: 10_000 })
+  const clears = useClears(id)
   const { data: tree } = useSWR<{ instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
   // Typed on a box that answers GetConfig for interfaces (Prisma 0.149.20, #46); lines otherwise.
   const typed = useTypedConfig(id, ["interfaces"])
@@ -86,8 +88,18 @@ export default function InterfacesPage() {
         <p className="text-muted-foreground text-sm">
           Changes become a candidate on Prisma: you review the diff and the <span className="font-mono">commit check</span> before applying.
         </p>
-        {canEdit && (
+        {(canEdit || clears) && (
           <div className="flex flex-wrap gap-2">
+            {clears && (
+              <ClearAction
+                routerId={id}
+                target="interface_counters"
+                title="every interface's counters"
+                label="Clear counters"
+                disrupts="Every count of every interface restarts from zero, the ones the charts and the history read included. Traffic is not affected."
+                onDone={() => mutate()}
+              />
+            )}
             {/* A bundle being created has no row until it is committed. */}
             {all
               .filter((i) => !known.has(i.name))
@@ -97,9 +109,11 @@ export default function InterfacesPage() {
                   <Badge variant="outline">staged</Badge>
                 </Button>
               ))}
-            <Button variant="outline" size="sm" disabled={!ready} onClick={() => setCreating(true)}>
-              <BoxesIcon /> New bundle
-            </Button>
+            {canEdit && (
+              <Button variant="outline" size="sm" disabled={!ready} onClick={() => setCreating(true)}>
+                <BoxesIcon /> New bundle
+              </Button>
+            )}
           </div>
         )}
       </div>

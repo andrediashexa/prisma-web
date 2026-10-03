@@ -149,6 +149,69 @@ pub async fn subscriber(
 }
 
 #[derive(Deserialize)]
+pub struct ClearBody {
+    target: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    bgp: String,
+}
+
+/// The request `Clear` takes for a body; what the UI names wrongly is a 400 here (#48).
+fn clear_request(b: &ClearBody) -> Result<ClearRequest, AppError> {
+    use clear_request::{BgpMode, Target};
+    let target = match b.target.as_str() {
+        "interface_counters" => Target::InterfaceCounters,
+        "cgnat_subscriber" => Target::CgnatSubscriber,
+        "bgp" => Target::Bgp,
+        "ospf_process" => Target::OspfProcess,
+        "ospf_neighbor" => Target::OspfNeighbor,
+        "isis_adjacency" => Target::IsisAdjacency,
+        t => return Err(AppError::BadRequest(format!("'{t}' is not something to clear"))),
+    };
+    let bgp = match b.bgp.as_str() {
+        "" | "hard" => BgpMode::BgpHard,
+        "soft" => BgpMode::BgpSoft,
+        "soft_in" => BgpMode::BgpSoftIn,
+        "soft_out" => BgpMode::BgpSoftOut,
+        m => return Err(AppError::BadRequest(format!("'{m}' is not a BGP clear (hard, soft, soft_in, soft_out)"))),
+    };
+    let name = b.name.trim();
+    if target == Target::CgnatSubscriber && name.parse::<std::net::IpAddr>().is_err() {
+        return Err(AppError::BadRequest(format!("'{name}' is not a subscriber's address")));
+    }
+    Ok(ClearRequest { target: target as i32, name: name.to_string(), bgp: bgp as i32, ..Default::default() })
+}
+
+/// The VTY's `clear` lines (Prisma 0.149.25, #48): they disrupt (a session,
+/// a subscriber, the counters the charts read), so they are an operator's
+/// action and are recorded, refused or not.
+pub async fn clear(
+    State(st): State<AppState>,
+    user: CurrentUser,
+    meta: ClientMeta,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ClearBody>,
+) -> AppResult<Json<ClearResponse>> {
+    user.require(Role::Operator)?;
+    let msg = clear_request(&b)?;
+    let r = st.routers.get(id).await?;
+    let res = r.ops().clear(req(msg)).await;
+    let mut entry = Entry::by(&user, &meta, "router.clear").target(&r.name).router(id);
+    entry = entry.details(json!({
+        "target": b.target,
+        "name": b.name.trim(),
+        "bgp": b.bgp,
+        "command": res.as_ref().map(|r| r.get_ref().command.clone()).unwrap_or_default(),
+    }));
+    if res.is_err() {
+        entry = entry.failed();
+    }
+    audit::record(&st.db, entry).await;
+    Ok(Json(res?.into_inner()))
+}
+
+#[derive(Deserialize)]
 pub struct ShowBody {
     command: String,
 }
@@ -225,4 +288,30 @@ pub async fn cgnat(
 ) -> AppResult<Json<Series<CgnatSample>>> {
     st.routers.get(id).await?;
     Ok(Json(st.routers.telemetry.cgnat(id, q.minutes)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(target: &str, name: &str, bgp: &str) -> ClearBody {
+        ClearBody { target: target.into(), name: name.into(), bgp: bgp.into() }
+    }
+
+    #[test]
+    fn a_clear_names_its_target_and_mode() {
+        let r = clear_request(&body("bgp", " 192.0.2.10 ", "soft_in")).unwrap();
+        assert_eq!((r.target(), r.name.as_str(), r.bgp()), (clear_request::Target::Bgp, "192.0.2.10", clear_request::BgpMode::BgpSoftIn));
+        let r = clear_request(&body("interface_counters", "", "")).unwrap();
+        assert_eq!((r.target(), r.name.as_str()), (clear_request::Target::InterfaceCounters, ""));
+        assert_eq!(clear_request(&body("bgp", "x", "")).unwrap().bgp(), clear_request::BgpMode::BgpHard);
+    }
+
+    #[test]
+    fn a_wrong_clear_is_refused_before_the_box() {
+        assert!(clear_request(&body("everything", "", "")).is_err());
+        assert!(clear_request(&body("bgp", "x", "harder")).is_err());
+        assert!(clear_request(&body("cgnat_subscriber", "not-an-ip", "")).is_err());
+        assert!(clear_request(&body("cgnat_subscriber", "100.64.0.10", "")).is_ok());
+    }
 }

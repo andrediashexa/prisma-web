@@ -69,6 +69,8 @@ pub struct State {
     pub history: VecDeque<HistorySample>,
     /// The CGNAT log export (GetLogging, Prisma 0.149.15).
     pub logs: crate::log_export::LogSim,
+    /// When (in uptime seconds) a BGP session restarted after a hard `Clear` (#48).
+    pub bgp_reset: HashMap<String, u64>,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -142,6 +144,7 @@ impl State {
             refusals: 0,
             history: VecDeque::new(),
             logs: crate::log_export::LogSim::new(),
+            bgp_reset: HashMap::new(),
         }
     }
 
@@ -280,6 +283,10 @@ impl Shared {
         use tonic_health::ServingStatus::{NotServing, Serving};
         for s in ["prisma.v1.ConfigService", "prisma.v1.RouteService", "prisma.v1.SessionService", "prisma.v1.LogExport"] {
             self.health.set_service_status(s, Serving).await;
+        }
+        // SystemService came with Clear in 0.149.25; the line-only mock is an older box (#48).
+        if !crate::typed::disabled() {
+            self.health.set_service_status("prisma.v1.SystemService", Serving).await;
         }
         for s in STATS_SERVICES {
             self.health.set_service_status(s, if stats_segment { Serving } else { NotServing }).await;

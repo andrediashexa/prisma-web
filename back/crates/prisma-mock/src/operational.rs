@@ -129,7 +129,11 @@ impl OperationalSvc {
                     vrf: "default".into(),
                     remote_as: asn,
                     state: if admin_down { "Idle (Admin)".into() } else if down { "Active".into() } else { "Established".into() },
-                    uptime_seconds: if up { st.uptime_seconds() - 600 } else { 0 },
+                    uptime_seconds: match (up, st.bgp_reset.get(&peer)) {
+                        (false, _) => 0,
+                        (true, Some(at)) => st.uptime_seconds().saturating_sub(*at),
+                        (true, None) => st.uptime_seconds().saturating_sub(600),
+                    },
                     prefixes_received: if !up { 0 } else if v6 { 201_388 } else { 1_002_117 },
                     description: st
                         .running
@@ -379,6 +383,68 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             ports_in_use: p.ports_in_use,
             ..Default::default()
         }))
+    }
+
+    /// The VTY's `clear` lines (0.149.25, #48), as the box answers them.
+    async fn clear(&self, req: Request<ClearRequest>) -> R<ClearResponse> {
+        use clear_request::{BgpMode, Target};
+        if crate::typed::disabled() {
+            return Err(Status::unimplemented("Clear (MOCK_NO_TYPED: a box before 0.149.25)"));
+        }
+        let req = req.into_inner();
+        let name = req.name.as_str();
+        if name.split_whitespace().count() > 1 {
+            let d = Diagnostics { reason: diagnostics::Reason::Usage as i32, output: format!("'{name}' is not one word"), ..Default::default() };
+            return Err(with_diagnostics(Status::invalid_argument(d.output.clone()), &d));
+        }
+        let _turno = self.shared.ops.lock().await;
+        let mut st = self.shared.state.lock().unwrap();
+        let precondition = |m: String| Err(Status::failed_precondition(m));
+        let command = match req.target() {
+            Target::InterfaceCounters => {
+                if !name.is_empty() && st.sim(name).is_none() {
+                    return precondition(format!("% Unknown interface {name}"));
+                }
+                for s in st.sims.iter_mut().filter(|s| name.is_empty() || s.name == name) {
+                    s.counters = InterfaceCounters::default();
+                }
+                if name.is_empty() { "clear interface counters".to_string() } else { format!("clear interface counters {name}") }
+            }
+            Target::CgnatSubscriber => {
+                if name.parse::<std::net::IpAddr>().is_err() {
+                    let d = Diagnostics { reason: diagnostics::Reason::Usage as i32, output: format!("'{name}' is not an address"), ..Default::default() };
+                    return Err(with_diagnostics(Status::invalid_argument(d.output.clone()), &d));
+                }
+                format!("clear cgnat subscriber {name}")
+            }
+            Target::Bgp => {
+                let peers: Vec<String> = st.running.bgp_neighbors().into_iter().map(|(p, _)| p).filter(|p| name.is_empty() || name == "*" || p == name).collect();
+                if peers.is_empty() {
+                    return precondition(format!("% BGP: Unknown neighbor - \"{name}\""));
+                }
+                let mode = match req.bgp() {
+                    BgpMode::BgpHard => "",
+                    BgpMode::BgpSoft => " soft",
+                    BgpMode::BgpSoftIn => " soft in",
+                    BgpMode::BgpSoftOut => " soft out",
+                };
+                if mode.is_empty() {
+                    let now = st.uptime_seconds();
+                    for p in peers {
+                        st.bgp_reset.insert(p, now);
+                    }
+                }
+                format!("clear ip bgp {}{mode}", if name.is_empty() { "*" } else { name })
+            }
+            Target::OspfProcess => "clear ip ospf process".to_string(),
+            Target::OspfNeighbor => if name.is_empty() { "clear ip ospf neighbor".to_string() } else { format!("clear ip ospf neighbor {name}") },
+            Target::IsisAdjacency => if name.is_empty() { "clear isis neighbor".to_string() } else { format!("clear isis neighbor {name}") },
+            Target::Unspecified => {
+                let d = Diagnostics { reason: diagnostics::Reason::Usage as i32, output: "a target is required".into(), ..Default::default() };
+                return Err(with_diagnostics(Status::invalid_argument(d.output.clone()), &d));
+            }
+        };
+        Ok(Response::new(ClearResponse { output: String::new(), command, ..Default::default() }))
     }
 
     async fn list_bgp_neighbors(&self, _: Request<ListBgpNeighborsRequest>) -> R<ListBgpNeighborsResponse> {

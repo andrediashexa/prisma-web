@@ -11,6 +11,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "user.delete": "deleted user",
   "router.interface.update": "updated interface",
   "router.command": "command",
+  "router.clear": "clear",
   "config.commit": "commit",
   "config.confirm": "confirmed commit",
   "config.save": "saved configuration",
