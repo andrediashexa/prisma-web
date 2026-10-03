@@ -334,7 +334,10 @@ Read up to 0.149.25 in `clients.md` and already handled:
   `MOCK_SYSTEM_DENIED` lets them run (nothing really reboots; an upgrade to `0.149.26-mock` goes
   through every phase, any other version fails with the run's output) and refuses a reboot while
   a commit is not saved; prisma-mock-2 refuses them as the real box does. `--lab` sends only
-  `GetUpgradeStatus` and an upgrade check.
+  `GetUpgradeStatus` and an upgrade check. On 2026-10-03 on 192.0.2.198 (0.149.25)
+  `GetUpgradeStatus` answered `NOT_FOUND` ("no upgrade was started through the API on this box",
+  read as no run), and the check was not refused to prisma-web's account: it came back `FAILED`,
+  "the newest release could not be read" (the box cannot read the releases).
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
