@@ -56,6 +56,8 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/metrics/cgnat", get(ops::cgnat))
         // Configuration
         .route("/routers/{id}/config/running", get(config::running))
+        .route("/routers/{id}/config/grammar", get(config::grammar))
+        .route("/routers/{id}/config/tree", get(config::tree))
         .route("/routers/{id}/config/revisions", get(config::revisions))
         .route("/routers/{id}/config/pending", get(config::pending))
         .route("/routers/{id}/config/confirm", post(config::confirm))

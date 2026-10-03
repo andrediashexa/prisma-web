@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.14.0 - Settings — 2026-10-03
+
+### New
+- **Settings** tab per router: every part of the configuration (system, interfaces, CGNAT and its pools, BGP, OSPF, IS-IS, static routes, RPKI, policies, route-maps, users, SNMP) is listed with what is set, and every setting can be added, changed or removed through a form generated from the VTY's own grammar, with values checked by type before anything is sent. Changes accumulate and go through the usual review: diff, check, gates and commit confirmed (#39).
+
+### Internal
+- The VTY's grammar is extracted from the vendored Prisma coverage map (`scripts/config-grammar.py`); the configuration is read as a tree and each line matched to its statement. 26 of 29 lines of the lab box's configuration match; the other three are box-owned and read-only (#39).
+
 ## 0.13.0 - Commit facts from the box — 2026-10-03
 
 ### New

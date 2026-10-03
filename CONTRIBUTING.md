@@ -265,7 +265,7 @@ branch MUST NOT be merged while any of them fails.
 | Documentation | TL;DR, 5W2H and RFC 2119 citation in every `*.md`; no ASCII-art diagrams; language of `*.md` and of source comments; `VERSION` matching the Cargo and npm manifests; major version 0; `CHANGELOG.md` headings and git tags in the section 5 format | `scripts/check-docs.py` |
 | Back end | Unit tests of the server and integration tests of the mock | `docker run --rm -v "$PWD/back":/src -w /src rust:1-bookworm cargo test --workspace` |
 | Front end | Lint and production build | `docker run --rm -v "$PWD/front":/w -w /w node:22-alpine sh -c "npm ci && npm run lint && npm run build"` |
-| Front end, in a browser | The screen rules the API cannot see: gates keep Apply disabled, a VTY refusal shows path and line, the pending-commit banner counts down and goes away, the Pools table is drawn, the home page layout survives a reload, a moved base reopens and applies the edits again without committing, router access set on Users hides the router from that user, a stalled log export shows on the CGNAT tab and on the router. Each test MUST fail when its behaviour is removed | `E2E_USER=… E2E_PASSWORD=… scripts/ui-tests.sh` (Playwright, against a running stack with the mocks) |
+| Front end, in a browser | The screen rules the API cannot see: gates keep Apply disabled, a VTY refusal shows path and line, the pending-commit banner counts down and goes away, the Pools table is drawn, the home page layout survives a reload, a moved base reopens and applies the edits again without committing, router access set on Users hides the router from that user, a setting added from a generated form reaches the review, a stalled log export shows on the CGNAT tab and on the router. Each test MUST fail when its behaviour is removed | `E2E_USER=… E2E_PASSWORD=… scripts/ui-tests.sh` (Playwright, against a running stack with the mocks) |
 | End to end | Every acceptance criterion of the gRPC integration and of mTLS, through the API of a running stack | `E2E_USER=… E2E_PASSWORD=… scripts/e2e.py --base http://[::1]` |
 | Lab (read-only) | mTLS, status, reads and telemetry against a real Prisma, with no candidate, commit or console | `E2E_USER=… E2E_PASSWORD=… scripts/e2e.py --lab https://<ip>:50051 --lab-profile host/<dir>` |
 
@@ -289,6 +289,7 @@ reads this block too.
 front/AGENTS.md                  # written and re-added by `next dev`
 front/CLAUDE.md                  # written and re-added by `next dev`
 docs/prisma-api-coverage.md      # vendored from prismarouting, generated from the VTY's grammar
+                                 # re-vendoring it MUST be followed by scripts/config-grammar.py
 ```
 
 **Versions.** Cargo and npm require a literal version in their manifests;

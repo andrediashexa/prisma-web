@@ -2,6 +2,7 @@ mod audit;
 mod access;
 mod auth;
 mod config;
+mod config_model;
 mod error;
 mod grpc;
 mod limiter;
