@@ -209,12 +209,12 @@ def routing_form_checks(admin, R):
     edits = [
         (list(bgp), ["neighbor 192.0.2.77 remote-as 64777", "neighbor 192.0.2.77 description e2e peer", "neighbor 192.0.2.77 bfd",
                      "neighbor 2001:db8:77::1 remote-as 64777", "bgp router-id 203.0.113.10"]),
-        (af4, ["neighbor 192.0.2.77 activate", "neighbor 192.0.2.77 route-map E2E-IN", "network 198.51.100.0/24",
+        (af4, ["neighbor 192.0.2.77 activate", "neighbor 192.0.2.77 route-map E2E-IN in", "network 198.51.100.0/24",
                "aggregate-address 198.51.100.0/22 summary-only", "redistribute connected"]),
         (af6, ["neighbor 2001:db8:77::1 activate", "network 2001:db8:77::/48"]),
-        (["router ospf"], ["network 10.77.0.0/16 area 0.0.0.1", "area 0.0.0.1", "passive-interface wan0",
+        (["router ospf"], ["network 10.77.0.0/16 area 0.0.0.1", "area 0.0.0.1 stub", "passive-interface wan0",
                            "redistribute static metric 20 metric-type 1"]),
-        (["router ospf6"], ["area 0", "redistribute connected route-map E2E"]),
+        (["router ospf6"], ["area 0.0.0.2 nssa", "redistribute connected route-map E2E"]),
         (["interface wan0"], ["ip ospf cost 10", "ipv6 ospf6 area 0", "ipv6 ospf6 passive"]),
         (["router static"], ["198.51.100.0/24 next-hop 203.0.113.9 distance 200", "2001:db8:77::/48 next-hop wan0"]),
     ]

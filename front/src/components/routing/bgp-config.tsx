@@ -24,6 +24,7 @@ import {
   bgpCreateEdits,
   bgpGlobalEdits,
   bgpRedistributeEdits,
+  invalidDirected,
   invalidInt,
   neighborEdits,
   neighborEditsTyped,
@@ -427,8 +428,8 @@ function attrsOf(s: NeighborState): { attrs: Attrs; families: Record<Afi, Attrs>
     const x = s.families[f]
     const out: Attrs = {}
     if (x.activate) out.activate = ""
-    if (x.routeMap.trim()) out["route-map"] = x.routeMap.trim()
-    if (x.prefixList.trim()) out["prefix-list"] = x.prefixList.trim()
+    if (x.routeMap.trim()) out["route-map"] = x.routeMap.trim().replace(/\s+/g, " ")
+    if (x.prefixList.trim()) out["prefix-list"] = x.prefixList.trim().replace(/\s+/g, " ")
     if (x.softReconfiguration) out["soft-reconfiguration"] = "inbound"
     return out
   }
@@ -477,6 +478,10 @@ function NeighborDialog({
     ["eBGP multihop", optInt(s.ebgpMultihop, 1, 255)],
     ["Keepalive", optInt(s.keepalive, 0, 65535) ?? (!s.keepalive.trim() && s.hold.trim() ? "required with the hold time" : null)],
     ["Hold time", optInt(s.hold, 0, 65535) ?? (s.keepalive.trim() && !s.hold.trim() ? "required with the keepalive" : null)],
+    ...AFIS.flatMap((f): [string, string | null][] => [
+      [`Route map (${f})`, invalidDirected(s.families[f].routeMap)],
+      [`Prefix list (${f})`, invalidDirected(s.families[f].prefixList)],
+    ]),
     ["Maximum prefixes", s.maximumPrefix.trim() && !/^\d+( \d+)?( restart \d+)?$/.test(s.maximumPrefix.trim().replace(/\s+/g, " ")) ? "<n> [<percent>] [restart <minutes>]" : null],
   ]
   const problem = firstProblem(checks)
@@ -539,8 +544,20 @@ function NeighborDialog({
             <div key={f} className="space-y-3 rounded-lg border p-3" data-family={f}>
               <div className="text-sm font-medium">{AFI_TITLE[f]}</div>
               <SwitchField label={`Activate in ${AFI_TITLE[f]}`} checked={s.families[f].activate} onChange={(activate) => setFam(f, { activate })} />
-              <TextField label="Route map" value={s.families[f].routeMap} onChange={(routeMap) => setFam(f, { routeMap })} />
-              <TextField label="Prefix list" value={s.families[f].prefixList} onChange={(prefixList) => setFam(f, { prefixList })} />
+              <TextField
+                label="Route map"
+                value={s.families[f].routeMap}
+                onChange={(routeMap) => setFam(f, { routeMap })}
+                placeholder="NAME in"
+                error={why[`Route map (${f})`]}
+              />
+              <TextField
+                label="Prefix list"
+                value={s.families[f].prefixList}
+                onChange={(prefixList) => setFam(f, { prefixList })}
+                placeholder="NAME in"
+                error={why[`Prefix list (${f})`]}
+              />
               <SwitchField
                 label="Soft reconfiguration inbound"
                 checked={s.families[f].softReconfiguration}

@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.22 | `11163ea9328b3a12c8cf90d28af4e75ce9972b3c45a9f06842de62544b8a4d01` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.22 | `d54d1ee07c43cc79261b1b6d8b7dc834404dec99eedb27ad0d8a73f43cf42992` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.22 | `9b0479feee2c3c1095f4ad0c26ded71cb01ec2644db60c8965269c05e6e856de` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.24 | `4403c9c2813624c4dc9135821388512de1c74be78450315cff1256ce1f0fe883` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.24 | `a19bf5b78d906edcfefb81845b854ff03787953d12eeef3bbf3e63e1670bdaef` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.24 | `c2439b05b662976496c633f9a2352e69b94f610d0777432b774ad8d8c73db07f` |
 
-0.149.23 changes none of the three: the files above are also its contract and guide.
+0.149.23 changed none of the three; 0.149.24 changes all three (#47).
 
-Read up to 0.149.23 in `clients.md` and already handled:
+Read up to 0.149.24 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -285,8 +285,16 @@ Read up to 0.149.23 in `clients.md` and already handled:
 - On 2026-10-03 the read-only checks ran against 192.0.2.198 on 0.149.22 (typed reads of every
   area, held to its running configuration) and on 192.0.2.166 on 0.149.14 (GetConfig answers 501:
   the forms keep the lines). After .198's upgrade to 0.149.24 the typed reads still pass there; the
-  #45 check that every operator line matches its GetSchema fails on two lines with 0.149.24's new
-  schema, which prisma-web follows in the issue that adopts 0.149.24.
+  #45 check that every operator line matches its GetSchema failed on two lines with 0.149.24's new
+  schema until #47 (below).
+- 0.149.24 changes the shape of `GetSchema`: a statement's `words` are literal keywords only, and
+  each `SchemaArgument` says where it stands among them (`position`, the number of words before
+  it), whether keyword-led parts come in any order (`unordered`, `group`) and whether it takes
+  several values to the end of the line (`many`). From a box at 0.149.24 or later prisma-web places
+  each form's arguments among the words by `position` (`neighbor <address> remote-as <asn>`,
+  `<prefix> next-hop <address>`); an older box's schema is read as before. It also adds
+  `SetConfig` objects (`System`, `VrfDevice`) and a `KeyValue` message; the mock answers
+  *unimplemented* for the new objects (#47).
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

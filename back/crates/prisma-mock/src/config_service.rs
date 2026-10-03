@@ -509,6 +509,8 @@ impl ConfigService for ConfigSvc {
             Object::Logging(l) => typed::set_logging(c, l, &req.fields),
             Object::StaticRoute(r) => typed::set_static(c, r, &req.fields),
             Object::BgpNeighbor(n) => typed::set_bgp_neighbor(c, n, &req.fields),
+            // Prisma 0.149.24's other typed objects: prisma-web writes those areas as lines.
+            _ => return Err(Status::unimplemented("SetConfig for this object is not simulated")),
         }
         .map_err(usage)?;
         stage(&mut cand.config, plan)

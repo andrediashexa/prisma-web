@@ -251,6 +251,9 @@ sequenceDiagram
   model (`config_model::from_schema`); the coverage map remains the source for an older box. The
   box's own lines are marked from `TypedConfig.box_owned`, with the box's reason, and a setting can
   be checked by the VTY itself (`ValidateLines`, nothing staged) before it joins the changes (#44).
+  From Prisma 0.149.24 a statement's `words` are literal and each argument carries its `position`
+  among them; `from_schema` places each form's arguments there and keeps the words every form
+  starts with in front (#47).
   The syntax parser lives in `prisma_proto::vty`, shared with the mock, whose `GetSchema` is built
   from the same grammar. A real box's schema puts placeholders in a statement's words (`<prefix>`,
   `neighbor <address>`) and once splits a range choice (`1-4294967295>`), and its running
@@ -299,7 +302,9 @@ sequenceDiagram
   `no neighbor … remote-as` removes the whole neighbor; `no neighbor <address>` is how a neighbor
   is removed as a line before Prisma 0.149.20 and from 0.149.23, and statement by statement in
   between (#46). OSPF6 has no `network` statement: an interface joins an area with
-  `ipv6 ospf6 area`. The grammar types a static route's next hop as an address; the form also takes
+  `ipv6 ospf6 area`. An area is declared only with its type (`area 0.0.0.1 stub`), and a
+  neighbor's route map or prefix list in a family with its direction (`NAME in`), as FRR takes
+  them (#47). The grammar types a static route's next hop as an address; the form also takes
   an interface name, as the issue asks, and the box has the last word in the review. The forms are
   offered to operators and above whose box account can change the routing modes (administrator).
 - **Forms on the typed configuration (#46):** on a box that answers `GetConfig` for their area

@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for m in [
         "InterfaceConfig", "PoolConfig", "PortForwardConfig", "LogCollectorConfig", "LoggingConfig",
         "StaticRouteConfig", "BgpNeighborEdit", "BgpNeighborConfig", "BgpNeighborFamilyEdit", "BgpNeighborFamilyConfig",
+        "KeyValue",
     ] {
         cfg = cfg.type_attribute(format!(".prisma.v1.{m}"), "#[derive(serde::Deserialize)] #[serde(default)]");
     }
