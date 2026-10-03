@@ -44,6 +44,8 @@ export interface Grammar {
 
 export interface ConfigLine {
   text: string
+  /** The box's own line, read only on purpose: why (Prisma 0.149.20). */
+  owned: string | null
   /** [group, statement] in the mode; null when no statement matched. */
   statement: [number, number] | null
   values: Record<string, string>

@@ -30,6 +30,7 @@ services:
       context: ./back
       args:
         BIN: prisma-web-server
+        CACHE_ID: ${COMPOSE_PROJECT_NAME:-prisma-web}
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-prisma}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-prisma_web}
@@ -101,7 +102,8 @@ services:
       context: ./back
       args:
         BIN: prisma-mock
-    image: prisma-web-prisma-mock
+        CACHE_ID: ${COMPOSE_PROJECT_NAME:-prisma-web}
+    image: ${COMPOSE_PROJECT_NAME:-prisma-web}-prisma-mock
     restart: unless-stopped
     environment:
       BIND_ADDR: "[::]:50051"
@@ -110,7 +112,9 @@ services:
 
   prisma-mock-2:
     profiles: [mock]
-    image: prisma-web-prisma-mock
+    image: ${COMPOSE_PROJECT_NAME:-prisma-web}-prisma-mock
+    # Built by the prisma-mock service, never pulled.
+    pull_policy: never
     depends_on:
       prisma-mock:
         condition: service_started

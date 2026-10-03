@@ -433,4 +433,45 @@ impl ConfigService for ConfigSvc {
             .collect();
         Ok(Response::new(ListRevisionsResponse { revisions, ..Default::default() }))
     }
+
+    async fn get_schema(&self, _: Request<GetSchemaRequest>) -> R<ConfigSchema> {
+        Ok(Response::new(crate::schema::schema()))
+    }
+
+    async fn get_config(&self, req: Request<GetConfigRequest>) -> R<TypedConfig> {
+        let req = req.into_inner();
+        let mut st = self.0.state.lock().unwrap();
+        let (config, source) = if req.candidate_id.is_empty() {
+            (st.running.clone(), "running")
+        } else {
+            (cand(&mut st, &req.candidate_id)?.config.clone(), "candidate")
+        };
+        let cgnat: Vec<String> = config.blocks.iter().find(|b| b.path == ["nat", "cgnat"]).map(|b| b.lines.clone()).unwrap_or_default();
+        Ok(Response::new(TypedConfig {
+            source: source.into(),
+            revision: if source == "running" { format!("r{}", st.revision()) } else { String::new() },
+            candidate_id: req.candidate_id,
+            logging: Some(crate::schema::logging(&cgnat)),
+            box_owned: crate::schema::box_owned(&config.render()),
+            ..Default::default()
+        }))
+    }
+
+    async fn validate_lines(&self, req: Request<ValidateLinesRequest>) -> R<ValidateLinesResponse> {
+        let req = req.into_inner();
+        let st = self.0.state.lock().unwrap();
+        // Each line alone, in a copy nobody sees.
+        let verdicts = req
+            .lines
+            .iter()
+            .map(|line| {
+                let mut scratch = st.running.clone();
+                match scratch.edit(&req.path, std::slice::from_ref(line)) {
+                    Ok(_) => LineVerdict { line: line.clone(), ok: true, message: "accepted".into(), ..Default::default() },
+                    Err(r) => LineVerdict { line: line.clone(), ok: false, reason: Reason::Grammar as i32, message: r.message, ..Default::default() },
+                }
+            })
+            .collect();
+        Ok(Response::new(ValidateLinesResponse { verdicts, ..Default::default() }))
+    }
 }

@@ -342,7 +342,10 @@ impl Config {
 
     /// Text as `show running-config` prints it.
     pub fn render(&self) -> String {
-        let mut out = vec![format!("hostname {}", self.hostname), "!".to_string()];
+        let mut out = vec![format!("hostname {}", self.hostname)];
+        // The box's own lines, as FRR writes them on a real box (#44).
+        out.extend(crate::schema::BOX_OWNED.iter().map(|(l, _)| l.to_string()));
+        out.push("!".to_string());
         for i in &self.interfaces {
             out.push(format!("interface {}", i.name));
             if let Some(d) = &i.description {
@@ -768,7 +771,7 @@ mod tests {
     fn render_and_edit() {
         let mut c = Config::seed("x");
         let text = c.render();
-        assert!(text.starts_with("hostname x\n!\ninterface wan0\n description Carrier uplink\n ipv4 address"));
+        assert!(text.starts_with("hostname x\nlog syslog informational\nservice integrated-vtysh-config\n!\ninterface wan0\n description Carrier uplink\n ipv4 address"));
         assert!(text.contains("nat\n cgnat\n  pool RFC6598\n   prefix-inside 100.64.0.0/10\n"));
         c.edit(&p(&["interface wan0"]), &p(&["mtu 9000", "no description"])).ok().unwrap();
         c.edit(&p(&POOL_PATH), &p(&["block-size 512"])).ok().unwrap();

@@ -7,6 +7,10 @@ use tonic::{Code, Status};
 /// Default timeout of a call; the console (`Show`) uses a longer one.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 pub const SHOW_TIMEOUT: Duration = Duration::from_secs(30);
+/// Reads of the running configuration (GetRunning, GetConfig): before Prisma
+/// 0.149.21 an account with no configuration role waited about 90 s for them
+/// (prismarouting #561), so `clients.md` asks for at least 120 s.
+pub const RUNNING_TIMEOUT: Duration = Duration::from_secs(120);
 /// A `ListRoutes` page waits up to 60 s for the box's snapshot to reach it
 /// (docs/prisma-api.md, "The routing table"), then answers what it has.
 pub const ROUTES_TIMEOUT: Duration = Duration::from_secs(65);

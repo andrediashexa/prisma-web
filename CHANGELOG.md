@@ -16,6 +16,21 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.18.0 - Grammar from the router — 2026-10-03
+
+### New
+- **Settings** takes its grammar from the router itself on Prisma 0.149.20 or newer (`GetSchema`), and says where it came from (#44).
+- **Check with the router:** a setting can be checked by the router's own VTY before it joins the changes; nothing is staged by the check (Prisma 0.149.20 or newer) (#44).
+- The box's own lines (FRR's logging, the box's VRF) are shown read only with the router's reason (#44).
+
+### Fixed
+- Reads of the running configuration wait up to 120 s: before Prisma 0.149.21 an account without a configuration role took about 90 s for them and failed (#44).
+- `<A.B.C.D|X:X::X:X>` values (either family) are recognised in the structured editor (#44).
+
+### Internal
+- Client regenerated from the Prisma 0.149.20 contract (additions only); integration notes read up to 0.149.21. The syslog-disable guard reads the configured collectors from the box (#44).
+- Builds cache their compiled artifacts per compose project, and the mock image is named after the project: two checkouts building at once no longer reuse each other's output (#44).
+
 ## 0.17.0 - Routing forms — 2026-10-03
 
 ### New

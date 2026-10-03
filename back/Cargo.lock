@@ -1443,13 +1443,15 @@ dependencies = [
 
 [[package]]
 name = "prisma-mock"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "chrono",
  "prisma-proto",
  "prost-types",
  "rand",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -1461,7 +1463,7 @@ dependencies = [
 
 [[package]]
 name = "prisma-proto"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "chrono",
  "prost",
@@ -1476,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "prisma-web-server"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "argon2",

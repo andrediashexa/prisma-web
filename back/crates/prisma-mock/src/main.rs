@@ -7,6 +7,7 @@ mod config_service;
 mod log_export;
 mod operational;
 mod policy;
+mod schema;
 mod session;
 mod route_service;
 mod state;
