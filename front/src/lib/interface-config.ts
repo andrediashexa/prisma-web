@@ -40,6 +40,8 @@ export interface InterfaceConfig {
   cgnat: CgnatRole
   urpf: Urpf
   suppressRa: boolean
+  /** PREF64 (Prisma 0.150.2, #61): the NAT64 prefixes the router advertisements carry, `ipv6 nd nat64 <prefix>`. */
+  pref64: string[]
   vlan: string
   vlanInner: string
   linuxName: string
@@ -64,6 +66,7 @@ export const emptyInterface = (name: string): InterfaceConfig => ({
   cgnat: "",
   urpf: "",
   suppressRa: false,
+  pref64: [],
   vlan: "",
   vlanInner: "",
   linuxName: "",
@@ -81,6 +84,15 @@ export const interfacePath = (name: string) => [`interface ${name}`]
 function read(c: InterfaceConfig, line: string): boolean {
   const w = line.split(/\s+/)
   const rest = (n: number) => w.slice(n).join(" ")
+  // Before the switch: its `ipv6` case takes addresses only (the suppress-ra line was never read, #61).
+  if (line === "ipv6 nd suppress-ra") {
+    c.suppressRa = true
+    return true
+  }
+  if (w[0] === "ipv6" && w[1] === "nd" && w[2] === "nat64" && w.length === 4) {
+    c.pref64.push(w[3])
+    return true
+  }
   switch (w[0]) {
     case "description":
       c.description = rest(1)
@@ -131,10 +143,6 @@ function read(c: InterfaceConfig, line: string): boolean {
       c.loadBalance = w[1] as LoadBalance
       return true
   }
-  if (line === "ipv6 nd suppress-ra") {
-    c.suppressRa = true
-    return true
-  }
   return false
 }
 
@@ -178,7 +186,10 @@ export function interfaceLines(old: InterfaceConfig, cur: InterfaceConfig): stri
   swap(out, old.vrf, cur.vrf, (v) => `vrf ${v}`)
   swap(out, old.cgnat, cur.cgnat, (v) => `cgnat ${v}`)
   swap(out, old.urpf, cur.urpf, (v) => `urpf ${v}`)
+  // PREF64 goes before advertisements are suppressed and after they are turned on (#61).
+  if (cur.suppressRa && !old.suppressRa) lists(out, old.pref64, cur.pref64, (p) => `ipv6 nd nat64 ${p}`)
   if (cur.suppressRa !== old.suppressRa) out.push(cur.suppressRa ? "ipv6 nd suppress-ra" : "no ipv6 nd suppress-ra")
+  if (!(cur.suppressRa && !old.suppressRa)) lists(out, old.pref64, cur.pref64, (p) => `ipv6 nd nat64 ${p}`)
   const vlan = (c: InterfaceConfig) => (c.vlan ? `${c.vlan}${c.vlanInner ? ` inner ${c.vlanInner}` : ""}` : "")
   swap(out, vlan(old), vlan(cur), (v) => `vlan ${v}`)
   swap(out, old.linuxName, cur.linuxName.trim(), (v) => `linux-name ${v}`)
@@ -217,7 +228,7 @@ export function readInterfacesTyped(typed: TypedInterface[], instances: Instance
 }
 
 /** Lines GetConfig types: they never show among an interface's others in the typed form. */
-const TYPED_LINE = /^(no )?(description|mtu|shutdown|ipv[46] address|vrf|cgnat|urpf|vlan|linux-name|mac-address|ipv6 nd suppress-ra)\b/
+const TYPED_LINE = /^(no )?(description|mtu|shutdown|ipv[46] address|vrf|cgnat|urpf|vlan|linux-name|mac-address|ipv6 nd suppress-ra|ipv6 nd nat64)\b/
 
 function typedFields(t: TypedInterface) {
   return {
@@ -231,6 +242,7 @@ function typedFields(t: TypedInterface) {
     urpf: (t.urpf || "") as Urpf,
     // `router_advertisements` is `no ipv6 nd suppress-ra`; the form asks the opposite.
     suppressRa: !t.router_advertisements,
+    pref64: [...(t.pref64 ?? [])],
     vlan: n2s(t.vlan_outer),
     vlanInner: n2s(t.vlan_inner),
     linuxName: t.linux_name,
@@ -251,6 +263,7 @@ export function typedInterfaceFields(a: InterfaceConfig, b: InterfaceConfig): st
   if (b.cgnat !== a.cgnat) out.push("cgnat_role")
   if (urpfTyped(b.urpf) !== urpfTyped(a.urpf)) out.push("urpf")
   if (b.suppressRa !== a.suppressRa) out.push("router_advertisements")
+  if (!same(a.pref64, b.pref64)) out.push("pref64")
   if (b.vlan !== a.vlan || b.vlanInner !== a.vlanInner) out.push("vlan")
   if (b.linuxName.trim() !== a.linuxName) out.push("linux_name")
   if (b.macAddress.trim().toLowerCase() !== a.macAddress) out.push("mac_address")
@@ -272,6 +285,7 @@ export function toTypedInterface(c: InterfaceConfig): Partial<TypedInterface> & 
     cgnat_role: c.cgnat,
     urpf: urpfTyped(c.urpf),
     router_advertisements: !c.suppressRa,
+    pref64: c.pref64,
     vlan_outer: s2n(c.vlan),
     vlan_inner: s2n(c.vlanInner),
     linux_name: c.linuxName.trim(),
@@ -378,5 +392,6 @@ export function fieldProblems(c: InterfaceConfig): Partial<Record<keyof Interfac
   if (c.vlanInner && !c.vlan) out.vlanInner = "an inner VLAN needs the outer one"
   if (c.macAddress.trim() && !MAC.test(c.macAddress.trim())) out.macAddress = "six hex pairs, e.g. 02:00:00:00:00:01"
   if (/\s/.test(c.linuxName.trim())) out.linuxName = "one word"
+  if (c.suppressRa && c.pref64.length) out.pref64 = "PREF64 travels in router advertisements: they must not be suppressed"
   return out
 }

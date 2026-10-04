@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.0 | `7905cf993bf993f40ec0d2026697ac216719ff16861cdc41e232d7cbec357ea2` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.150.0 | `a7b449b8fe4cfe173c6798cde4c38d9b234c6343519945ee2d4d76c20c37b40c` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.0 | `2dfa0a59e402879a26dca3775e19c9bb04b3cbb4a0d7d8e02b80ef3eca3b4b25` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.2 | `658df1eabeb46a8ea8ce45dc5baab0f238f9266f74dc0eca797c8c20dda96714` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.150.2 | `a7b449b8fe4cfe173c6798cde4c38d9b234c6343519945ee2d4d76c20c37b40c` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.2 | `ed4edcc1c4d4a1e29693e5ecafe0cae6b18f0dd51a6f76d4d2a0b387379cc9e3` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) the proto and the coverage map.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map.
 
-Read up to 0.150.1 in `clients.md` and already handled:
+Read up to 0.150.2 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -393,7 +393,18 @@ Read up to 0.150.1 in `clients.md` and already handled:
   forward on a NAT64 pool takes an IPv6 private address (edited in Settings, by the grammar). The
   mock takes NAT64 pools (typed and as lines) and FTP on one, refuses another ALG or a bypass on one and a subscriber
   length on an IPv4 pool, and streams a NAT64 subscriber as its /56. A fresh 0.150.0 install has
-  `prisma-operator` from the start. 192.0.2.166 is on 0.150.0 since 2026-10-04. On 2026-10-04 one on
+  `prisma-operator` from the start. 192.0.2.166 is on 0.150.0 since 2026-10-04.
+- 0.150.2 (additive) adds PREF64 (RFC 8781), followed in #61: `InterfaceConfig.pref64` (16) are
+  the NAT64 prefixes an interface's router advertisements carry, `ipv6 nd nat64 <prefix>`, so a
+  subscriber's CLAT learns the NAT64 prefix. The interface form lists them while advertisements
+  are not suppressed (and refuses to suppress them while it lists one); typed as `pref64`, as
+  lines `ipv6 nd nat64`, written before a suppression and after advertisements are turned on.
+  The box refuses one on an interface that does not advertise, and a prefix no NAT64 pool
+  translates, in its words; the mock does the same (a NAT64 pool's `nat64_prefix`, or
+  `64:ff9b::/96` when empty). The line reading of the interface form also takes
+  `ipv6 nd suppress-ra` again, which an earlier `ipv6` rule had kept from being read. On
+  2026-10-04 192.0.2.166 (on 0.150.2) was found powered off with no shutdown in its journal,
+  and started again; its API was away meanwhile. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no

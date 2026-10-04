@@ -121,8 +121,20 @@ fn interface(i: &crate::config::Iface) -> InterfaceConfig {
         urpf: extra_value(i, "urpf").filter(|v| *v != "off").unwrap_or_default().into(),
         // The mock writes `ipv6 nd suppress-ra` to stop them; without it they are sent.
         router_advertisements: !i.extra.iter().any(|l| l == "ipv6 nd suppress-ra"),
+        // PREF64 (0.150.2, #61): the NAT64 prefixes the advertisements carry.
+        pref64: i.extra.iter().filter_map(|l| l.strip_prefix("ipv6 nd nat64 ")).map(|p| p.trim().to_string()).collect(),
         ..Default::default()
     }
+}
+
+/// The NAT64 prefixes the box's NAT64 pools translate ("" is the well-known one), #61.
+fn nat64_prefixes(c: &Config) -> Vec<String> {
+    c.pool_names()
+        .iter()
+        .map(|n| pool(c, n))
+        .filter(|p| p.prefix_inside.iter().any(|x| x.contains(':')))
+        .map(|p| if p.nat64_prefix.is_empty() { "64:ff9b::/96".to_string() } else { p.nat64_prefix })
+        .collect()
 }
 
 fn pool(c: &Config, name: &str) -> PoolConfig {
@@ -439,9 +451,9 @@ fn list(out: &mut Vec<String>, old: &[String], new: &[String], line: impl Fn(&st
     }
 }
 
-const IFACE_FIELDS: [&str; 13] = [
+const IFACE_FIELDS: [&str; 14] = [
     "description", "mtu", "shutdown", "ipv4", "ipv6", "cgnat_role", "vrf", "linux_name", "vlan", "mac_address", "urpf",
-    "router_advertisements", "name",
+    "router_advertisements", "name", "pref64",
 ];
 
 pub fn set_interface(c: &Config, i: &InterfaceConfig, fields: &[String]) -> Result<Plan, Usage> {
@@ -453,9 +465,21 @@ pub fn set_interface(c: &Config, i: &InterfaceConfig, fields: &[String]) -> Resu
     if c.iface(&i.name).is_none() && !is_bundle(&i.name) {
         return usage(format!("interface {} does not exist", i.name));
     }
+    // PREF64 (0.150.2, #61): only where advertisements are sent, and only a prefix a NAT64 pool
+    // translates, refused as the box's commit check words it.
+    let pref64 = if named.contains(&"pref64") { &i.pref64 } else { &cur.pref64 };
+    let ra = if named.contains(&"router_advertisements") { i.router_advertisements } else { cur.router_advertisements };
+    if !pref64.is_empty() && !ra {
+        return usage(format!("% {}: ipv6 nd nat64 needs router advertisements (no ipv6 nd suppress-ra)", i.name));
+    }
+    let translated = nat64_prefixes(c);
+    if let Some(p) = pref64.iter().find(|p| !translated.contains(p)) {
+        return usage(format!("% ipv6 nd nat64 {p}: no NAT64 pool translates this prefix"));
+    }
     let mut out = vec![];
     for f in named {
         match f {
+            "pref64" => list(&mut out, &cur.pref64, &i.pref64, |p| format!("ipv6 nd nat64 {p}")),
             "description" => swap(&mut out, &cur.description, i.description.trim(), |v| format!("description {v}"), "no description"),
             "mtu" if i.mtu != cur.mtu => out.push(if i.mtu == 0 { "no mtu".into() } else { format!("mtu {}", i.mtu) }),
             "shutdown" if i.shutdown != cur.shutdown => out.push(if i.shutdown { "shutdown" } else { "no shutdown" }.into()),

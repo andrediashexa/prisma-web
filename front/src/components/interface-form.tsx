@@ -17,6 +17,7 @@ import {
   interfaceChange,
   type InterfaceConfig,
 } from "@/lib/interface-config"
+import { invalid } from "@/lib/config-model"
 import { MTU_MAX, MTU_MIN } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -53,11 +54,13 @@ export function InterfaceForm({
 }) {
   const [cur, setCur] = useState<InterfaceConfig | null>(null)
   const [typed, setTyped] = useState({ ipv4: "", ipv6: "" })
+  const [pref64, setPref64] = useState("")
   const [shownFor, setShownFor] = useState<InterfaceEditing | null>(null)
   if (editing !== shownFor) {
     setShownFor(editing)
     setCur(editing ? structuredClone(editing.start) : null)
     setTyped({ ipv4: "", ipv6: "" })
+    setPref64("")
   }
   if (!editing || !cur) return <Dialog open={false} />
 
@@ -65,7 +68,7 @@ export function InterfaceForm({
   const problems = fieldProblems(cur)
   const change = interfaceChange(editing.running, cur, typedBox)
   const lines = [...change.lines, ...(change.summary ?? [])]
-  const pendingTyped = typed.ipv4.trim() || typed.ipv6.trim()
+  const pendingTyped = typed.ipv4.trim() || typed.ipv6.trim() || pref64.trim()
   const blocked = Object.keys(problems).length > 0 || !!pendingTyped
   // Ports that can join this bundle: not a bundle, the loopback or a VLAN, nor in another bundle.
   const memberOptions = all
@@ -195,6 +198,33 @@ export function InterfaceForm({
               <Switch checked={cur.suppressRa} onCheckedChange={(c) => set({ suppressRa: c })} aria-label="Suppress router advertisements" />
               Suppress IPv6 router advertisements (<span className="font-mono">ipv6 nd suppress-ra</span>)
             </label>
+            {/* PREF64 (Prisma 0.150.2, #61): a subscriber's CLAT learns the NAT64 prefix from the advertisements. */}
+            {(!cur.suppressRa || cur.pref64.length > 0) && (
+              <div className="max-w-md" data-pref64>
+                <AddressEditor
+                  family="ipv6"
+                  title="NAT64 prefixes (PREF64)"
+                  noun="prefix"
+                  example="64:ff9b::/96"
+                  list={cur.pref64}
+                  typed={pref64}
+                  onType={setPref64}
+                  problem={(v) =>
+                    invalid({ k: "ipv6_prefix" }, v) ?? (cur.pref64.includes(v) ? "already in the list" : null)
+                  }
+                  onAdd={(v) => {
+                    set({ pref64: [...cur.pref64, v] })
+                    setPref64("")
+                  }}
+                  onRemove={(v) => set({ pref64: cur.pref64.filter((p) => p !== v) })}
+                />
+                {problems.pref64 ? (
+                  <p className="text-destructive mt-1 text-xs">{problems.pref64}</p>
+                ) : (
+                  <p className="text-muted-foreground mt-1 text-xs">Carried in the router advertisements; a NAT64 pool must translate each prefix.</p>
+                )}
+              </div>
+            )}
           </Section>
 
           <Section title="Link">
@@ -325,6 +355,9 @@ function AddressEditor({
   problem,
   onAdd,
   onRemove,
+  title,
+  noun = "address",
+  example,
 }: {
   family: "ipv4" | "ipv6"
   list: string[]
@@ -333,8 +366,12 @@ function AddressEditor({
   problem: (v: string) => string | null
   onAdd: (v: string) => void
   onRemove: (v: string) => void
+  /** Another list than the interface's addresses (PREF64, #61). */
+  title?: string
+  noun?: string
+  example?: string
 }) {
-  const label = family === "ipv4" ? "IPv4" : "IPv6"
+  const label = title ?? (family === "ipv4" ? "IPv4" : "IPv6")
   const v = typed.trim()
   const why = v ? problem(v) : null
   const add = () => v && !why && onAdd(v)
@@ -342,7 +379,7 @@ function AddressEditor({
     <div className="space-y-2">
       <span className="text-sm font-medium">{label}</span>
       <div className="space-y-1">
-        {list.length === 0 && <p className="text-muted-foreground text-sm">No {label} address.</p>}
+        {list.length === 0 && <p className="text-muted-foreground text-sm">No {label} {noun}.</p>}
         {list.map((a) => (
           <div key={a} className="flex items-center gap-2 rounded-md border px-2 py-1">
             <span className="font-mono text-sm">{a}</span>
@@ -354,10 +391,10 @@ function AddressEditor({
       </div>
       <div className="flex gap-2">
         <Input
-          aria-label={`New ${label} address`}
+          aria-label={`New ${label} ${noun}`}
           aria-invalid={!!why}
           value={typed}
-          placeholder={family === "ipv4" ? "192.0.2.1/24" : "2001:db8::1/64"}
+          placeholder={example ?? (family === "ipv4" ? "192.0.2.1/24" : "2001:db8::1/64")}
           className={cn("font-mono", why && "border-destructive")}
           onChange={(e) => onType(e.target.value)}
           onKeyDown={(e) => {
@@ -367,7 +404,7 @@ function AddressEditor({
             }
           }}
         />
-        <Button variant="outline" disabled={!v || !!why} onClick={add} aria-label={`Add ${label} address`}>
+        <Button variant="outline" disabled={!v || !!why} onClick={add} aria-label={`Add ${label} ${noun}`}>
           <PlusIcon /> Add
         </Button>
       </div>

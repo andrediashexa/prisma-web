@@ -365,6 +365,14 @@ def typed_form_checks(admin, R):
                                         "fields": ["prefix_inside", "prefix_outside", "subscriber_length", "nat64_prefix"]})
         check(st == 200 and "prefix-inside 2001:db8:1200::/40" in b["lines"] and "subscriber-length 56" in b["lines"]
               and "nat64-prefix 2001:db8:64::/96" in b["lines"], "a NAT64 pool is set as fields", b)
+        # PREF64 (Prisma 0.150.2, #61): a prefix a NAT64 pool translates, on an interface that advertises.
+        st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "pref64": ["2001:db8:64::/96"]}, "fields": ["pref64"]})
+        check(st == 200 and b["lines"] == ["ipv6 nd nat64 2001:db8:64::/96"], "PREF64 is set as a field on an advertising interface", b)
+        st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "pref64": ["2001:db8:65::/96"]}, "fields": ["pref64"]})
+        check(st == 422 and "no NAT64 pool translates" in errmsg(b), "a PREF64 no NAT64 pool translates is refused in the box's words", b)
+        st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "pref64": ["2001:db8:64::/96"], "router_advertisements": False},
+                                        "fields": ["pref64", "router_advertisements"]})
+        check(st == 422 and "router advertisements" in errmsg(b), "PREF64 without router advertisements is refused", b)
         st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "algs": {"sip": True}}, "fields": ["algs"]})
         check(st == 422 and "NAT64" in errmsg(b), "an ALG other than FTP on a NAT64 pool is refused in the box's words", b)
         st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "algs": {"ftp": True}}, "fields": ["algs"]})
