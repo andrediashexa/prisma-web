@@ -8,6 +8,7 @@ import { Loader2Icon, PencilIcon, PlusIcon, SearchIcon, SettingsIcon, Trash2Icon
 import { ClearAction, useClears } from "@/components/clear-action"
 import { GlobalDialog } from "@/components/cgnat/global-dialog"
 import { LOG_KIND_LABEL, LoggingDialog } from "@/components/cgnat/logging-dialog"
+import { CgnatDiagnostics } from "@/components/cgnat/diagnostics"
 import { LiveLog } from "@/components/cgnat/live-log"
 import { PoolDialog } from "@/components/cgnat/pool-dialog"
 import { ChangeReview } from "@/components/config/change-review"
@@ -216,6 +217,9 @@ export default function CgnatPage() {
 
       {/* Who had which public address: an operator's, on a box with WatchLogging (#49). */}
       {liveLog && <LiveLog routerId={id} pools={rows.map((r) => r.name)} />}
+
+      {/* The rest of show cgnat (Prisma 0.150.3, #63); the lookup is an operator's. */}
+      <CgnatDiagnostics routerId={id} canLookup={roleAtLeast(myRole, "operator")} />
 
       {config && (
         <>

@@ -119,6 +119,14 @@ fn hms(secs: u64) -> String {
     if d > 0 { format!("{d}d{h:02}h{m:02}m") } else { format!("{h:02}:{m:02}:{:02}", secs % 60) }
 }
 
+/// The line-only mock stands for a box before 0.150.3 too (#63).
+fn before_0_150_3() -> Result<(), Status> {
+    if crate::typed::disabled() {
+        return Err(Status::unimplemented("MOCK_NO_TYPED: a box before 0.150.3"));
+    }
+    Ok(())
+}
+
 impl OperationalSvc {
     fn bgp(&self, st: &State) -> Vec<BgpNeighbor> {
         let branch = self.hostname.contains("branch");
@@ -349,6 +357,49 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         let st = self.shared.state.lock().unwrap();
         let pools = st.running.pool_names().iter().map(|n| pool(&st, n)).collect();
         Ok(Response::new(ListPoolsResponse { pools, ..Default::default() }))
+    }
+
+    // The rest of `show cgnat`, typed (0.150.3, #63); a box before it (the line-only mock) has none.
+    async fn lookup_translation(&self, req: Request<LookupTranslationRequest>) -> R<Translation> {
+        before_0_150_3()?;
+        let st = self.shared.state.lock().unwrap();
+        crate::cgnat_screens::translation(&st, req.get_ref()).map(Response::new)
+    }
+    async fn list_top(&self, req: Request<ListTopRequest>) -> R<ListTopResponse> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::top(req.get_ref().count)))
+    }
+    async fn get_drops(&self, _: Request<GetDropsRequest>) -> R<DropsReport> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::drops()))
+    }
+    async fn get_cgnat_memory(&self, _: Request<GetCgnatMemoryRequest>) -> R<CgnatMemory> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::memory(&self.shared.state.lock().unwrap())))
+    }
+    async fn list_blocks(&self, _: Request<ListBlocksRequest>) -> R<ListBlocksResponse> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::blocks()))
+    }
+    async fn get_identity(&self, _: Request<GetIdentityRequest>) -> R<IdentityState> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::identity()))
+    }
+    async fn verify_history(&self, _: Request<VerifyHistoryRequest>) -> R<HistoryVerification> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::history()))
+    }
+    async fn list_algs(&self, _: Request<ListAlgsRequest>) -> R<ListAlgsResponse> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::algs(&self.shared.state.lock().unwrap())))
+    }
+    async fn list_forwards(&self, req: Request<ListForwardsRequest>) -> R<ListForwardsResponse> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::forwards(&req.get_ref().pool)))
+    }
+    async fn get_ha_status(&self, _: Request<GetHaStatusRequest>) -> R<HaStatus> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::cgnat_screens::ha()))
     }
 
     async fn get_subscriber(&self, req: Request<GetSubscriberRequest>) -> R<Subscriber> {

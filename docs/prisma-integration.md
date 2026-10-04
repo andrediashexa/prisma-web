@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.2 | `658df1eabeb46a8ea8ce45dc5baab0f238f9266f74dc0eca797c8c20dda96714` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.150.2 | `a7b449b8fe4cfe173c6798cde4c38d9b234c6343519945ee2d4d76c20c37b40c` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.2 | `ed4edcc1c4d4a1e29693e5ecafe0cae6b18f0dd51a6f76d4d2a0b387379cc9e3` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.3 | `e872dea7d1a4fa7c9377183ff2be01bef1b2617f6f5369a78a6579a1d2782f5c` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.150.3 | `eff830b29853c90126bc6344e5d1e16bf96db4ec894f7e0e1da74eeb7a0cccdd` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.3 | `f4f8693df3447430634082014a12439e96634c0ffaa9c3774c8be4f4c2df222d` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) all three.
 
-Read up to 0.150.2 in `clients.md` and already handled:
+Read up to 0.150.3 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -408,7 +408,19 @@ Read up to 0.150.2 in `clients.md` and already handled:
 - **Known bug in 0.150.2:** `SetConfig` with an `interface` always fails with `UNKNOWN` (the
   repeated `pref64` cannot be handed to the box's worker; fixed in 0.150.3). On 0.150.2 the
   interface form and the shutdown toggle write lines through `Edit`, reading the interfaces
-  typed as before (`interfaceSetWorks`, #62). On 2026-10-04 one on
+  typed as before (`interfaceSetWorks`, #62). 0.150.3 fixes it: there the form writes typed again.
+- 0.150.3 (additive, #558 phase 6) types the rest of `show cgnat`, followed in #63: ten
+  `OperationalService` reads, each with the VTY's screen in `text`, behind
+  `GET /api/routers/{id}/cgnat/{screen}` (`translation`, `top`, `drops`, `memory`, `blocks`,
+  `identity`, `history`, `algs`, `forwards`, `ha`; enums by name: `source` of a translation,
+  `verdict` of the history). The CGNAT tab's **Diagnostics** card shows their main fields and
+  the router's screen; a router before 0.150.3 answers *unimplemented* (probed with `drops`)
+  and gets no card. The translation lookup (public address and port to the subscriber, an IPv4
+  address or a NAT64 /56) is an operator's and audited (`router.translation`), as the live log
+  is; the box answers NOT_FOUND for an address no pool owns. `show cgnat ha peer <file>` stays
+  text through the console (it names a path on the box). `GetSubscriber.blocks`, empty since
+  0.148.4, now lists the subscriber's blocks, which the subscriber lookup already shows. The
+  mock answers the ten (the line-only mock, as a box before 0.150.3, does not). On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
