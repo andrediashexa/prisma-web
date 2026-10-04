@@ -27,7 +27,7 @@ const ACTIONS: Record<Action, { title: string; does: string; done: string }> = {
     does:
       "The dataplane stops and starts again: no traffic is forwarded until it is back, and every CGNAT session ends. " +
       "If this router's management address is on a dataplane interface, it drops off the network too, and prisma-web loses it until the dataplane is back.",
-    done: "The dataplane restarted.",
+    done: "The dataplane restarted: the router shows as in maintenance until it answers again.",
   },
   reboot: {
     title: "Reboot",
@@ -301,6 +301,15 @@ function PowerCard({ routerId }: { routerId: string }) {
       setAction(null)
       void fleet.mutate()
     } catch (err) {
+      if (action === "restart-dataplane" && err instanceof ApiError && err.diagnostics?.reason === "apply_failed") {
+        // Up to Prisma 0.149.32 the restart can answer apply_failed before FRR has started,
+        // though the router comes back (#57): wait for it rather than trust the reply.
+        setError(
+          `The router answered: ${errorMessage(err)}. On this Prisma that can come before it has finished starting: it shows as in maintenance until it answers again; check its configuration then.`,
+        )
+        void fleet.mutate()
+        return
+      }
       if (action === "restart-dataplane" && err instanceof ApiError && err.code === "router_unavailable") {
         // The box answers when the restart has finished; it went away instead (#51).
         setError(

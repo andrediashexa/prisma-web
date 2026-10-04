@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.24.6 - Restart as maintenance — 2026-10-04
+
+### Fixed
+- A dataplane restart that ran puts the router in maintenance until it answers again, whatever the router replied: up to Prisma 0.149.32 a restart that worked can answer `apply_failed` or lose the connection before the router has finished starting. Such a reply is now worded as "wait for it", not as a plain failure (#57).
+
+### Internal
+- Integration notes read up to Prisma 0.149.32 (contract unchanged), with the restart measured working on 192.0.2.166 (#57).
+
 ## 0.24.5 - Restart guarded through 0.149.31 — 2026-10-04
 
 ### Fixed

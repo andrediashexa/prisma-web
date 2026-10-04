@@ -190,7 +190,7 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) the proto and the coverage map.
 
-Read up to 0.149.30 in `clients.md` and already handled:
+Read up to 0.149.32 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -349,7 +349,7 @@ Read up to 0.149.30 in `clients.md` and already handled:
   reaches it at once (revoked and re-granted on 192.0.2.198, `can_operate` followed), and a
   candidate opened before it is closed and answers `CANDIDATE_EXPIRED`, which prisma-web shows as
   an expired change (#11).
-- **A dataplane restart through the API is refused on 0.149.25 to 0.149.31** (#51, #53-#56): the
+- **A dataplane restart through the API is refused on 0.149.25 to 0.149.31** (#51, #53-#57): the
   containers' stop fails early and the restart script gives up without starting them again, and
   every client connection meanwhile counts against the API socket's trigger limit, which keeps
   the API down even after (prismarouting #564). 0.149.27 runs the restart as a host unit of its
@@ -366,9 +366,16 @@ Read up to 0.149.30 in `clients.md` and already handled:
   ran end to end and the API socket came back, but the dataplane came up with its interfaces
   renamed (`eth0`, `eth1`, `eth2`: the restart stopped the boot tuner that names the cards and
   did not run it again), the saved configuration was refused, and the box, managed through the
-  dataplane, went dark until its VM was reset. Fixed as 0.149.32 (0.149.31 only cleans up
-  tests): prisma-web offers the restart from there (`RESTART_FIXED`), raised again if a lab box
-  shows otherwise (#56). On 2026-10-04 one on
+  dataplane, went dark until its VM was reset (#56). 0.149.31 only cleans up tests. On 0.149.32,
+  on .166, a restart through the API with prisma-web's certificate worked: the cards kept their
+  names and the box, its API and its configuration came back by themselves in 70-130 s while
+  prisma-web's monitor polled. prisma-web offers the restart from 0.149.32 (`RESTART_FIXED`).
+  Up to 0.149.32 the call can still answer `apply_failed`, or end with "Socket closed", though
+  the box comes back (its check runs before FRR has started; fixed in 0.149.33), so any restart
+  that ran (answered, `apply_failed` or a lost connection) puts the box in maintenance until it
+  answers again, and the page words `apply_failed` as such; refusals before it runs do not
+  (#57). A grant of `operator` that is not saved is gone after the restart, which loads the
+  saved configuration. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no

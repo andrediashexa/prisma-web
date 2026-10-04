@@ -561,6 +561,12 @@ def system_checks(admin, R, router_id):
     check(status()["checked_at"] == t1, "a box in maintenance is not polled every 5 s", (t1, status()["checked_at"]))
     st, b = admin.post(f"{R}/system/restart-dataplane", {"confirm": name})
     check(st == 200 and "restarted" in b["output"], "the dataplane restart answers when it has finished", b)
+    check((status().get("maintenance") or {}).get("what") == "dataplane", "a restart that ran puts the box in maintenance (#57)", status().get("maintenance"))
+    st, b = admin.post(f"{R}/show", {"command": "mock restart-dataplane apply-failed"})
+    st, b = admin.post(f"{R}/system/restart-dataplane", {"confirm": name})
+    d = (b or {}).get("error", {}).get("diagnostics") or {}
+    check(st == 409 and d.get("reason") == "apply_failed" and (status().get("maintenance") or {}).get("what") == "dataplane",
+          "an apply_failed restart is maintenance too: the box confirms by answering again (#57)", (b, status().get("maintenance")))
     st, evs = sse(admin, f"{R}/system/upgrade", {"version": ""})
     prog = [json.loads(d) for e, d in evs if e == "progress"] if st == 200 else []
     check(len(prog) == 1 and prog[0]["phase"] == "CHECKED" and prog[0]["newest"], "an upgrade with no version only checks: the newest release", evs)
