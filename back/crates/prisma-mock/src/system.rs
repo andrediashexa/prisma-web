@@ -91,8 +91,16 @@ impl SystemService for SystemSvc {
             if running_upgrade(&st) {
                 return Err(refused(tonic::Code::FailedPrecondition, Reason::Busy, "% an upgrade is running"));
             }
-            if std::mem::take(&mut st.restart_drops) {
-                return Err(Status::unavailable("Socket closed"));
+            match st.restart_answer.take().as_deref() {
+                Some("drops") => return Err(Status::unavailable("Socket closed")),
+                Some("apply-failed") => {
+                    return Err(refused(
+                        tonic::Code::FailedPrecondition,
+                        Reason::ApplyFailed,
+                        "% the dataplane restarted but its configuration did not load yet",
+                    ))
+                }
+                _ => {}
             }
         }
         Ok(Response::new(SystemActionResponse { output: "dataplane restarted (simulated)".into(), ..Default::default() }))

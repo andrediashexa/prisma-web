@@ -108,23 +108,32 @@ pub async fn action(
     };
     let action = format!("router.system.{what}");
     let lost = res.as_ref().err().is_some_and(lost_mid_call);
+    let apply_failed = res.as_ref().err().is_some_and(answered_apply_failed);
     let mut entry = Entry::by(&user, &meta, &action)
         .target(&r.name)
         .router(id)
-        .details(json!({ "force": b.force, "connection_lost": lost }));
+        .details(json!({ "force": b.force, "connection_lost": lost, "apply_failed": apply_failed }));
     if res.is_err() {
         entry = entry.failed();
     }
     if res.is_ok() && what != "restart-dataplane" {
         // The reply comes before the box goes down.
         st.routers.maintenance_begin(id, &what, None);
-    } else if lost && what == "restart-dataplane" {
-        // The restart answers when it has finished; a box whose management address is on a
-        // dataplane interface drops off before it can (192.0.2.198, 2026-10-04, #51).
+    } else if what == "restart-dataplane" && (res.is_ok() || lost || apply_failed) {
+        // A restart that ran is maintenance whatever it answers: a box whose management is on
+        // the dataplane drops off before it can (#51), and up to 0.149.32 the reply can be
+        // apply_failed before FRR has started though the box comes back (#57). The box
+        // answering again says it is back.
         st.routers.maintenance_begin(id, "dataplane", None);
     }
     audit::record(&st.db, entry).await;
     Ok(Json(res?.into_inner()))
+}
+
+/// The box ran the action but its check of the result failed (`REASON_APPLY_FAILED`).
+fn answered_apply_failed(s: &tonic::Status) -> bool {
+    s.code() == tonic::Code::FailedPrecondition
+        && prisma_proto::diagnostics(s).is_some_and(|d| d.reason == prisma_proto::v1::diagnostics::Reason::ApplyFailed as i32)
 }
 
 /// The connection went away while the call ran ("Socket closed", a reset): not a refusal.
@@ -205,6 +214,18 @@ mod tests {
     fn the_releases_with_the_broken_restart_are_refused() {
         assert!(restart_broken("0.149.25") && restart_broken("0.149.26-mock") && restart_broken("0.149.29") && restart_broken("0.149.31"));
         assert!(!restart_broken("0.149.32") && !restart_broken("0.149.0-mock") && !restart_broken("garbage"));
+    }
+
+    #[test]
+    fn apply_failed_is_told_from_a_refusal() {
+        let with = |code, reason: prisma_proto::v1::diagnostics::Reason| {
+            let d = Diagnostics { reason: reason as i32, ..Default::default() };
+            prisma_proto::with_diagnostics(tonic::Status::new(code, "x"), &d)
+        };
+        use prisma_proto::v1::diagnostics::Reason;
+        assert!(answered_apply_failed(&with(tonic::Code::FailedPrecondition, Reason::ApplyFailed)));
+        assert!(!answered_apply_failed(&with(tonic::Code::FailedPrecondition, Reason::Busy)));
+        assert!(!answered_apply_failed(&with(tonic::Code::PermissionDenied, Reason::Permission)));
     }
 
     #[test]

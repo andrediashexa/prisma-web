@@ -575,15 +575,16 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
         }
-        // Test hook (#51): the next dataplane restart drops the connection, as on a box whose
-        // management address is on a dataplane interface.
+        // Test hook: how the next dataplane restart answers: it drops the connection, as on a box
+        // whose management address is on a dataplane interface (#51), or answers apply_failed
+        // though it ran, as 0.149.32 can (#57).
         if let Some(state) = command.trim().strip_prefix("mock restart-dataplane ") {
-            let drops = match state {
-                "drops" => true,
-                "answers" => false,
-                _ => return Err(Status::invalid_argument("mock restart-dataplane drops|answers")),
+            let answer = match state {
+                "drops" | "apply-failed" => Some(state.to_string()),
+                "answers" => None,
+                _ => return Err(Status::invalid_argument("mock restart-dataplane drops|apply-failed|answers")),
             };
-            self.shared.state.lock().unwrap().restart_drops = drops;
+            self.shared.state.lock().unwrap().restart_answer = answer;
             return Ok(Response::new(ShowResponse { text: format!("dataplane restart {state}\n"), ..Default::default() }));
         }
         let text = {
