@@ -25,8 +25,10 @@ use crate::AppState;
 
 /// How long an upgrade may stream before prisma-web stops waiting (the box goes on).
 const UPGRADE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-/// The dataplane restart answers when it has finished.
-const RESTART_TIMEOUT: Duration = Duration::from_secs(180);
+/// The dataplane restart answers when it has finished: from Prisma 0.149.33 once the
+/// configuration has loaded, retrying up to 180 s, about four minutes in all; the server's
+/// own wait is 300 s (#58).
+const RESTART_TIMEOUT: Duration = Duration::from_secs(310);
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -136,9 +138,10 @@ fn answered_apply_failed(s: &tonic::Status) -> bool {
         && prisma_proto::diagnostics(s).is_some_and(|d| d.reason == prisma_proto::v1::diagnostics::Reason::ApplyFailed as i32)
 }
 
-/// The connection went away while the call ran ("Socket closed", a reset): not a refusal.
+/// The connection went away while the call ran ("Socket closed", a reset), or the call's
+/// deadline passed while the box was still at it (#58): not a refusal.
 fn lost_mid_call(s: &tonic::Status) -> bool {
-    matches!(s.code(), tonic::Code::Unavailable | tonic::Code::Unknown | tonic::Code::Cancelled)
+    matches!(s.code(), tonic::Code::Unavailable | tonic::Code::Unknown | tonic::Code::Cancelled | tonic::Code::DeadlineExceeded)
 }
 
 /// The last upgrade run, read back from the box (it outlives a lost stream).
@@ -231,6 +234,8 @@ mod tests {
     #[test]
     fn a_dropped_connection_is_not_a_refusal() {
         assert!(lost_mid_call(&tonic::Status::unavailable("Socket closed")));
+        assert!(lost_mid_call(&tonic::Status::deadline_exceeded("timeout")), "a restart still at it ran");
+        assert!(RESTART_TIMEOUT >= Duration::from_secs(300), "at least the server's own wait (0.149.33)");
         assert!(!lost_mid_call(&tonic::Status::permission_denied("root's")));
         assert!(!lost_mid_call(&tonic::Status::failed_precondition("busy")));
     }

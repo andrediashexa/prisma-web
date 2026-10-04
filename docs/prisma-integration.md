@@ -190,7 +190,7 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) the proto and the coverage map.
 
-Read up to 0.149.32 in `clients.md` and already handled:
+Read up to 0.149.33 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -375,7 +375,11 @@ Read up to 0.149.32 in `clients.md` and already handled:
   that ran (answered, `apply_failed` or a lost connection) puts the box in maintenance until it
   answers again, and the page words `apply_failed` as such; refusals before it runs do not
   (#57). A grant of `operator` that is not saved is gone after the restart, which loads the
-  saved configuration. On 2026-10-04 one on
+  saved configuration. 0.149.33 closes prismarouting #564: the restart waits for the
+  configuration to load (retrying up to 180 s, the server waiting up to 300 s), so the call can
+  take about four minutes; prisma-web gives it 310 s and counts a passed deadline as a restart
+  that ran (#58). On .166 it completed and the box was back whole in about 83 s; the call itself
+  still ends "Socket closed", the API restarting with the containers. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
