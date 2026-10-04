@@ -121,7 +121,24 @@ pub struct Maintenance {
     pub until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// How often a box in maintenance with no `until` is probed: a quarter of the time since it
+/// began, from 15 s up to 60 s (#52). On 0.149.25-0.149.26 each connection during a restart
+/// counts against the API socket's trigger limit (prismarouting #564).
+pub fn probe_interval(elapsed: chrono::Duration) -> Duration {
+    let quarter = elapsed.to_std().unwrap_or_default() / 4;
+    quarter.clamp(Duration::from_secs(15), Duration::from_secs(60))
+}
+
 impl Maintenance {
+    /// Whether the monitor leaves the box alone now (#52): before `until`, not at all; with no
+    /// `until`, unless a probe is due (`last` is the last probe).
+    pub fn quiet(&self, now: chrono::DateTime<chrono::Utc>, last: Option<Instant>) -> bool {
+        match self.until {
+            Some(until) => now < until,
+            None => last.is_some_and(|l| l.elapsed() < probe_interval(now - self.since)),
+        }
+    }
+
     /// Whether it still holds: before `until`, or with no `until`, while the box has not
     /// answered again since a minute after it began (a reboot answers before it goes down).
     /// A shutdown holds until the box answers again, however long.
@@ -148,6 +165,8 @@ pub struct Registry {
     consoles: Arc<std::sync::Mutex<HashMap<Uuid, usize>>>,
     /// Boxes in maintenance (#50).
     maintenance: std::sync::Mutex<HashMap<Uuid, Maintenance>>,
+    /// When the monitor last probed a box in maintenance (#52).
+    probes: std::sync::Mutex<HashMap<Uuid, Instant>>,
 }
 
 /// Marks a console command as in progress for as long as it exists.
@@ -196,6 +215,7 @@ impl Registry {
             access: Arc::new(RwLock::new(HashMap::new())),
             consoles: Arc::new(std::sync::Mutex::new(HashMap::new())),
             maintenance: std::sync::Mutex::new(HashMap::new()),
+            probes: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -281,16 +301,13 @@ impl Registry {
             handles.iter().filter(|h| !cache.contains_key(&h.id)).cloned().collect()
         };
         self.poll(missing).await;
+        self.expire_maintenance();
         let cache = self.status.read().unwrap();
-        let now = chrono::Utc::now();
-        let mut m = self.maintenance.lock().unwrap();
+        let m = self.maintenance.lock().unwrap();
         Ok(handles
             .iter()
             .filter_map(|h| cache.get(&h.id).cloned())
             .map(|mut st| {
-                if m.get(&st.id).is_some_and(|x| !x.holds(now, st.online)) {
-                    m.remove(&st.id);
-                }
                 st.maintenance = m.get(&st.id).cloned();
                 st
             })
@@ -301,6 +318,27 @@ impl Registry {
     pub fn maintenance_begin(&self, id: Uuid, what: &str, until: Option<chrono::DateTime<chrono::Utc>>) {
         let since = chrono::Utc::now();
         self.maintenance.lock().unwrap().insert(id, Maintenance { what: what.into(), since, until });
+        // The first probe waits its interval too: the box is going down now.
+        self.probes.lock().unwrap().insert(id, Instant::now());
+        // No telemetry stream reconnecting to it meanwhile (#52).
+        self.telemetry.stop(id);
+    }
+
+    /// Whether the box is in maintenance (it may still be due a probe).
+    fn in_maintenance(&self, id: Uuid) -> bool {
+        self.maintenance.lock().unwrap().contains_key(&id)
+    }
+
+    /// Whether the monitor skips the box this round (#52); a due probe is recorded.
+    fn quiet(&self, id: Uuid) -> bool {
+        let m = self.maintenance.lock().unwrap();
+        let Some(m) = m.get(&id) else { return false };
+        let mut probes = self.probes.lock().unwrap();
+        if m.quiet(chrono::Utc::now(), probes.get(&id).copied()) {
+            return true;
+        }
+        probes.insert(id, Instant::now());
+        false
     }
 
     /// The box said when it is back (an upgrade's API_RESTART with `api_away_seconds`).
@@ -312,6 +350,26 @@ impl Registry {
 
     pub fn maintenance_end(&self, id: Uuid) {
         self.maintenance.lock().unwrap().remove(&id);
+        self.probes.lock().unwrap().remove(&id);
+    }
+
+    /// Ends the maintenance that no longer holds, by the monitor's last status: the box is
+    /// polled and streamed as before right away, not when someone next reads the fleet (#52).
+    fn expire_maintenance(&self) {
+        let now = chrono::Utc::now();
+        let cache = self.status.read().unwrap();
+        let done: Vec<Uuid> = self
+            .maintenance
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(id, m)| !m.holds(now, cache.get(id).is_some_and(|s| s.online)))
+            .map(|(id, _)| *id)
+            .collect();
+        drop(cache);
+        for id in done {
+            self.maintenance_end(id);
+        }
     }
 
     /// Queries the routers in parallel and updates the status cache.
@@ -430,11 +488,14 @@ impl Registry {
             match self.all().await {
                 Ok(handles) => {
                     let ids: Vec<Uuid> = handles.iter().map(|h| h.id).collect();
-                    for h in handles.iter().filter(|h| h.unusable.is_none()) {
+                    // A box in maintenance gets no telemetry stream and only the probes it is due (#52).
+                    for h in handles.iter().filter(|h| h.unusable.is_none() && !self.in_maintenance(h.id)) {
                         self.telemetry.ensure(h.clone());
                     }
                     self.telemetry.retain(&ids);
-                    self.poll(handles).await;
+                    let due: Vec<_> = handles.iter().filter(|h| !self.quiet(h.id)).cloned().collect();
+                    self.poll(due).await;
+                    self.expire_maintenance();
                     self.status.write().unwrap().retain(|id, _| ids.contains(id));
                 }
                 Err(e) => tracing::warn!(error = %e, "fleet monitor failed"),
@@ -670,5 +731,20 @@ mod maintenance_tests {
         assert!(reboot.holds(now + Duration::seconds(10), true), "the reply comes before the box goes down");
         assert!(reboot.holds(now + Duration::seconds(90), false));
         assert!(!reboot.holds(now + Duration::seconds(90), true), "back once it answers again");
+    }
+
+    #[test]
+    fn a_box_in_maintenance_is_probed_sparingly() {
+        use std::time::Instant;
+        let now = Utc::now();
+        assert_eq!(super::probe_interval(Duration::seconds(10)).as_secs(), 15);
+        assert_eq!(super::probe_interval(Duration::seconds(120)).as_secs(), 30);
+        assert_eq!(super::probe_interval(Duration::seconds(3600)).as_secs(), 60);
+        let up = Maintenance { what: "upgrade".into(), since: now, until: Some(now + Duration::seconds(60)) };
+        assert!(up.quiet(now, None), "not called before the time the box gave");
+        assert!(!up.quiet(now + Duration::seconds(61), Some(Instant::now())));
+        let reboot = Maintenance { what: "reboot".into(), since: now - Duration::seconds(30), until: None };
+        assert!(reboot.quiet(now, Some(Instant::now())), "probed at most every 15 s");
+        assert!(!reboot.quiet(now, None), "a probe is due when none was made");
     }
 }

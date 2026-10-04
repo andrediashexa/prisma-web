@@ -320,7 +320,10 @@ sequenceDiagram
 - **System actions (#50):** `routes/system.rs` (administrators; the router's name typed in the
   body as `confirm`) and the registry's maintenance window, overlaid on the fleet status when it
   is read (`Registry::maintenance_begin`, `maintenance_until`, `maintenance_end`; it holds until
-  `until`, or with no `until` until the box answers again). The upgrade is the second
+  `until`, or with no `until` until the box answers again). While it holds the monitor skips the
+  box (`Maintenance::quiet`: nothing before `until`, otherwise a probe every 15 s growing to
+  60 s) and stops its telemetry stream; the monitor ends it as soon as its last status shows it
+  no longer holds (#52). The upgrade is the second
   Server-Sent Events route; `front/src/lib/sse.ts` reads both streams.
 - **Forms on the typed configuration (#46):** on a box that answers `GetConfig` for their area
   (Prisma 0.149.20 for interfaces, pools and the log collectors; 0.149.22 for the routing areas),
