@@ -190,7 +190,7 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) the proto and the coverage map.
 
-Read up to 0.149.26 in `clients.md` and already handled:
+Read up to 0.149.27 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -344,12 +344,18 @@ Read up to 0.149.26 in `clients.md` and already handled:
   `role administrator` / `operator` / `exit`, committed by the box's root); `UserConfig.operator`
   reads it in GetConfig's accounts. The access badge shows *operator*; on a box that reports it
   (0.149.26 on) without it, the System tab shows that grant instead of the actions, keeping the
-  upgrade check, which is every account's since 0.149.26. A grant reaches the API only after the
-  API restarts (prismarouting #565, fixed in 0.149.27).
-- **A dataplane restart through the API is refused on 0.149.25 and 0.149.26** (#51): the
+  upgrade check, which is every account's since 0.149.26. A grant reached the API only after the
+  API restarted on 0.149.26 (prismarouting #565); from 0.149.27 a role or `operator` change
+  reaches it at once (revoked and re-granted on 192.0.2.198, `can_operate` followed), and a
+  candidate opened before it is closed and answers `CANDIDATE_EXPIRED`, which prisma-web shows as
+  an expired change (#11).
+- **A dataplane restart through the API is refused on 0.149.25 to 0.149.27** (#51, #53): the
   containers' stop fails early and the restart script gives up without starting them again, and
   every client connection meanwhile counts against the API socket's trigger limit, which keeps
-  the API down even after (prismarouting #564, fixed in 0.149.27). On 2026-10-04 one on
+  the API down even after (prismarouting #564). 0.149.27 runs the restart as a host unit of its
+  own and resets the socket, but on 192.0.2.198 on 2026-10-04 the host refused to start that
+  unit ("could not be started the host's door"), safely; 0.149.28 fixes it, and prisma-web offers
+  the restart from there (#53). On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no

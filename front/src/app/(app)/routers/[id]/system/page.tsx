@@ -82,11 +82,12 @@ function useCanOperate(id: string): boolean | null {
 
 /**
  * Prisma 0.149.25 and 0.149.26 stop the containers on a dataplane restart and never start them
- * again (prismarouting #564, seen on 192.0.2.198): the back refuses it there, and the page says why.
+ * again (prismarouting #564, seen on 192.0.2.198); 0.149.27 refuses it (#53). The back refuses
+ * it on those releases, and the page says why.
  */
 function useRestartBroken(id: string) {
   const r = releaseOf(useFleetStatus().data?.find((x) => x.id === id)?.version?.release)
-  return !!r && r[0] === 0 && r[1] === 149 && (r[2] === 25 || r[2] === 26)
+  return !!r && r[0] === 0 && r[1] === 149 && r[2] >= 25 && r[2] <= 27
 }
 
 /** How the box's administrator grants the actions to prisma-web's account. */
@@ -326,8 +327,8 @@ function PowerCard({ routerId }: { routerId: string }) {
         {canOperate === false && <GrantNote account={access?.account ?? "prisma-web"} />}
         {restartBroken && (
           <p className="text-sm text-amber-800 dark:text-amber-200" data-restart-broken>
-            This router&apos;s Prisma does not start the dataplane again after a restart through its API (prismarouting #564): the
-            router would stay off the network until it reboots. The restart is offered again once it runs a release with the fix.
+            This router&apos;s Prisma cannot restart the dataplane through its API (prismarouting #564): 0.149.25 and 0.149.26 leave
+            the router off the network until it reboots, and 0.149.27 refuses it. The restart is offered from 0.149.28.
           </p>
         )}
         <div className="flex flex-wrap gap-2">
