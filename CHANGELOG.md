@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.24.3 - Restart still held — 2026-10-04
+
+### Fixed
+- The dataplane restart stays refused on Prisma 0.149.28, whose restart never starts on the router (measured on 192.0.2.166); it is offered from 0.149.29 (#54).
+
+### Internal
+- Integration notes read up to Prisma 0.149.28 (contract unchanged), with the measurement: prisma-web's monitoring never lost the router's API during the attempt (#54).
+
 ## 0.24.2 - Restart held — 2026-10-04
 
 ### Fixed
