@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.24.1 - Quiet maintenance — 2026-10-04
+
+### Fixed
+- prisma-web leaves a router in maintenance alone: nothing before the time the router said it would be back, otherwise a check every 15 s growing to 60 s, and no telemetry stream until it is out. Calling it every 5 s during a restart could keep the API of Prisma 0.149.25 and 0.149.26 down (prismarouting #564) (#52).
+
 ## 0.24.0 - Operator — 2026-10-04
 
 ### Added
