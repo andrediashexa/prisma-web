@@ -365,8 +365,10 @@ def typed_form_checks(admin, R):
                                         "fields": ["prefix_inside", "prefix_outside", "subscriber_length", "nat64_prefix"]})
         check(st == 200 and "prefix-inside 2001:db8:1200::/40" in b["lines"] and "subscriber-length 56" in b["lines"]
               and "nat64-prefix 2001:db8:64::/96" in b["lines"], "a NAT64 pool is set as fields", b)
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "algs": {"sip": True}}, "fields": ["algs"]})
+        check(st == 422 and "NAT64" in errmsg(b), "an ALG other than FTP on a NAT64 pool is refused in the box's words", b)
         st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "algs": {"ftp": True}}, "fields": ["algs"]})
-        check(st == 422 and "NAT64" in errmsg(b), "an ALG on a NAT64 pool is refused in the box's words", b)
+        check(st == 200 and "alg ftp on" in b["lines"], "FTP through a NAT64 pool is taken (Prisma 0.150.1, #60)", b)
         st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E46", "subscriber_length": 56}, "fields": ["subscriber_length"]})
         check(st == 422 and "NAT64" in errmsg(b), "a subscriber length on an IPv4 pool is refused", b)
         st, b = admin.post(f"{T}/set", {"logging": {"collectors": [{"transport": "tcp", "configured": True, "collector": "192.0.2.46", "port": 4746}]},

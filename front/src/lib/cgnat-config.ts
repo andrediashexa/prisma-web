@@ -87,6 +87,9 @@ export type Alg = (typeof ALGS)[number]
 /** A NAT64 pool: its inside prefixes are IPv6 (Prisma 0.150.0, #59). */
 export const isNat64 = (p: PoolConfig) => p.inside.some((x) => x.includes(":"))
 
+/** The ALGs a NAT64 pool takes: FTP since Prisma 0.150.1 (FTP64, RFC 6384); the others never (#60). */
+export const NAT64_ALGS: readonly Alg[] = ["ftp"]
+
 export interface PoolConfig {
   name: string
   inside: string[]
@@ -271,7 +274,7 @@ export function poolErrors(before: PoolConfig | null, p: PoolConfig, taken: stri
   if (!v6) {
     for (const k of ["subscriber-length", "nat64-prefix"] as const) if (p.scalars[k].trim()) e[k] = "only on a NAT64 pool (IPv6 inside prefixes)"
   }
-  if (v6 && ALGS.some((a) => p.algs[a] === "on")) e.algs = "a NAT64 pool takes no ALG"
+  if (v6 && ALGS.some((a) => !NAT64_ALGS.includes(a) && p.algs[a] === "on")) e.algs = "a NAT64 pool takes only the FTP ALG"
   const ports = p.scalars.ports.trim()
   if (ports) {
     const [lo, hi, extra] = ports.split(/\s+/)
