@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.24.7 - Restart's four minutes — 2026-10-04
+
+### Fixed
+- A dataplane restart gets the time Prisma 0.149.33 takes to confirm it (up to about four minutes; prisma-web waits 310 s), and one that runs past that shows the router as in maintenance instead of as a failure (#58).
+
+### Internal
+- Integration notes read up to Prisma 0.149.33 (contract unchanged): the restart measured working end to end on 192.0.2.166 (#58).
+
 ## 0.24.6 - Restart as maintenance — 2026-10-04
 
 ### Fixed
