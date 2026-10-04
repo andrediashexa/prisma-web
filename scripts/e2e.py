@@ -490,6 +490,8 @@ def line_fallback_checks(admin, args):
         check(st == 501, "and WatchLogging too", b)
         st, b = admin.get(f"{R}/cgnat/drops")
         check(st == 501, "and the typed show cgnat screens (0.150.3) too", b)
+        st, b = admin.get(f"{R}/screens/hardware")
+        check(st == 501, "and the 0.150.6 screens too", b)
     finally:
         admin.delete(R)
 
@@ -653,6 +655,33 @@ def cgnat_screen_checks(admin, R, router_id):
     check(any(e["success"] and e["details"].get("port") == 8443 for e in audit["items"]), "each lookup is in the audit log", audit["items"][:2])
 
 
+def screen_checks(admin, R, router_id):
+    """The rest of the screens and the probes (Prisma 0.150.6, #64)."""
+    for name, key in [("ospf-interfaces", "interfaces"), ("isis-interfaces", "circuits"), ("hardware", "nics"), ("routing-logging", "daemons")]:
+        st, b = admin.get(f"{R}/screens/{name}")
+        check(st == 200 and b.get(key) and b.get("text"), f"the {name} screen answers its fields and the router's screen", b)
+    st, b = admin.get(f"{R}/screens/ospf-interfaces")
+    check(any(i["mtu_stall"] for i in b["interfaces"]), "an OSPF interface whose MTU differs from the dataplane's is marked", b["interfaces"])
+    for kind, name in [("mib", "PRISMA-MIB.txt"), ("zabbix", "prisma-zabbix-7.0.yaml")]:
+        req = urllib.request.Request(admin.base + "/api" + f"{R}/snmp-file?kind={kind}")
+        with admin.opener.open(req, timeout=20) as r:
+            body = r.read().decode()
+            check(r.status == 200 and name in r.headers.get("Content-Disposition", "") and "67033" in body,
+                  f"the {kind} file downloads under the box's name, with its enterprise number", r.headers.get("Content-Disposition"))
+    st, evs = sse(admin, f"{R}/probe/ping", {"host": "192.0.2.1", "count": 3})
+    probes = [json.loads(d) for e, d in evs if e == "probe"] if st == 200 else []
+    replies = [p for p in probes if p.get("reply")]
+    ends = [p for p in probes if p.get("end")]
+    check(len(replies) == 3 and ends and ends[0]["end"]["received"] == 3 and evs[-1][0] == "end", "a ping streams each reply, then its summary", probes[-2:] or evs)
+    for tool, part in [("traceroute", "hop"), ("mtr", "mtr_hop")]:
+        st, evs = sse(admin, f"{R}/probe/{tool}", {"host": "192.0.2.1", "count": 1})
+        check(st == 200 and any(json.loads(d).get(part) for e, d in evs if e == "probe"), f"{tool} streams its hops", evs[-3:] if isinstance(evs, list) else evs)
+    st, b = sse(admin, f"{R}/probe/ping", {"host": "bad;host"})
+    check(st >= 400 and "Unknown host" in errmsg(b), "a host the box refuses is answered in its words", b)
+    st, audit = admin.get(f"/audit?router_id={router_id}&action=router.command&limit=10")
+    check(any(e["details"].get("command") == "ping 192.0.2.1" for e in audit["items"]), "each probe is recorded as a console command", audit["items"][:2])
+
+
 def log_export_checks(admin, router_id):
     """CGNAT log export (Prisma 0.149.15, #34) on prisma-mock-2, which has all three streams."""
     R = f"/routers/{router_id}"
@@ -719,6 +748,8 @@ def access_checks(admin, args):
         check(st == 403, "nor look up who used a public address (#63)", b)
         st, b = v.get(f"/routers/{ra}/cgnat/top")
         check(st == 200, "but reads the other CGNAT screens", b)
+        st, b = sse(v, f"/routers/{ra}/probe/ping", {"host": "192.0.2.1", "count": 1})
+        check(st == 403, "nor run a probe from the router (#64)", b)
         st, b = admin.put(f"/users/{made_user}/access/{ra}", {"role": "operator"})
         check(st == 204, "admin raises the viewer to operator on router a", b)
         st, b = admin.put(f"/users/{made_user}/access/{rb}", {"role": "none"})
@@ -967,6 +998,21 @@ def lab(admin, args):
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
         lab_typed_checks(admin, R)
+        # The 0.150.6 screens and SNMP files (#64): reads only; no probe from a real box.
+        st, b = admin.get(f"{R}/screens/hardware")
+        if st == 501:
+            check(True, "no 0.150.6 screens: a box before 0.150.6")
+        else:
+            for name in ("ospf-interfaces", "isis-interfaces", "hardware", "routing-logging"):
+                st, b = admin.get(f"{R}/screens/{name}")
+                check(st == 200 and b.get("text") is not None, f"the real Prisma's {name} screen ({st})", b if st != 200 else None)
+            for kind in ("mib", "zabbix"):
+                req = urllib.request.Request(admin.base + "/api" + f"{R}/snmp-file?kind={kind}")
+                try:
+                    with admin.opener.open(req, timeout=30) as r:
+                        check(r.status == 200 and r.read(), f"the real Prisma's {kind} file: {r.headers.get('Content-Disposition')}")
+                except urllib.error.HTTPError as e:
+                    check(e.code in (409, 422) and errmsg(json.loads(e.read() or b"{}")), f"the real Prisma could not make its {kind} file, in its words ({e.code})")
         # The typed show cgnat screens (0.150.3, #63): reads only; no translation lookup.
         st, b = admin.get(f"{R}/cgnat/drops")
         if st == 501:
@@ -1129,6 +1175,7 @@ def main():
         clear_checks(admin, R, router_id)
         log_watch_checks(admin, R, router_id)
         cgnat_screen_checks(admin, R, router_id)
+        screen_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

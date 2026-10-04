@@ -8,6 +8,7 @@ import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, XIcon } f
 import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
 import { ClearAction, useClears } from "@/components/clear-action"
+import { IsisInterfacesCard, OspfInterfacesCard, RoutingLoggingCard } from "@/components/screens"
 import { BgpPanel } from "@/components/routing/bgp-config"
 import { OspfPanel } from "@/components/routing/ospf-config"
 import { StaticRoutesPanel } from "@/components/routing/static-routes"
@@ -280,6 +281,11 @@ export default function RoutingPage() {
           void mutateBgp()
         }}
       />
+
+      {/* Prisma 0.150.6 (#64): OSPF and IS-IS interfaces, FRR's logging. */}
+      <OspfInterfacesCard routerId={id} />
+      <IsisInterfacesCard routerId={id} />
+      <RoutingLoggingCard routerId={id} />
     </>
   )
 }

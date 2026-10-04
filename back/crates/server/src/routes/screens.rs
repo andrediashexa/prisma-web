@@ -1,0 +1,167 @@
+//! The rest of the VTY's screens, typed (Prisma 0.150.6, #64): OSPF and IS-IS
+//! interfaces, the hardware, FRR's logging, the SNMP files, and the probes
+//! (`ping`, `traceroute`, `mtr`) as streams.
+
+use std::convert::Infallible;
+use std::time::Duration;
+
+use axum::extract::{Path, Query, State};
+use axum::http::header;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use prisma_proto::v1::probe_event::Kind;
+use prisma_proto::v1::*;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use tokio_stream::{Stream, StreamExt};
+use uuid::Uuid;
+
+use crate::audit::{self, Entry};
+use crate::auth::{ClientMeta, CurrentUser, Role};
+use crate::error::{AppError, AppResult};
+use crate::grpc::{self, req};
+use crate::AppState;
+
+/// The box stops a probe after 300 s; prisma-web waits a little longer.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(320);
+
+fn to_json<T: serde::Serialize>(v: &T) -> Value {
+    serde_json::to_value(v).unwrap_or(Value::Null)
+}
+
+pub async fn screen(State(st): State<AppState>, _: CurrentUser, Path((id, name)): Path<(Uuid, String)>) -> AppResult<Json<Value>> {
+    let r = st.routers.get(id).await?;
+    let mut ops = r.ops();
+    Ok(Json(match name.as_str() {
+        "ospf-interfaces" => to_json(&ops.list_ospf_interfaces(req(ListOspfInterfacesRequest {})).await?.into_inner()),
+        "isis-interfaces" => to_json(&ops.list_isis_interfaces(req(ListIsisInterfacesRequest {})).await?.into_inner()),
+        "hardware" => to_json(&ops.get_hardware(req(GetHardwareRequest {})).await?.into_inner()),
+        "routing-logging" => to_json(&ops.get_routing_logging(req(GetRoutingLoggingRequest {})).await?.into_inner()),
+        s => return Err(AppError::NotFound(format!("no screen {s}"))),
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct SnmpQuery {
+    kind: String,
+}
+
+fn snmp_kind(kind: &str) -> Result<get_snmp_file_request::Kind, AppError> {
+    use get_snmp_file_request::Kind as K;
+    match kind {
+        "mib" => Ok(K::Mib),
+        "zabbix" => Ok(K::ZabbixTemplate),
+        k => Err(AppError::BadRequest(format!("'{k}' is not an SNMP file (mib, zabbix)"))),
+    }
+}
+
+/// The MIB or the Zabbix template, as a download under the box's filename.
+pub async fn snmp_file(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>, Query(q): Query<SnmpQuery>) -> AppResult<Response> {
+    let kind = snmp_kind(&q.kind)?;
+    let r = st.routers.get(id).await?;
+    let f = r.ops().get_snmp_file(req(GetSnmpFileRequest { kind: kind as i32 })).await?.into_inner();
+    let name = f.filename.replace(['"', '\r', '\n', '/', '\\'], "_");
+    let media = if f.media_type.is_empty() { "application/octet-stream".to_string() } else { f.media_type };
+    Ok(([(header::CONTENT_TYPE, media), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\""))], f.content).into_response())
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct ProbeBody {
+    host: String,
+    count: u32,
+    source: String,
+}
+
+fn probe_request(b: &ProbeBody) -> Result<ProbeRequest, AppError> {
+    let host = b.host.trim();
+    if host.is_empty() || host.len() > 253 || host.contains(char::is_whitespace) {
+        return Err(AppError::BadRequest("a host: one address or name".into()));
+    }
+    if b.count > 100 {
+        return Err(AppError::BadRequest("count is 1 to 100 (0 is the box's 5)".into()));
+    }
+    let source = b.source.trim();
+    if source.contains(char::is_whitespace) {
+        return Err(AppError::BadRequest("a source: one address or interface".into()));
+    }
+    Ok(ProbeRequest { host: host.to_string(), count: b.count, source: source.to_string() })
+}
+
+/// A `ProbeEvent` as the page reads it: the line, and the one part it carries.
+fn event_json(e: &ProbeEvent) -> Value {
+    let mut v = json!({ "line": e.line });
+    match &e.kind {
+        Some(Kind::Reply(x)) => v["reply"] = to_json(x),
+        Some(Kind::Hop(x)) => v["hop"] = to_json(x),
+        Some(Kind::MtrHop(x)) => v["mtr_hop"] = to_json(x),
+        Some(Kind::End(x)) => v["end"] = to_json(x),
+        None => {}
+    }
+    v
+}
+
+/// `ping`, `traceroute` or `mtr` as Server-Sent Events (`probe` per line, `error`, `end`).
+/// Leaving the page cancels the call, which stops the probe on the box.
+pub async fn probe(
+    State(st): State<AppState>,
+    user: CurrentUser,
+    meta: ClientMeta,
+    Path((id, tool)): Path<(Uuid, String)>,
+    Json(b): Json<ProbeBody>,
+) -> AppResult<Sse<impl Stream<Item = Result<Event, Infallible>>>> {
+    user.require(Role::Operator)?;
+    if !["ping", "traceroute", "mtr"].contains(&tool.as_str()) {
+        return Err(AppError::NotFound(format!("no probe {tool}")));
+    }
+    let msg = probe_request(&b)?;
+    let r = st.routers.get(id).await?;
+    let mut ops = r.ops();
+    let call = grpc::req_with(msg.clone(), PROBE_TIMEOUT);
+    let res = match tool.as_str() {
+        "ping" => ops.ping(call).await,
+        "traceroute" => ops.traceroute(call).await,
+        _ => ops.mtr(call).await,
+    };
+    // Recorded as the console's commands are: they reach the network.
+    let mut entry = Entry::by(&user, &meta, "router.command")
+        .target(&r.name)
+        .router(id)
+        .details(json!({ "command": format!("{tool} {}", msg.host), "count": msg.count, "source": msg.source }));
+    if res.is_err() {
+        entry = entry.failed();
+    }
+    audit::record(&st.db, entry).await;
+    let stream = res?.into_inner();
+    let events = stream.map(|m| {
+        Ok(match m {
+            Ok(e) => Event::default().event("probe").json_data(event_json(&e)).unwrap_or_default(),
+            Err(s) => Event::default().event("error").data(grpc::describe(&s)),
+        })
+    });
+    let end = tokio_stream::once(Ok(Event::default().event("end").data("done")));
+    Ok(Sse::new(events.chain(end)).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_probe_takes_one_host_and_the_boxs_count() {
+        let r = probe_request(&ProbeBody { host: " 192.0.2.1 ".into(), count: 3, source: String::new() }).unwrap();
+        assert_eq!((r.host.as_str(), r.count), ("192.0.2.1", 3));
+        assert!(probe_request(&ProbeBody { host: "a b".into(), ..Default::default() }).is_err());
+        assert!(probe_request(&ProbeBody { host: "x".into(), count: 101, ..Default::default() }).is_err());
+        assert!(probe_request(&ProbeBody::default()).is_err());
+    }
+
+    #[test]
+    fn an_event_carries_its_line_and_its_part() {
+        let e = ProbeEvent { line: "64 bytes".into(), kind: Some(Kind::Reply(PingReply { sequence: 1, rtt_ms: 0.4, ..Default::default() })) };
+        let v = event_json(&e);
+        assert_eq!((v["line"].as_str(), v["reply"]["sequence"].as_u64()), (Some("64 bytes"), Some(1)));
+        assert!(snmp_kind("mib").is_ok() && snmp_kind("zabbix").is_ok() && snmp_kind("x").is_err());
+    }
+}

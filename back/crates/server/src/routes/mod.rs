@@ -6,6 +6,7 @@ mod dashboard;
 mod log_watch;
 mod ops;
 mod route_table;
+mod screens;
 mod system;
 pub mod routers;
 mod users;
@@ -51,6 +52,9 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/show", post(ops::show))
         .route("/routers/{id}/clear", post(ops::clear))
         .route("/routers/{id}/cgnat/{screen}", get(cgnat_screens::screen))
+        .route("/routers/{id}/screens/{name}", get(screens::screen))
+        .route("/routers/{id}/snmp-file", get(screens::snmp_file))
+        .route("/routers/{id}/probe/{tool}", post(screens::probe))
         .route("/routers/{id}/system/upgrade", get(system::upgrade_status).post(system::upgrade))
         .route("/routers/{id}/system/{action}", post(system::action))
         .route("/routers/{id}/policies", get(ops::policies))
