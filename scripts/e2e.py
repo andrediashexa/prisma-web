@@ -1060,7 +1060,6 @@ def main():
         typed_form_checks(admin, R)
         clear_checks(admin, R, router_id)
         log_watch_checks(admin, R, router_id)
-        system_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
@@ -1283,6 +1282,8 @@ def main():
         check(st == 422, "TestPolicy at an unknown attach point answers INVALID_ARGUMENT", b)
 
         route_checks(admin, R)
+        # Last: they leave the box in maintenance, where the monitor and telemetry leave it alone (#52).
+        system_checks(admin, R, router_id)
     finally:
         if op_id:
             admin.delete(f"/users/{op_id}")
