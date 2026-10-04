@@ -22,6 +22,12 @@ type R<T> = Result<Response<T>, Status>;
 
 const RELEASE: &str = "0.149.0-mock";
 
+/// `MOCK_RELEASE` overrides the release the mock reports (#51: prisma-mock-2 is a 0.149.26
+/// box whose account has no `operator`).
+fn release() -> String {
+    std::env::var("MOCK_RELEASE").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| RELEASE.into())
+}
+
 fn workers_floor(capacity: u64) -> u64 {
     // Guaranteed per worker (5 workers), like the floor in #210.
     capacity / 5 * 5 * 9 / 10
@@ -161,7 +167,8 @@ impl OperationalSvc {
             ["show", "ipv6", "route"] => Ok(self.routes(st, true)),
             ["show", "bgp", "summary"] => Ok(self.bgp_summary(st)),
             ["show", "version"] => Ok(format!(
-                "Prisma {RELEASE} ({})\nplugin 0.149.0-mock+g1a2b3c (current)\nvpp 25.06\nfrr 10.3\nuptime {}\n",
+                "Prisma {} ({})\nplugin 0.149.0-mock+g1a2b3c (current)\nvpp 25.06\nfrr 10.3\nuptime {}\n",
+                release(),
                 self.hostname,
                 hms(st.uptime_seconds())
             )),
@@ -253,7 +260,7 @@ impl OperationalService for OperationalSvc {
     async fn get_version(&self, _: Request<GetVersionRequest>) -> R<VersionInfo> {
         let _turno = self.shared.ops.lock().await;
         Ok(Response::new(VersionInfo {
-            release: RELEASE.into(),
+            release: release(),
             plugin_build: "0.149.0-mock+g1a2b3c".into(),
             dataplane_current: true,
             vpp_version: "25.06".into(),
@@ -567,6 +574,17 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             };
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
+        // Test hook (#51): the next dataplane restart drops the connection, as on a box whose
+        // management address is on a dataplane interface.
+        if let Some(state) = command.trim().strip_prefix("mock restart-dataplane ") {
+            let drops = match state {
+                "drops" => true,
+                "answers" => false,
+                _ => return Err(Status::invalid_argument("mock restart-dataplane drops|answers")),
+            };
+            self.shared.state.lock().unwrap().restart_drops = drops;
+            return Ok(Response::new(ShowResponse { text: format!("dataplane restart {state}\n"), ..Default::default() }));
         }
         let text = {
             let st = self.shared.state.lock().unwrap();

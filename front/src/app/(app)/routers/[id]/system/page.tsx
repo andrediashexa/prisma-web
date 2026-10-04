@@ -13,8 +13,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { useFleetStatus, useHasSystemService, useRouterRole, useRouters } from "@/hooks/use-routers"
+import { useFleetStatus, useHasSystemService, useRouterAccess, useRouterRole, useRouters } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
+import { releaseOf } from "@/lib/routing-config"
 import { readEvents } from "@/lib/sse"
 import { roleAtLeast, routerApi, type UpgradeProgress } from "@/lib/types"
 
@@ -23,7 +24,9 @@ type Action = "restart-dataplane" | "reboot" | "shutdown"
 const ACTIONS: Record<Action, { title: string; does: string; done: string }> = {
   "restart-dataplane": {
     title: "Restart the dataplane",
-    does: "The dataplane stops and starts again: no traffic is forwarded until it is back, and every CGNAT session ends.",
+    does:
+      "The dataplane stops and starts again: no traffic is forwarded until it is back, and every CGNAT session ends. " +
+      "If this router's management address is on a dataplane interface, it drops off the network too, and prisma-web loses it until the dataplane is back.",
     done: "The dataplane restarted.",
   },
   reboot: {
@@ -64,6 +67,41 @@ export default function SystemPage() {
   )
 }
 
+/**
+ * Whether prisma-web's account may run the actions (Prisma 0.149.26, #51): true with
+ * `can_operate`, false on a box that reports it (0.149.26 on) without it, null where the box
+ * cannot tell (0.149.25): there the box answers, refusing in its words.
+ */
+function useCanOperate(id: string): boolean | null {
+  const { access } = useRouterAccess(id)
+  const release = releaseOf(useFleetStatus().data?.find((r) => r.id === id)?.version?.release)
+  if (access?.can_operate) return true
+  const reports = !!release && (release[0] > 0 || release[1] > 149 || (release[1] === 149 && release[2] >= 26))
+  return access && reports ? false : null
+}
+
+/**
+ * Prisma 0.149.25 and 0.149.26 stop the containers on a dataplane restart and never start them
+ * again (prismarouting #564, seen on 192.0.2.198): the back refuses it there, and the page says why.
+ */
+function useRestartBroken(id: string) {
+  const r = releaseOf(useFleetStatus().data?.find((x) => x.id === id)?.version?.release)
+  return !!r && r[0] === 0 && r[1] === 149 && (r[2] === 25 || r[2] === 26)
+}
+
+/** How the box's administrator grants the actions to prisma-web's account. */
+function GrantNote({ account }: { account: string }) {
+  return (
+    <div className="bg-muted/50 space-y-2 rounded-lg border p-3 text-sm" data-grant>
+      <p>
+        The router does not let <span className="font-mono">{account}</span> upgrade, reboot, shut down or restart the dataplane. Its
+        administrator (root) grants it at the router&apos;s prompt, then commits:
+      </p>
+      <pre className="font-mono text-xs">{`user ${account}\n role administrator\n operator\nexit`}</pre>
+    </div>
+  )
+}
+
 function useRouterName(id: string) {
   const { data } = useRouters()
   return data?.find((r) => r.id === id)?.name ?? ""
@@ -83,6 +121,8 @@ const PHASE_LABEL: Record<UpgradeProgress["phase"], string> = {
 
 function UpgradeCard({ routerId }: { routerId: string }) {
   const name = useRouterName(routerId)
+  // The check is every account's since 0.149.26; the upgrade itself needs `operator` (#51).
+  const canOperate = useCanOperate(routerId)
   const fleet = useFleetStatus()
   const release = fleet.data?.find((r) => r.id === routerId)?.version?.release
   const last = useSWR<UpgradeProgress>(routerApi(routerId, "/system/upgrade"), fetcher, { revalidateOnFocus: false, shouldRetryOnError: false })
@@ -149,7 +189,8 @@ function UpgradeCard({ routerId }: { routerId: string }) {
               </span>
               {newest !== release && (
                 <Button
-                  disabled={running}
+                  disabled={running || canOperate === false}
+                  title={canOperate === false ? "The router does not let prisma-web's account upgrade it" : undefined}
                   onClick={() => {
                     setTyped("")
                     setConfirm(newest)
@@ -231,6 +272,9 @@ function refusal(err: unknown): string {
 function PowerCard({ routerId }: { routerId: string }) {
   const name = useRouterName(routerId)
   const fleet = useFleetStatus()
+  const canOperate = useCanOperate(routerId)
+  const { access } = useRouterAccess(routerId)
+  const restartBroken = useRestartBroken(routerId)
   const [action, setAction] = useState<Action | null>(null)
   const [typed, setTyped] = useState("")
   const [force, setForce] = useState(false)
@@ -256,6 +300,14 @@ function PowerCard({ routerId }: { routerId: string }) {
       setAction(null)
       void fleet.mutate()
     } catch (err) {
+      if (action === "restart-dataplane" && err instanceof ApiError && err.code === "router_unavailable") {
+        // The box answers when the restart has finished; it went away instead (#51).
+        setError(
+          "The router dropped off the network during the restart: its management address is probably on a dataplane interface. It shows as in maintenance until it answers again.",
+        )
+        void fleet.mutate()
+        return
+      }
       setError(refusal(err))
       const reason = err instanceof ApiError ? err.diagnostics?.reason : undefined
       setForceable(!!reason && !!REASON_TEXT[reason]?.force && action !== "restart-dataplane")
@@ -270,16 +322,25 @@ function PowerCard({ routerId }: { routerId: string }) {
         <CardTitle>Power</CardTitle>
         <CardDescription>Each stops traffic; the router&apos;s name is asked before it is sent, and every attempt is in the audit log.</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => open("restart-dataplane")}>
-          <RefreshCwIcon /> Restart the dataplane
-        </Button>
-        <Button variant="outline" onClick={() => open("reboot")}>
-          <RotateCcwIcon /> Reboot
-        </Button>
-        <Button variant="outline" className="text-destructive" onClick={() => open("shutdown")}>
-          <PowerIcon /> Shut down
-        </Button>
+      <CardContent className="space-y-3">
+        {canOperate === false && <GrantNote account={access?.account ?? "prisma-web"} />}
+        {restartBroken && (
+          <p className="text-sm text-amber-800 dark:text-amber-200" data-restart-broken>
+            This router&apos;s Prisma does not start the dataplane again after a restart through its API (prismarouting #564): the
+            router would stay off the network until it reboots. The restart is offered again once it runs a release with the fix.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={canOperate === false || restartBroken} onClick={() => open("restart-dataplane")}>
+            <RefreshCwIcon /> Restart the dataplane
+          </Button>
+          <Button variant="outline" disabled={canOperate === false} onClick={() => open("reboot")}>
+            <RotateCcwIcon /> Reboot
+          </Button>
+          <Button variant="outline" className="text-destructive" disabled={canOperate === false} onClick={() => open("shutdown")}>
+            <PowerIcon /> Shut down
+          </Button>
+        </div>
       </CardContent>
       <ConfirmByName
         open={action !== null}

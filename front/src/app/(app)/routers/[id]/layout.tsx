@@ -71,6 +71,7 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
             {access && (
               <Badge variant="outline" className="ml-2 align-middle font-normal" title="The account the box sees prisma-web as (client certificate CN) and its VTY role.">
                 {access.account} · {access.role}
+                {access.can_operate && " · operator"}
               </Badge>
             )}
           </p>
@@ -98,7 +99,8 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
       {status?.maintenance && (
         <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-800 dark:text-sky-200" data-maintenance>
           <WrenchIcon className="size-4 shrink-0" />
-          In maintenance ({status.maintenance.what === "upgrade" ? "upgrading" : status.maintenance.what === "reboot" ? "rebooting" : "shut down"})
+          In maintenance (
+          {{ upgrade: "upgrading", reboot: "rebooting", shutdown: "shut down", dataplane: "the dataplane restart took it off the network" }[status.maintenance.what]})
           {status.maintenance.until
             ? `: its API is back at about ${new Date(status.maintenance.until).toLocaleTimeString("en-US", { hour12: false })}.`
             : ": until it answers again."}

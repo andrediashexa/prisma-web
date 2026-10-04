@@ -39,6 +39,8 @@ pub fn identity(account: &str) -> WhoAmIResponse {
         account: account.into(),
         can_configure: role == "administrator",
         can_configure_cgnat: role != "read-only",
+        // 0.149.26 (#51): the `operator` capability; the mock that refuses SystemService has it not.
+        can_operate: !crate::system::denied_env(),
         role,
         ..Default::default()
     }
