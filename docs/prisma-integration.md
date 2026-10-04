@@ -404,7 +404,11 @@ Read up to 0.150.2 in `clients.md` and already handled:
   `64:ff9b::/96` when empty). The line reading of the interface form also takes
   `ipv6 nd suppress-ra` again, which an earlier `ipv6` rule had kept from being read. On
   2026-10-04 192.0.2.166 (on 0.150.2) was found powered off with no shutdown in its journal,
-  and started again; its API was away meanwhile. On 2026-10-04 one on
+  and started again; its API was away meanwhile.
+- **Known bug in 0.150.2:** `SetConfig` with an `interface` always fails with `UNKNOWN` (the
+  repeated `pref64` cannot be handed to the box's worker; fixed in 0.150.3). On 0.150.2 the
+  interface form and the shutdown toggle write lines through `Edit`, reading the interfaces
+  typed as before (`interfaceSetWorks`, #62). On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no

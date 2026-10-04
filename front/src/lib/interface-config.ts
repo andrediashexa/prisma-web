@@ -395,3 +395,13 @@ export function fieldProblems(c: InterfaceConfig): Partial<Record<keyof Interfac
   if (c.suppressRa && c.pref64.length) out.pref64 = "PREF64 travels in router advertisements: they must not be suppressed"
   return out
 }
+
+/**
+ * Whether SetConfig takes an interface on this release: on Prisma 0.150.2 it always fails with
+ * UNKNOWN (its `pref64` cannot reach the box's worker; fixed in 0.150.3), so the form writes
+ * lines there, as the box's notes advise (#62).
+ */
+export function interfaceSetWorks(release: string | undefined): boolean {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(release?.trim() ?? "")
+  return !(m && m[1] === "0" && m[2] === "150" && m[3] === "2")
+}

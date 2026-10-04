@@ -23,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useConfigChanges } from "@/hooks/use-config-changes"
 import { useInterfaceRates } from "@/hooks/use-interface-rates"
-import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
+import { useFleetStatus, useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { fetcher } from "@/lib/api"
 import { boxAllows, type Instance } from "@/lib/config-model"
 import { formatBytes, formatNumber } from "@/lib/format"
@@ -33,6 +33,7 @@ import {
   interfaceChange,
   readInterfaces,
   readInterfacesTyped,
+  interfaceSetWorks,
   shutdownChange,
   type InterfaceConfig,
 } from "@/lib/interface-config"
@@ -59,6 +60,9 @@ export default function InterfacesPage() {
 
   // Read once the box has said whether it types interfaces.
   const ready = !!tree && typed.typed !== undefined
+  // Read typed where the box types interfaces; write typed too, except on 0.150.2 (#62).
+  const release = useFleetStatus().data?.find((r) => r.id === id)?.version?.release
+  const writeTyped = !!typed.typed && interfaceSetWorks(release)
   const configs = !tree || typed.typed === undefined ? [] : typed.config ? readInterfacesTyped(typed.config.interfaces, tree.instances) : readInterfaces(tree.instances)
   const staged = (name: string) => cc.changes.some((c) => c.key === `interface ${name}`)
   // Interfaces as the form sees them: staged state over the running one, bundles being created included.
@@ -76,7 +80,7 @@ export default function InterfacesPage() {
 
   /** Shut down or enable at once: one line, straight to the review. */
   function toggle(i: RouterInterface) {
-    void cc.review([shutdownChange(i.name, i.admin_up, !!typed.typed)])
+    void cc.review([shutdownChange(i.name, i.admin_up, writeTyped)])
   }
 
   const reviewTitle =
@@ -239,10 +243,10 @@ export default function InterfacesPage() {
         routerId={id}
         editing={editing}
         all={all}
-        typedBox={!!typed.typed}
+        typedBox={writeTyped}
         onClose={() => setEditing(null)}
         onSave={(running, cur) => {
-          cc.stage(interfaceChange(running, cur, !!typed.typed))
+          cc.stage(interfaceChange(running, cur, writeTyped))
           setDrafts((d) => ({ ...d, [cur.name]: cur }))
           setEditing(null)
         }}
