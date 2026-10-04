@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.28.1 - BFD statements — 2026-10-05
+
+### Changed
+- The Settings editor knows Prisma 0.150.8's BFD statements (the `bfd` block, `neighbor X bfd profile`, `bfd` on a static route) on a router that does not serve its own grammar; through the API they are lines for now (#65).
+
+### Internal
+- Integration notes read up to Prisma 0.150.8 (contract unchanged), with the known bug that a committed BFD configuration cannot be removed yet (prismarouting #570) (#65).
+
 ## 0.28.0 - Probes and screens — 2026-10-04
 
 ### Added
