@@ -359,6 +359,16 @@ def typed_form_checks(admin, R):
                                                    "block_size": 512, "algs": {"sip": False}}, "fields": ["prefix_inside", "prefix_outside", "block_size", "algs"]})
         check(st == 200 and b["path"] == ["nat", "cgnat", "pool E2E46"] and "block-size 512" in b["lines"] and "alg sip off" in b["lines"],
               "a new pool is set as fields", b)
+        # NAT64 (Prisma 0.150.0, #59): IPv6 inside prefixes, a subscriber prefix length, no ALG.
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "prefix_inside": ["2001:db8:1200::/40"], "prefix_outside": ["198.51.100.48/28"],
+                                                   "subscriber_length": 56, "nat64_prefix": "2001:db8:64::/96"},
+                                        "fields": ["prefix_inside", "prefix_outside", "subscriber_length", "nat64_prefix"]})
+        check(st == 200 and "prefix-inside 2001:db8:1200::/40" in b["lines"] and "subscriber-length 56" in b["lines"]
+              and "nat64-prefix 2001:db8:64::/96" in b["lines"], "a NAT64 pool is set as fields", b)
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "algs": {"ftp": True}}, "fields": ["algs"]})
+        check(st == 422 and "NAT64" in errmsg(b), "an ALG on a NAT64 pool is refused in the box's words", b)
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E46", "subscriber_length": 56}, "fields": ["subscriber_length"]})
+        check(st == 422 and "NAT64" in errmsg(b), "a subscriber length on an IPv4 pool is refused", b)
         st, b = admin.post(f"{T}/set", {"logging": {"collectors": [{"transport": "tcp", "configured": True, "collector": "192.0.2.46", "port": 4746}]},
                                         "fields": ["collectors"]})
         check(st == 200 and b["lines"] == ["logging tcp 192.0.2.46 port 4746"], "a collector is set as fields", b)
@@ -383,6 +393,8 @@ def typed_form_checks(admin, R):
         nf = next((x for x in fam["neighbors"] if x["neighbor"] == "192.0.2.46"), None)
         check(ct["source"] == "candidate" and n and n["password_set"] and nf and nf["route_map_in"] == "E2E-IN" and nf["route_map_out"] == "E2E-OUT"
               and any(p["name"] == "E2E46" for p in ct["pools"]), "the candidate reads typed with what was set: password_set, both route maps", [n, nf])
+        p64 = next((p for p in ct["pools"] if p["name"] == "E2E64"), {})
+        check(p64.get("subscriber_length") == 56 and p64.get("nat64_prefix") == "2001:db8:64::/96", "the NAT64 pool reads back typed (#59)", p64)
         check(TYPED_SECRET not in json.dumps(ct), "a password is never read back")
         st, cmp = admin.get(f"{R}/config/candidates/{cid}/compare")
         d = cmp["diff"]
@@ -454,6 +466,9 @@ def line_fallback_checks(admin, args):
         check(st == 501, "and SetConfig too", b)
         st, b = admin.post(f"{C}/edit", {"path": ["router bgp 65000"], "lines": ["neighbor 192.0.2.47 remote-as 64747"]})
         check(st == 200, "a line edit still works on it", b)
+        st, b = admin.post(f"{C}/edit", {"path": ["nat", "cgnat", "pool E2E64L"],
+                                         "lines": ["prefix-inside 2001:db8:1300::/40", "prefix-outside 198.51.100.80/28", "subscriber-length 56"]})
+        check(st == 200, "a NAT64 pool is written as lines too (#59)", b)
         st, cmp = admin.get(f"{C}/compare")
         check(any(l.startswith("+") and l[1:].strip() == "neighbor 192.0.2.47 remote-as 64747" for l in cmp["diff"].splitlines()), "and reaches the diff", cmp)
         admin.delete(C)
@@ -529,6 +544,9 @@ def log_watch_checks(admin, R, router_id):
     check(allocs and all(l["subscriber"] == "100.64.7.7" and l["port_last"] > l["port_first"] for l in allocs)
           and not any(l["kind"] == "RELEASE" for l in logs), "only the subscriber's allocations, with their port range", allocs[:2])
     check(all(l["at"] for l in allocs), "each event carries its time", allocs[:1])
+    st, evs = sse(admin, f"{R}/logging/watch?subscriber=2001:db8:1200:ab12::1&event=alloc&seconds=2")
+    subs = {json.loads(d)["subscriber"] for e, d in evs if e == "log" and json.loads(d)["kind"] == "ALLOC"} if st == 200 else set()
+    check(subs == {"2001:db8:1200:ab00::/56"}, "a NAT64 subscriber is watched by any address and shown as its delegated prefix (#59)", subs or evs)
     st, b = sse(admin, f"{R}/logging/watch?pool=no-such-pool&seconds=3")
     check(st >= 400 and "Unknown pool" in errmsg(b), "a filter the box refuses is answered in its words", b)
     st, b = sse(admin, f"{R}/logging/watch?port=40000")

@@ -58,6 +58,10 @@ export interface TypedPool {
   tcp_mss: string
   filter: string
   algs: Record<string, boolean>
+  /** NAT64 (Prisma 0.150.0, #59): the delegated prefix each subscriber gets; 0 on an IPv4 pool. */
+  subscriber_length?: number
+  /** NAT64 (Prisma 0.150.0, #59): "" is the well-known 64:ff9b::/96. */
+  nat64_prefix?: string
 }
 
 export interface TypedCollector {

@@ -13,6 +13,7 @@ import type { ConfigChange } from "@/hooks/use-config-changes"
 import {
   ALGS,
   emptyPool,
+  isNat64,
   poolChanges,
   poolErrors,
   poolKey,
@@ -55,9 +56,13 @@ export function PoolDialog({
     setShownFor(target)
     if (open) setForm(pool ?? emptyPool())
   }
-  const errors = poolErrors(pool, form, taken)
-  const changes = Object.keys(errors).length ? [] : poolChanges(pool, form, typed)
-  const remap = remapReasons(pool, form)
+  // IPv6 inside prefixes make it a NAT64 pool (Prisma 0.150.0, #59); an IPv4 one drops the
+  // NAT64 fields the form hides, so they are cleared, not left behind.
+  const nat64 = isNat64(form)
+  const asked = nat64 ? form : { ...form, scalars: { ...form.scalars, "subscriber-length": "", "nat64-prefix": "" } }
+  const errors = poolErrors(pool, asked, taken)
+  const changes = Object.keys(errors).length ? [] : poolChanges(pool, asked, typed)
+  const remap = remapReasons(pool, asked)
   const scalar = (k: PoolScalar) => form.scalars[k]
   const setScalar = (k: PoolScalar, v: string) => setForm((f) => ({ ...f, scalars: { ...f.scalars, [k]: v } }))
   const [lo = "", hi = ""] = scalar("ports").split(/\s+/)
@@ -102,7 +107,8 @@ export function PoolDialog({
         <DialogHeader>
           <DialogTitle>{pool ? `Pool ${pool.name}` : "New pool"}</DialogTitle>
           <DialogDescription>
-            Subscribers from the inside prefixes are translated to the outside ones, in blocks of ports.
+            Subscribers from the inside prefixes are translated to the outside ones, in blocks of ports. IPv6 inside prefixes make
+            it a NAT64 pool, each subscriber a delegated prefix.
           </DialogDescription>
         </DialogHeader>
 
@@ -111,9 +117,29 @@ export function PoolDialog({
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {prefixList("inside", "Inside prefixes", "100.64.0.0/10")}
+          {prefixList("inside", "Inside prefixes", "100.64.0.0/10 or 2001:db8:1200::/40")}
           {prefixList("outside", "Outside prefixes", "203.0.113.0/26")}
         </div>
+
+        {nat64 && (
+          <section className="grid gap-3 sm:grid-cols-2" data-nat64>
+            <TextField
+              label="Subscriber prefix length"
+              value={scalar("subscriber-length")}
+              numeric
+              placeholder="56"
+              error={errors["subscriber-length"]}
+              onChange={(v) => setScalar("subscriber-length", v)}
+            />
+            <TextField
+              label="NAT64 prefix"
+              value={scalar("nat64-prefix")}
+              placeholder="64:ff9b::/96 (well known)"
+              error={errors["nat64-prefix"]}
+              onChange={(v) => setScalar("nat64-prefix", v)}
+            />
+          </section>
+        )}
 
         <section className="grid gap-3 sm:grid-cols-3">
           <TextField
@@ -181,6 +207,12 @@ export function PoolDialog({
           </div>
         </section>
 
+        {nat64 ? (
+          <p className={errors.algs ? "text-destructive text-xs" : "text-muted-foreground text-xs"}>
+            A NAT64 pool takes no application gateway (ALG) and no bypass: the router refuses them.
+            {errors.algs && " Turn the ALGs off first, with IPv4 inside prefixes, or in Settings."}
+          </p>
+        ) : (
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Application gateways (ALG)</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -195,6 +227,7 @@ export function PoolDialog({
             ))}
           </div>
         </section>
+        )}
 
         {pool && (
           <section className="space-y-1 text-sm">

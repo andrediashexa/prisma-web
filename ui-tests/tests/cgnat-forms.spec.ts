@@ -181,3 +181,27 @@ test("a cgnat-operator gets the CGNAT forms and nothing else; a read-only login 
     await page.request.delete(`/api/routers/${ro}`)
   }
 })
+
+test("an IPv6 inside prefix makes a NAT64 pool: subscriber length and NAT64 prefix, no ALG (#59)", async ({ page }) => {
+  await page.goto(`/routers/${routerId()}/cgnat`)
+  await page.getByRole("button", { name: "Add a pool" }).click()
+  const form = page.getByRole("dialog")
+  await form.getByLabel("Name").fill("UI64")
+  await form.getByRole("button", { name: "Add an inside prefix" }).click()
+  await form.getByLabel("Inside prefixes 1").fill("2001:db8:1400::/40")
+  await form.getByRole("button", { name: "Add an outside prefix" }).click()
+  await form.getByLabel("Outside prefixes 1").fill("198.51.100.96/28")
+  await expect(form.locator("[data-nat64]")).toBeVisible()
+  await expect(form.getByRole("combobox", { name: "SIP" })).toHaveCount(0)
+  await expect(form.getByText("A NAT64 pool takes no application gateway")).toBeVisible()
+  await form.getByLabel("Subscriber prefix length").fill("200")
+  await expect(form.getByRole("button", { name: "Add to the changes" })).toBeDisabled()
+  await form.getByLabel("Subscriber prefix length").fill("56")
+  await expect(form.getByTestId("lines-preview")).toHaveText(
+    ["prefix-inside 2001:db8:1400::/40", "prefix-outside 198.51.100.96/28", "subscriber-length 56"].join("\n"),
+  )
+  // Back to IPv4: the NAT64 fields go away.
+  await form.getByLabel("Inside prefixes 1").fill("10.64.0.0/16")
+  await expect(form.locator("[data-nat64]")).toHaveCount(0)
+  await form.getByRole("button", { name: "Cancel" }).click()
+})
