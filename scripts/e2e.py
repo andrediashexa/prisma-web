@@ -555,6 +555,10 @@ def system_checks(admin, R, router_id):
     s = status()
     check((s.get("maintenance") or {}).get("what") == "reboot" and s["maintenance"]["until"] is None,
           "the fleet shows the box in maintenance until it answers again", s.get("maintenance"))
+    # The monitor leaves it alone meanwhile: no call every 5 s, probes 15 s or more apart (#52).
+    t1 = status()["checked_at"]
+    time.sleep(8)
+    check(status()["checked_at"] == t1, "a box in maintenance is not polled every 5 s", (t1, status()["checked_at"]))
     st, b = admin.post(f"{R}/system/restart-dataplane", {"confirm": name})
     check(st == 200 and "restarted" in b["output"], "the dataplane restart answers when it has finished", b)
     st, evs = sse(admin, f"{R}/system/upgrade", {"version": ""})

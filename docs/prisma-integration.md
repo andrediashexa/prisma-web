@@ -346,10 +346,14 @@ Read up to 0.149.26 in `clients.md` and already handled:
   (0.149.26 on) without it, the System tab shows that grant instead of the actions, keeping the
   upgrade check, which is every account's since 0.149.26. A grant reaches the API only after the
   API restarts (prismarouting #565, fixed in 0.149.27).
-- **A dataplane restart through the API is refused on 0.149.25 and 0.149.26** (#51): it stops the
-  containers and never starts them again (prismarouting #564). On 2026-10-04 one on
+- **A dataplane restart through the API is refused on 0.149.25 and 0.149.26** (#51): the
+  containers' stop fails early and the restart script gives up without starting them again, and
+  every client connection meanwhile counts against the API socket's trigger limit, which keeps
+  the API down even after (prismarouting #564, fixed in 0.149.27). On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
-  network until a VM reboot. The back answers 409 before calling the box, and the page says
+  network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
+  before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
+  telemetry stream until it is out. The back answers 409 before calling the box, and the page says
   why. A restart that loses the connection on any release (`Unavailable`, "Socket closed")
   leaves the box in maintenance (`dataplane`) until it answers again, and its audit entry
   records `connection_lost`; the confirmation says a box with its management on the dataplane
