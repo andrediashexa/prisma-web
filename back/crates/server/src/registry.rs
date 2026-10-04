@@ -114,7 +114,7 @@ pub struct RouterStatus {
 /// after its `API_RESTART`, or from a reboot until it answers again.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Maintenance {
-    /// `upgrade`, `reboot` or `shutdown`.
+    /// `upgrade`, `reboot`, `shutdown` or `dataplane` (a restart that took the box off the network).
     pub what: String,
     pub since: chrono::DateTime<chrono::Utc>,
     /// When it ends; `None` until the box says (an upgrade's API_RESTART) or answers again.

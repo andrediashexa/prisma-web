@@ -57,3 +57,29 @@ test("a router before 0.149.25 has no System tab", async ({ page }) => {
   await expect(tabs.getByRole("link", { name: "Interfaces" })).toBeVisible()
   await expect(tabs.getByRole("link", { name: "System" })).toHaveCount(0)
 })
+
+test("a 0.149.26 router whose account has no operator says how to grant it, and the broken restart is not offered", async ({ page }) => {
+  // prisma-mock-2: Prisma 0.149.26 without `operator` for prisma-web's account (#51).
+  const res = await page.request.post("/api/routers", {
+    data: { name: `ui-op-${Date.now()}`, api_url: "https://prisma-mock-2:50051", tls_profile: "dev/mock", tls_server_name: "prisma-api" },
+  })
+  expect(res.status()).toBe(201)
+  const { id } = await res.json()
+  try {
+    await expect(async () => {
+      const fleet = (await (await page.request.get("/api/routers/status")).json()) as { id: string; access: unknown; system_service: unknown }[]
+      const me = fleet.find((r) => r.id === id)
+      expect(me?.access && me.system_service).toBeTruthy()
+    }).toPass({ timeout: 30_000 })
+    await page.goto(`/routers/${id}/system`)
+    const power = page.locator("[data-power]")
+    await expect(power.locator("[data-grant]")).toContainText("operator")
+    await expect(power.getByRole("button", { name: "Reboot" })).toBeDisabled()
+    await expect(power.locator("[data-restart-broken]")).toBeVisible()
+    // The check is every account's: it is offered and answers.
+    await page.locator("[data-upgrade]").getByRole("button", { name: "Check for a release" }).click()
+    await expect(page.locator("[data-upgrade]").getByText(/Newest:/)).toBeVisible()
+  } finally {
+    await page.request.delete(`/api/routers/${id}`)
+  }
+})

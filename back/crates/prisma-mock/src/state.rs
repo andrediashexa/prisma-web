@@ -75,6 +75,8 @@ pub struct State {
     pub saved_revision: u64,
     /// The last upgrade run (GetUpgradeStatus, #50).
     pub upgrade: Option<UpgradeProgress>,
+    /// Test hook: the next dataplane restart drops the connection (#51).
+    pub restart_drops: bool,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -151,6 +153,7 @@ impl State {
             bgp_reset: HashMap::new(),
             saved_revision: 1,
             upgrade: None,
+            restart_drops: false,
         }
     }
 

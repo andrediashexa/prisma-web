@@ -137,7 +137,15 @@ def tls_checks(admin, args):
         candidate_expiry_checks(admin, f"/routers/{r['id']}")
         log_export_checks(admin, r["id"])
         st, b = admin.post(f"/routers/{r['id']}/system/reboot", {"confirm": r["name"]})
-        check(st == 403 and "root" in errmsg(b), "a box that gives the system actions to root only refuses prisma-web, in its words (#50)", b)
+        check(st == 403 and "prisma-operator" in errmsg(b), "a box whose account has no operator refuses prisma-web, in its words (#50, #51)", b)
+        s = wait_for(lambda: (lambda s: (s.get("access") is not None, s))(next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])),
+                     "WhoAmI of the 0.149.26 mock")
+        check(s["access"].get("can_operate") is False, "and WhoAmI says so (can_operate false)", s["access"])
+        st, evs = sse(admin, f"/routers/{r['id']}/system/upgrade", {"version": ""})
+        check(st == 200 and any(e == "progress" and json.loads(d)["phase"] == "CHECKED" for e, d in evs),
+              "the upgrade check is every account's since 0.149.26", evs if st != 200 else evs[:1])
+        st, b = admin.post(f"/routers/{r['id']}/system/restart-dataplane", {"confirm": r["name"]})
+        check(st == 409 and "#564" in errmsg(b), "a dataplane restart is refused before the box on 0.149.25/26 (prismarouting #564)", b)
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
@@ -572,6 +580,17 @@ def system_checks(admin, R, router_id):
     acts = {e["action"] for e in audit["items"]}
     check({"router.system.reboot", "router.system.restart-dataplane", "router.system.upgrade", "router.system.upgrade-check"} <= acts
           and any(not e["success"] for e in audit["items"]), "every attempt is in the audit log, refused ones too", sorted(acts))
+    # 0.149.26 (#51): WhoAmI says the account may run them; a restart that loses the connection
+    # (management on the dataplane, as on 192.0.2.198) leaves the box in maintenance.
+    check((status().get("access") or {}).get("can_operate") is True, "WhoAmI says prisma-web's account may operate the box (can_operate)", status().get("access"))
+    st, b = admin.post(f"{R}/show", {"command": "mock restart-dataplane drops"})
+    check(st == 200, "mock: the next dataplane restart drops the connection", b)
+    st, b = admin.post(f"{R}/system/restart-dataplane", {"confirm": name})
+    check(st == 502, "a restart that loses the connection is not a refusal", b)
+    m = status().get("maintenance") or {}
+    check(m.get("what") == "dataplane" and m.get("until") is None, "and the box shows in maintenance until it answers again", m)
+    st, audit = admin.get(f"/audit?router_id={router_id}&action=router.system.restart-dataplane&limit=1")
+    check(audit["items"] and audit["items"][0]["details"].get("connection_lost") is True, "the audit log says the connection was lost", audit["items"][:1])
 
 
 def log_export_checks(admin, router_id):
@@ -886,6 +905,7 @@ def lab(admin, args):
         lab_typed_checks(admin, R)
         # WatchLogging only reads the box's observation ring: a 3 s watch, read-only (#49).
         if st_lab.get("system_service"):
+            check(True, f"WhoAmI can_operate on the real Prisma: {(st_lab.get('access') or {}).get('can_operate')} (#51)")
             # GetUpgradeStatus and an upgrade check change nothing on the box (#50).
             st, last = admin.get(f"{R}/system/upgrade")
             check(st in (200, 403), f"GetUpgradeStatus on the real Prisma ({st}): {last.get('phase') if st == 200 else errmsg(last)}", last)

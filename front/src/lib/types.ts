@@ -349,7 +349,7 @@ export interface RouterStatus {
   /** grpc.health.v1 of prisma.v1.SystemService (Prisma 0.149.25): set on a box that has Clear (#48). */
   system_service: "serving" | "not-serving" | null
   /** Set while prisma-web knows the box is in maintenance: an upgrade, reboot or shutdown it asked for (#50). */
-  maintenance: { what: "upgrade" | "reboot" | "shutdown"; since: string; until: string | null } | null
+  maintenance: { what: "upgrade" | "reboot" | "shutdown" | "dataplane"; since: string; until: string | null } | null
 }
 
 /** SystemService's UpgradeProgress (Prisma 0.149.25, #50); the phase by name. */
@@ -404,6 +404,8 @@ export interface WhoAmI {
   role: string
   can_configure: boolean
   can_configure_cgnat: boolean
+  /** Prisma 0.149.26 (#51): the account has `operator` (or is root): upgrade, reboot, shutdown, dataplane restart. */
+  can_operate?: boolean
 }
 
 /** A login that can change nothing: the back refuses its changes too. */

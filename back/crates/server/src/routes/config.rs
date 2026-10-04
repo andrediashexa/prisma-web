@@ -147,7 +147,7 @@ fn syslog_disable_hazard(release: &str, running: &str, diff: &str) -> bool {
 }
 
 /// `0.149.4`, `0.149.0-mock` → (0, 149, 4); anything else is unknown and not refused.
-fn release_triplet(release: &str) -> Option<(u32, u32, u32)> {
+pub(crate) fn release_triplet(release: &str) -> Option<(u32, u32, u32)> {
     let core = release.trim().trim_start_matches('v').split(['-', '+', ' ']).next()?;
     let mut it = core.split('.').map(|n| n.parse::<u32>().ok());
     Some((it.next()??, it.next()??, it.next()??))

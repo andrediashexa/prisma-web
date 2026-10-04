@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.24.0 - Operator — 2026-10-04
+
+### Added
+- On a router with Prisma 0.149.26 or newer, the router's access badge says whether prisma-web's account is an **operator** (it may upgrade, reboot, shut down and restart the dataplane). Where it is not, the System tab shows how the router's administrator grants it instead of the actions; checking for a release stays available to every account (#51).
+
+### Fixed
+- A dataplane restart is refused on Prisma 0.149.25 and 0.149.26, which stop the dataplane and never start it again (prismarouting #564). Its confirmation now says that a router whose management address is on a dataplane interface drops off the network, and a restart that loses the connection shows the router as in maintenance until it answers again (#51).
+
+### Internal
+- Client regenerated from the Prisma 0.149.26 contract; integration notes read up to 0.149.26. The simulated Prisma reports `can_operate`; the one with mTLS is a 0.149.26 router without `operator` (#51).
+
 ## 0.23.0 - System — 2026-10-03
 
 ### Added

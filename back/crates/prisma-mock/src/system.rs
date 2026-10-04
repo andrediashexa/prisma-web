@@ -28,9 +28,18 @@ fn refused(code: tonic::Code, reason: Reason, msg: &str) -> Status {
     with_diagnostics(Status::new(code, msg), &d)
 }
 
+/// `MOCK_SYSTEM_DENIED=1`: prisma-web's account has no `operator` (0.149.26, #51).
+pub fn denied_env() -> bool {
+    std::env::var("MOCK_SYSTEM_DENIED").is_ok_and(|v| v == "1")
+}
+
 fn denied() -> Option<Status> {
-    std::env::var("MOCK_SYSTEM_DENIED").is_ok_and(|v| v == "1").then(|| {
-        refused(tonic::Code::PermissionDenied, Reason::Permission, "% system: this command is root's (the account prisma-web is not)")
+    denied_env().then(|| {
+        refused(
+            tonic::Code::PermissionDenied,
+            Reason::Permission,
+            "% system: this command is root's or a prisma-operator's (the account prisma-web is neither)",
+        )
     })
 }
 
@@ -77,8 +86,14 @@ impl SystemService for SystemSvc {
         if let Some(e) = denied() {
             return Err(e);
         }
-        if running_upgrade(&self.0.state.lock().unwrap()) {
-            return Err(refused(tonic::Code::FailedPrecondition, Reason::Busy, "% an upgrade is running"));
+        {
+            let mut st = self.0.state.lock().unwrap();
+            if running_upgrade(&st) {
+                return Err(refused(tonic::Code::FailedPrecondition, Reason::Busy, "% an upgrade is running"));
+            }
+            if std::mem::take(&mut st.restart_drops) {
+                return Err(Status::unavailable("Socket closed"));
+            }
         }
         Ok(Response::new(SystemActionResponse { output: "dataplane restarted (simulated)".into(), ..Default::default() }))
     }
@@ -86,10 +101,11 @@ impl SystemService for SystemSvc {
     /// STARTED, DOWNLOAD, VERIFY, INSTALL per row, INSTALLED, API_RESTART, and the stream ends;
     /// an empty version only checks.
     async fn upgrade(&self, req: Request<UpgradeRequest>) -> Result<Response<BoxStream<UpgradeProgress>>, Status> {
-        if let Some(e) = denied() {
+        let version = req.into_inner().version.trim().to_string();
+        // The check is every account's since 0.149.26 (#51).
+        if let Some(e) = denied().filter(|_| !version.is_empty()) {
             return Err(e);
         }
-        let version = req.into_inner().version.trim().to_string();
         let started_at = Some(timestamp(Utc::now()));
         let p = |phase: Phase, message: &str| UpgradeProgress {
             phase: phase as i32,

@@ -45,6 +45,15 @@ pub struct UpgradeBody {
     confirm: String,
 }
 
+/// Releases whose `RestartDataplane` stops the containers and never starts them again,
+/// taking the box off the network until it reboots (prismarouting #564, seen on
+/// 192.0.2.198 on 2026-10-04, #51). Fixed in the next Prisma patch.
+const RESTART_BROKEN: [(u32, u32, u32); 2] = [(0, 149, 25), (0, 149, 26)];
+
+fn restart_broken(release: &str) -> bool {
+    super::config::release_triplet(release).is_some_and(|v| RESTART_BROKEN.contains(&v))
+}
+
 /// The router's name must be typed as it is (surrounding spaces aside).
 fn confirmed(typed: &str, name: &str) -> AppResult<()> {
     if typed.trim() == name {
@@ -75,6 +84,15 @@ pub async fn action(
     }
     let r = st.routers.get(id).await?;
     confirmed(&b.confirm, &r.name)?;
+    if what == "restart-dataplane" {
+        let release = r.ops().get_version(req(GetVersionRequest {})).await?.into_inner().release;
+        if restart_broken(&release) {
+            return Err(AppError::Conflict(format!(
+                "Prisma {release} does not start the dataplane again after this restart (prismarouting #564): \
+                 the router stays off the network until it reboots. Upgrade it to a release with the fix first"
+            )));
+        }
+    }
     let msg = SystemActionRequest { force: b.force, ..Default::default() };
     let mut sys = r.system();
     let res = match what.as_str() {
@@ -83,15 +101,29 @@ pub async fn action(
         _ => sys.restart_dataplane(grpc::req_with(msg, RESTART_TIMEOUT)).await,
     };
     let action = format!("router.system.{what}");
-    let mut entry = Entry::by(&user, &meta, &action).target(&r.name).router(id).details(json!({ "force": b.force }));
+    let lost = res.as_ref().err().is_some_and(lost_mid_call);
+    let mut entry = Entry::by(&user, &meta, &action)
+        .target(&r.name)
+        .router(id)
+        .details(json!({ "force": b.force, "connection_lost": lost }));
     if res.is_err() {
         entry = entry.failed();
-    } else if what != "restart-dataplane" {
+    }
+    if res.is_ok() && what != "restart-dataplane" {
         // The reply comes before the box goes down.
         st.routers.maintenance_begin(id, &what, None);
+    } else if lost && what == "restart-dataplane" {
+        // The restart answers when it has finished; a box whose management address is on a
+        // dataplane interface drops off before it can (192.0.2.198, 2026-10-04, #51).
+        st.routers.maintenance_begin(id, "dataplane", None);
     }
     audit::record(&st.db, entry).await;
     Ok(Json(res?.into_inner()))
+}
+
+/// The connection went away while the call ran ("Socket closed", a reset): not a refusal.
+fn lost_mid_call(s: &tonic::Status) -> bool {
+    matches!(s.code(), tonic::Code::Unavailable | tonic::Code::Unknown | tonic::Code::Cancelled)
 }
 
 /// The last upgrade run, read back from the box (it outlives a lost stream).
@@ -161,6 +193,19 @@ mod tests {
         assert!(confirmed(" vm-prisma-teste ", "vm-prisma-teste").is_ok());
         assert!(confirmed("vm-prisma", "vm-prisma-teste").is_err());
         assert!(confirmed("", "x").is_err());
+    }
+
+    #[test]
+    fn the_releases_with_the_broken_restart_are_refused() {
+        assert!(restart_broken("0.149.25") && restart_broken("0.149.26-mock"));
+        assert!(!restart_broken("0.149.27") && !restart_broken("0.149.0-mock") && !restart_broken("garbage"));
+    }
+
+    #[test]
+    fn a_dropped_connection_is_not_a_refusal() {
+        assert!(lost_mid_call(&tonic::Status::unavailable("Socket closed")));
+        assert!(!lost_mid_call(&tonic::Status::permission_denied("root's")));
+        assert!(!lost_mid_call(&tonic::Status::failed_precondition("busy")));
     }
 
     #[test]

@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.25 | `7c924ccf4d961baaa7cea9f4d9fcf2ccea5b6773fff30a93ce8e698bde8db60f` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.149.25 | `a7b449b8fe4cfe173c6798cde4c38d9b234c6343519945ee2d4d76c20c37b40c` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.25 | `fb3054d7bbf85ed143e4fde28d31ffa28cf73ce51423524e5b9c67305f4547e2` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.149.26 | `3f8ac0fc80f46252af5a36829b142201d6054af82f0ac0254993f2bd7e4268c8` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.149.26 | `a7b449b8fe4cfe173c6798cde4c38d9b234c6343519945ee2d4d76c20c37b40c` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.149.26 | `a719e26695f58c0485192998f9ec0aacd1d6f30bdf1c1e89303d2ec20e7678aa` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) the proto and the coverage map.
 
-Read up to 0.149.25 in `clients.md` and already handled:
+Read up to 0.149.26 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -337,7 +337,25 @@ Read up to 0.149.25 in `clients.md` and already handled:
   `GetUpgradeStatus` and an upgrade check. On 2026-10-03 on 192.0.2.198 (0.149.25)
   `GetUpgradeStatus` answered `NOT_FOUND` ("no upgrade was started through the API on this box",
   read as no run), and the check was not refused to prisma-web's account: it came back `FAILED`,
-  "the newest release could not be read" (the box cannot read the releases).
+  "the newest release could not be read" (the management container had no DNS; 0.149.26 reads it
+  through the host).
+- 0.149.26 (#563, additive) is followed (#51). `WhoAmIResponse.can_operate` says whether the
+  account may run `SystemService` (root, or `operator` in its user block: `user prisma-web` /
+  `role administrator` / `operator` / `exit`, committed by the box's root); `UserConfig.operator`
+  reads it in GetConfig's accounts. The access badge shows *operator*; on a box that reports it
+  (0.149.26 on) without it, the System tab shows that grant instead of the actions, keeping the
+  upgrade check, which is every account's since 0.149.26. A grant reaches the API only after the
+  API restarts (prismarouting #565, fixed in 0.149.27).
+- **A dataplane restart through the API is refused on 0.149.25 and 0.149.26** (#51): it stops the
+  containers and never starts them again (prismarouting #564). On 2026-10-04 one on
+  192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
+  network until a VM reboot. The back answers 409 before calling the box, and the page says
+  why. A restart that loses the connection on any release (`Unavailable`, "Socket closed")
+  leaves the box in maintenance (`dataplane`) until it answers again, and its audit entry
+  records `connection_lost`; the confirmation says a box with its management on the dataplane
+  drops off the network. The mock reports `can_operate`; prisma-mock-2 is a 0.149.26 box
+  (`MOCK_RELEASE`) whose account has no `operator`, and `mock restart-dataplane drops` makes the
+  next restart lose the connection. prisma-web sends no power action or upgrade to a real box.
 - The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
