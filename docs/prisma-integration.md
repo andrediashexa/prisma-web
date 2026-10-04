@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.3 | `e872dea7d1a4fa7c9377183ff2be01bef1b2617f6f5369a78a6579a1d2782f5c` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.150.3 | `eff830b29853c90126bc6344e5d1e16bf96db4ec894f7e0e1da74eeb7a0cccdd` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.3 | `f4f8693df3447430634082014a12439e96634c0ffaa9c3774c8be4f4c2df222d` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.6 | `8cc49ae67f9d8279a77b0d443d7ad5f6d016ae0518c6b96c000b32256973efa1` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.150.6 | `81f04e0ad7ee3580bf608306a7e7cb07c5c1ff0452312d73104c1c10a4ac40c9` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.6 | `b56985d70b47aff7f3b9db500b3e29c863c9d7d62159bfe8ffd73a68f62cdd4c` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) all three.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4 and 0.150.5 none.
 
-Read up to 0.150.3 in `clients.md` and already handled:
+Read up to 0.150.6 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -420,7 +420,26 @@ Read up to 0.150.3 in `clients.md` and already handled:
   is; the box answers NOT_FOUND for an address no pool owns. `show cgnat ha peer <file>` stays
   text through the console (it names a path on the box). `GetSubscriber.blocks`, empty since
   0.148.4, now lists the subscriber's blocks, which the subscriber lookup already shows. The
-  mock answers the ten (the line-only mock, as a box before 0.150.3, does not). On 2026-10-04 one on
+  mock answers the ten (the line-only mock, as a box before 0.150.3, does not).
+- 0.150.4 and 0.150.5 change nothing through the API: they fix the exit status of `prismash -c`
+  on the box, which matters only to a client running the VTY over ssh.
+- 0.150.6 (additive, #558 phase 7) types the last screens and streams the probes, followed in
+  #64. `GET /api/routers/{id}/screens/{ospf-interfaces,isis-interfaces,hardware,routing-logging}`
+  relay `ListOspfInterfaces` (the MTU ospfd advertises beside the dataplane's; `mtu_stall`
+  marks one that keeps an adjacency from forming), `ListIsisInterfaces`, `GetHardware` (the
+  host's NICs, those the dataplane holds, the default route's) and `GetRoutingLogging` (FRR's
+  logging; GetLogging stays the CGNAT export); `answered` false is the daemon not answering and
+  is shown so. `GET …/snmp-file?kind=mib|zabbix` downloads `GetSnmpFile` under the box's
+  filename and media type (the box's enterprise number inside). `POST …/probe/{ping,traceroute,
+  mtr}` relays the `ProbeEvent` stream as Server-Sent Events (`probe` with the line and its
+  reply, hop or mtr hop, the last with `end`); it is an operator's, recorded as a console
+  command, and leaving the panel cancels the call, which stops the probe on the box (one at a
+  time per account, count 1-100, 300 s at most; prisma-web waits 320 s). The Routing tab shows
+  the OSPF interfaces, IS-IS circuits and FRR logging; the Interfaces tab the hardware and the
+  SNMP files; the console page the probes. A box before 0.150.6 answers *unimplemented* and is
+  offered none; right after an upgrade the API can answer with the old methods for about a
+  minute, and the next read retries. Only `show cgnat ha peer <file>` stays text. `--lab` reads
+  the four screens and the SNMP files; no probe is sent from a real box by the tests. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no

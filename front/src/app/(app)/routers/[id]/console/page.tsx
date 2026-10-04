@@ -4,6 +4,7 @@ import { useParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { CornerDownLeftIcon, Loader2Icon, TerminalIcon, Trash2Icon } from "lucide-react"
 
+import { ProbePanel } from "@/components/screens"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useRouters } from "@/hooks/use-routers"
@@ -57,6 +58,7 @@ export default function ConsolePage() {
   const history = entries.map((e) => e.command)
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -128,5 +130,8 @@ export default function ConsolePage() {
         </form>
       </CardContent>
     </Card>
+    {/* Prisma 0.150.6 (#64): the probes, streamed. */}
+    <ProbePanel routerId={id} />
+    </>
   )
 }

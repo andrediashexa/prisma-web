@@ -119,7 +119,7 @@ fn hms(secs: u64) -> String {
     if d > 0 { format!("{d}d{h:02}h{m:02}m") } else { format!("{h:02}:{m:02}:{:02}", secs % 60) }
 }
 
-/// The line-only mock stands for a box before 0.150.3 too (#63).
+/// The line-only mock stands for a box before 0.150.3 (and 0.150.6) too (#63, #64).
 fn before_0_150_3() -> Result<(), Status> {
     if crate::typed::disabled() {
         return Err(Status::unimplemented("MOCK_NO_TYPED: a box before 0.150.3"));
@@ -400,6 +400,40 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     async fn get_ha_status(&self, _: Request<GetHaStatusRequest>) -> R<HaStatus> {
         before_0_150_3()?;
         Ok(Response::new(crate::cgnat_screens::ha()))
+    }
+
+    // The rest of the screens and the probes (0.150.6, #64); the line-only mock has none.
+    async fn list_ospf_interfaces(&self, _: Request<ListOspfInterfacesRequest>) -> R<OspfInterfaces> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::screens::ospf_interfaces()))
+    }
+    async fn list_isis_interfaces(&self, _: Request<ListIsisInterfacesRequest>) -> R<IsisInterfaces> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::screens::isis_interfaces()))
+    }
+    async fn get_hardware(&self, _: Request<GetHardwareRequest>) -> R<Hardware> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::screens::hardware()))
+    }
+    async fn get_routing_logging(&self, _: Request<GetRoutingLoggingRequest>) -> R<RoutingLogging> {
+        before_0_150_3()?;
+        Ok(Response::new(crate::screens::routing_logging()))
+    }
+    async fn get_snmp_file(&self, req: Request<GetSnmpFileRequest>) -> R<SnmpFile> {
+        before_0_150_3()?;
+        crate::screens::snmp_file(req.get_ref().kind).map(Response::new)
+    }
+    async fn ping(&self, req: Request<ProbeRequest>) -> Result<Response<tonic::codegen::BoxStream<ProbeEvent>>, Status> {
+        before_0_150_3()?;
+        crate::screens::probe("ping", req.into_inner()).map(Response::new)
+    }
+    async fn traceroute(&self, req: Request<ProbeRequest>) -> Result<Response<tonic::codegen::BoxStream<ProbeEvent>>, Status> {
+        before_0_150_3()?;
+        crate::screens::probe("traceroute", req.into_inner()).map(Response::new)
+    }
+    async fn mtr(&self, req: Request<ProbeRequest>) -> Result<Response<tonic::codegen::BoxStream<ProbeEvent>>, Status> {
+        before_0_150_3()?;
+        crate::screens::probe("mtr", req.into_inner()).map(Response::new)
     }
 
     async fn get_subscriber(&self, req: Request<GetSubscriberRequest>) -> R<Subscriber> {

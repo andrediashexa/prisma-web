@@ -9,6 +9,7 @@ mod log_export;
 mod operational;
 mod policy;
 mod schema;
+mod screens;
 mod session;
 mod route_service;
 mod state;

@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.28.0 - Probes and screens — 2026-10-04
+
+### Added
+- On a router with Prisma 0.150.6 or newer:
+  - The console page runs ping, traceroute and mtr from the router, a line at a time, with the summary at the end; stopping or leaving the page stops the probe. Probes are an operator's and recorded with the console's commands (#64).
+  - The Routing tab shows the OSPF interfaces (marking an MTU that differs from the dataplane's, which keeps an adjacency from forming), the IS-IS circuits and how each routing daemon logs (#64).
+  - The Interfaces tab shows the network cards the host has, those the dataplane holds and the one the default route leaves by, and downloads the router's MIB and a Zabbix 7.0 template with its enterprise number (#64).
+
+### Internal
+- Client regenerated from the Prisma 0.150.6 contract; integration notes read up to 0.150.6 (0.150.4 and 0.150.5 change nothing through the API). The simulated Prisma answers the new screens and probes (#64).
+
 ## 0.27.0 - CGNAT diagnostics — 2026-10-04
 
 ### Added

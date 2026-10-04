@@ -7,6 +7,7 @@ import { BoxesIcon, Loader2Icon, PencilIcon, PowerIcon, PowerOffIcon } from "luc
 
 import { AddressList } from "@/components/address-list"
 import { ClearAction, useClears } from "@/components/clear-action"
+import { HardwareCard, SnmpFiles } from "@/components/screens"
 import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
 import { InterfaceForm, type InterfaceEditing } from "@/components/interface-form"
@@ -270,6 +271,10 @@ export default function InterfacesPage() {
         onCommitted={cc.committed}
         staged={cc.staged}
       />
+
+      {/* Prisma 0.150.6 (#64): the cards the host has. */}
+      <HardwareCard routerId={id} />
+      <SnmpFiles routerId={id} />
     </>
   )
 }
