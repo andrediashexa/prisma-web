@@ -76,10 +76,16 @@ export const POOL_SCALARS = [
   "max-session-rate",
   "filter",
   "tcp-mss",
+  // NAT64 (Prisma 0.150.0, #59): on a pool whose inside prefixes are IPv6.
+  "subscriber-length",
+  "nat64-prefix",
 ] as const
 export type PoolScalar = (typeof POOL_SCALARS)[number]
 export const ALGS = ["ftp", "rtsp", "pptp", "esp", "sip"] as const
 export type Alg = (typeof ALGS)[number]
+
+/** A NAT64 pool: its inside prefixes are IPv6 (Prisma 0.150.0, #59). */
+export const isNat64 = (p: PoolConfig) => p.inside.some((x) => x.includes(":"))
 
 export interface PoolConfig {
   name: string
@@ -241,6 +247,8 @@ const SCALAR_KIND: Partial<Record<PoolScalar, Kind>> = {
   "utilisation-alarm": int(1, 100),
   "max-sessions": int(0, 4294967295),
   "max-session-rate": int(0, 4294967295),
+  "subscriber-length": int(32, 128),
+  "nat64-prefix": { k: "ipv6_prefix" },
 }
 
 /** Statements the VTY has no `no` form for: once set, they can only be changed. */
@@ -251,13 +259,19 @@ export function poolErrors(before: PoolConfig | null, p: PoolConfig, taken: stri
   if (!before) {
     e.name = !p.name.trim() ? "required" : noSpaces(p.name) ?? (taken.includes(p.name.trim()) ? "a pool with this name exists" : null)
   }
-  p.inside.forEach((x, n) => (e[`inside ${n}`] = check({ k: "ipv4_prefix" }, x, true)))
+  // A pool's inside prefixes are of one family: IPv6 makes it a NAT64 pool (#59).
+  const v6 = isNat64(p)
+  p.inside.forEach((x, n) => (e[`inside ${n}`] = check({ k: v6 ? "ipv6_prefix" : "ipv4_prefix" }, x, true)))
   p.outside.forEach((x, n) => (e[`outside ${n}`] = check({ k: "ipv4_prefix" }, x, true)))
   if (!before && p.inside.length === 0) e.inside = "at least one inside prefix"
   if (!before && p.outside.length === 0) e.outside = "at least one outside prefix"
   for (const [k, kind] of Object.entries(SCALAR_KIND) as [PoolScalar, Kind][]) {
     e[k] = check(kind, p.scalars[k], !!before?.scalars[k] && NO_UNSET.includes(k))
   }
+  if (!v6) {
+    for (const k of ["subscriber-length", "nat64-prefix"] as const) if (p.scalars[k].trim()) e[k] = "only on a NAT64 pool (IPv6 inside prefixes)"
+  }
+  if (v6 && ALGS.some((a) => p.algs[a] === "on")) e.algs = "a NAT64 pool takes no ALG"
   const ports = p.scalars.ports.trim()
   if (ports) {
     const [lo, hi, extra] = ports.split(/\s+/)
@@ -352,6 +366,7 @@ export function remapReasons(a: PoolConfig | null, b: PoolConfig): string[] {
   if (!a) return []
   const out: string[] = []
   if (b.scalars["block-size"].trim() !== a.scalars["block-size"]) out.push("block size")
+  if (b.scalars["subscriber-length"].trim() !== a.scalars["subscriber-length"]) out.push("subscriber prefix length")
   const same = (x: string[], y: string[]) => x.length === y.length && x.every((v) => y.includes(v))
   if (!same(a.inside, b.inside.map((x) => x.trim()))) out.push("inside prefixes")
   if (!same(a.outside, b.outside.map((x) => x.trim()))) out.push("outside prefixes")
@@ -423,6 +438,8 @@ function poolFromTyped(t: TypedPool, other: string[]): PoolConfig {
   p.scalars["max-session-rate"] = n2s(t.max_session_rate)
   p.scalars.filter = t.filter
   p.scalars["tcp-mss"] = t.tcp_mss
+  p.scalars["subscriber-length"] = n2s(t.subscriber_length ?? 0)
+  p.scalars["nat64-prefix"] = t.nat64_prefix ?? ""
   for (const a of ALGS) if (a in (t.algs ?? {})) p.algs[a] = t.algs[a] ? "on" : "off"
   p.other = other
   return p
@@ -473,6 +490,8 @@ const POOL_FIELD: Record<PoolScalar, string> = {
   "max-session-rate": "max_session_rate",
   filter: "filter",
   "tcp-mss": "tcp_mss",
+  "subscriber-length": "subscriber_length",
+  "nat64-prefix": "nat64_prefix",
 }
 
 export function toTypedPool(b: PoolConfig): Partial<TypedPool> & { name: string } {
@@ -494,6 +513,8 @@ export function toTypedPool(b: PoolConfig): Partial<TypedPool> & { name: string 
     max_session_rate: s2n(v("max-session-rate")),
     filter: v("filter"),
     tcp_mss: v("tcp-mss"),
+    subscriber_length: s2n(v("subscriber-length")),
+    nat64_prefix: v("nat64-prefix"),
     algs: Object.fromEntries(ALGS.filter((a) => b.algs[a]).map((a) => [a, b.algs[a] === "on"])),
   }
 }

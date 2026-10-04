@@ -16,6 +16,15 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.25.0 - NAT64 — 2026-10-04
+
+### Added
+- On a router with Prisma 0.150.0 or newer, the pool form takes IPv6 inside prefixes, which make a NAT64 pool: it then asks for the prefix length each subscriber gets and the NAT64 prefix (empty is the well-known `64:ff9b::/96`), and offers no application gateway, which the router refuses on one. Changing the subscriber prefix length warns of the remap, as the block size does (#59).
+- The live log filters a NAT64 subscriber by any address in its delegated prefix and shows the prefix (#59).
+
+### Internal
+- Client regenerated from the Prisma 0.150.0 contract; integration notes read up to 0.150.0. The simulated Prisma takes NAT64 pools and refuses an ALG or a bypass on one (#59).
+
 ## 0.24.7 - Restart's four minutes — 2026-10-04
 
 ### Fixed

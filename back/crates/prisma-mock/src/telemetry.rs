@@ -122,7 +122,12 @@ impl TelemetryService for TelemetrySvc {
                 n += 1;
                 let kind = if n % 2 == 1 { Kind::Alloc } else { Kind::Release };
                 let i = (n + 1) / 2;
-                let subscriber = if req.subscriber.is_empty() { format!("100.64.{}.{}", i / 250 % 250, i % 250 + 1) } else { req.subscriber.clone() };
+                // A NAT64 subscriber is its delegated prefix (0.150.0, #59): a /56 here.
+                let subscriber = match req.subscriber.parse::<std::net::Ipv6Addr>() {
+                    Ok(a) => format!("{}/56", std::net::Ipv6Addr::from(u128::from(a) & !((1u128 << 72) - 1))),
+                    Err(_) if req.subscriber.is_empty() => format!("100.64.{}.{}", i / 250 % 250, i % 250 + 1),
+                    Err(_) => req.subscriber.clone(),
+                };
                 let public_address = if req.public_address.is_empty() { format!("203.0.113.{}", i % 8 + 1) } else { req.public_address.clone() };
                 let port_first = if req.port != 0 { req.port - req.port % 512 } else { 1024 + (i % 120) * 512 };
                 let wanted = req.event.is_empty() || req.event == kind.as_str_name().to_ascii_lowercase();
