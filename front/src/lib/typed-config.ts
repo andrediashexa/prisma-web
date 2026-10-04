@@ -32,6 +32,8 @@ export interface TypedInterface {
   mac_address: string
   urpf: string
   router_advertisements: boolean
+  /** PREF64 (Prisma 0.150.2, #61): the NAT64 prefixes the advertisements carry. */
+  pref64?: string[]
 }
 
 export interface TypedPool {

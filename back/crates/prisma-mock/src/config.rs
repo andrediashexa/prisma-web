@@ -649,6 +649,8 @@ const SINGLE: &[&[&str]] = &[
 const MULTI: &[&[&str]] = &[
     &["member"],
     &["ipv6", "nd", "suppress-ra"],
+    // PREF64 (0.150.2, #61): one line per NAT64 prefix the advertisements carry.
+    &["ipv6", "nd", "nat64"],
     &["ip", "ospf"],
     &["ip", "router", "isis"],
     &["isis"],
@@ -688,6 +690,9 @@ fn edit_extra(i: &mut Iface, path: &[String], line: &str) -> Result<(), Refusal>
             }
             (["linux-name"] | ["member"], [_]) => true,
             (["ipv6", "nd", "suppress-ra"], []) => true,
+            (["ipv6", "nd", "nat64"], [p]) => p.split_once('/').is_some_and(|(a, l)| {
+                a.parse::<std::net::Ipv6Addr>().is_ok() && l.parse::<u8>().is_ok_and(|l| l <= 128)
+            }),
             // OSPF, IS-IS, VRRP: some value after the keywords.
             (_, v) if single.is_none() => !v.is_empty(),
             _ => false,
