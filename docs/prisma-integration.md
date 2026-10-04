@@ -186,11 +186,11 @@ prisma-web compares it with the release recorded below and follows every entry.
 |---|---|---|
 | `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.6 | `8cc49ae67f9d8279a77b0d443d7ad5f6d016ae0518c6b96c000b32256973efa1` |
 | `docs/prisma-api.md` | `docs/api.md` at v0.150.6 | `81f04e0ad7ee3580bf608306a7e7cb07c5c1ff0452312d73104c1c10a4ac40c9` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.6 | `b56985d70b47aff7f3b9db500b3e29c863c9d7d62159bfe8ffd73a68f62cdd4c` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.8 | `ada3c2b8277ef32fcd64a7517e5ec9eb2942066277b4644aea04b96f05b7c86f` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4 and 0.150.5 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only.
 
-Read up to 0.150.6 in `clients.md` and already handled:
+Read up to 0.150.8 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -439,7 +439,19 @@ Read up to 0.150.6 in `clients.md` and already handled:
   SNMP files; the console page the probes. A box before 0.150.6 answers *unimplemented* and is
   offered none; right after an upgrade the API can answer with the old methods for about a
   minute, and the next read retries. Only `show cgnat ha peer <file>` stays text. `--lab` reads
-  the four screens and the SNMP files; no probe is sent from a real box by the tests. On 2026-10-04 one on
+  the four screens and the SNMP files; no probe is sent from a real box by the tests.
+- 0.150.7 changes nothing through the API: the box removes the container images no release it
+  keeps uses.
+- 0.150.8 brings BFD at the VTY (#559 phase 1), followed in #65: a `bfd` block with `peer`
+  sessions and `profile` timers, `neighbor X bfd [profile <name>]` under `router bgp` and
+  `[bfd]` on a static route; `show bfd peers` and `show bfd peer <address>`. Through the API they
+  are text for now (lines through Edit, screens through Show; typed reads, typed config and a
+  session event are phase 2), so prisma-web re-vendors the coverage map and regenerates its
+  fallback grammar with them; the Settings editor offers them, and the BGP neighbor form's BFD
+  switch writes `neighbor X bfd` as before. A box upgraded to 0.150.8 refuses BFD statements at
+  commit until its routing container restarts (a reboot), and says so. **Known bug
+  (prismarouting #570):** once BFD is committed, removing it fails the commit check; prisma-web
+  shows that refusal in the box's words, and its tests commit no BFD on a real box. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
