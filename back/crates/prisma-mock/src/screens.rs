@@ -90,7 +90,7 @@ pub fn snmp_file(kind: i32) -> Result<SnmpFile, Status> {
             filename: "prisma-zabbix-7.0.yaml".into(),
             media_type: "application/yaml".into(),
             enterprise_number: "67033".into(),
-            content: "zabbix_export:\n  version: '7.0'\n  templates:\n    - template: Prisma (mock)\n".into(),
+            content: "zabbix_export:\n  version: '7.0'\n  templates:\n    - template: Prisma (mock)\n      macros:\n        - macro: '{$PRISMA.ENTERPRISE}'\n          value: '67033'\n".into(),
         }),
         K::Unspecified => Err(Status::invalid_argument("% which file: mib or zabbix-template")),
     }
