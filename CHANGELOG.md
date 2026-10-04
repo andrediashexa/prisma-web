@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.26.1 - Interfaces as lines on 0.150.2 — 2026-10-04
+
+### Fixed
+- On Prisma 0.150.2, whose typed interface writes always fail on the router, the interface form and the shutdown toggle write lines instead; reads stay typed (#62).
+
 ## 0.26.0 - PREF64 — 2026-10-04
 
 ### Added
