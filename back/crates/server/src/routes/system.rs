@@ -48,9 +48,11 @@ pub struct UpgradeBody {
 /// `RestartDataplane` came with 0.149.25 and has not worked yet (prismarouting #564): 0.149.25
 /// and 0.149.26 stop the containers and never start them again (192.0.2.198, #51), 0.149.27's
 /// host refuses the new unit (#53), 0.149.28's call hangs without reaching the host
-/// (192.0.2.166, #54), 0.149.29's fails at once, the host refusing the API's command (#55).
+/// (192.0.2.166, #54), 0.149.29's fails at once, the host refusing the API's command (#55),
+/// 0.149.30's runs but brings the dataplane up with its interfaces renamed, so the saved
+/// configuration is refused and a box managed through the dataplane goes dark (.166, #56).
 /// Raised only once a restart is measured working on a lab box.
-const RESTART_FIXED: (u32, u32, u32) = (0, 149, 30);
+const RESTART_FIXED: (u32, u32, u32) = (0, 149, 32);
 
 fn restart_broken(release: &str) -> bool {
     super::config::release_triplet(release).is_some_and(|v| v >= (0, 149, 25) && v < RESTART_FIXED)
@@ -92,7 +94,8 @@ pub async fn action(
             return Err(AppError::Conflict(format!(
                 "Prisma {release} cannot restart the dataplane through its API (prismarouting #564): \
                  0.149.25 and 0.149.26 leave the router off the network until it reboots, 0.149.27 refuses it \
-                 and 0.149.28 and 0.149.29 never start it. Upgrade it to 0.149.30 or later first"
+                 0.149.28 and 0.149.29 never start it, and 0.149.30 brings the dataplane up with its interfaces \
+                 renamed. Upgrade it to 0.149.32 or later first"
             )));
         }
     }
@@ -200,8 +203,8 @@ mod tests {
 
     #[test]
     fn the_releases_with_the_broken_restart_are_refused() {
-        assert!(restart_broken("0.149.25") && restart_broken("0.149.26-mock") && restart_broken("0.149.29"));
-        assert!(!restart_broken("0.149.30") && !restart_broken("0.149.0-mock") && !restart_broken("garbage"));
+        assert!(restart_broken("0.149.25") && restart_broken("0.149.26-mock") && restart_broken("0.149.29") && restart_broken("0.149.31"));
+        assert!(!restart_broken("0.149.32") && !restart_broken("0.149.0-mock") && !restart_broken("garbage"));
     }
 
     #[test]
