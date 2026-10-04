@@ -967,6 +967,14 @@ def lab(admin, args):
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
         lab_typed_checks(admin, R)
+        # The typed show cgnat screens (0.150.3, #63): reads only; no translation lookup.
+        st, b = admin.get(f"{R}/cgnat/drops")
+        if st == 501:
+            check(True, "no typed show cgnat screens: a box before 0.150.3")
+        else:
+            for name in ("top", "drops", "memory", "blocks", "identity", "history", "algs", "forwards", "ha"):
+                st, b = admin.get(f"{R}/cgnat/{name}")
+                check(st == 200 and b.get("text") is not None, f"the real Prisma's {name} screen ({st})", b if st != 200 else None)
         # WatchLogging only reads the box's observation ring: a 3 s watch, read-only (#49).
         if st_lab.get("system_service"):
             check(True, f"WhoAmI can_operate on the real Prisma: {(st_lab.get('access') or {}).get('can_operate')} (#51)")
