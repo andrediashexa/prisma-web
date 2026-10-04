@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.26.0 - PREF64 — 2026-10-04
+
+### Added
+- On a router with Prisma 0.150.2 or newer, the interface form lists the NAT64 prefixes its router advertisements carry (PREF64, `ipv6 nd nat64`), so a subscriber's CLAT learns the NAT64 prefix. They are offered while advertisements are sent, and the router's refusals (no advertisements, a prefix no NAT64 pool translates) are shown in its words (#61).
+
+### Fixed
+- The interface form read `ipv6 nd suppress-ra` from the configuration lines again: on routers without the typed configuration it always showed advertisements as sent (#61).
+
+### Internal
+- Client regenerated from the Prisma 0.150.2 contract; integration notes read up to 0.150.2. The simulated Prisma takes and refuses PREF64 as the router does (#61).
+
 ## 0.25.1 - FTP64 — 2026-10-04
 
 ### Changed
