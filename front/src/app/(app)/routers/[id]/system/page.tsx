@@ -310,6 +310,12 @@ function PowerCard({ routerId }: { routerId: string }) {
         void fleet.mutate()
         return
       }
+      if (action === "restart-dataplane" && err instanceof ApiError && err.code === "router_timeout") {
+        // From Prisma 0.149.33 the restart answers once the configuration has loaded (#58).
+        setError("The router took longer than prisma-web waits for the restart: it shows as in maintenance until it answers again.")
+        void fleet.mutate()
+        return
+      }
       if (action === "restart-dataplane" && err instanceof ApiError && err.code === "router_unavailable") {
         // The box answers when the restart has finished; it went away instead (#51).
         setError(
