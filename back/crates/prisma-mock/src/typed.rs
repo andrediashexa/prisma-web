@@ -504,8 +504,12 @@ pub fn set_pool(c: &Config, p: &PoolConfig, fields: &[String]) -> Result<Plan, U
     let algs = if has("algs") { &p.algs } else { &cur.algs };
     let bypass = (if has("bypass_source") { &p.bypass_source } else { &cur.bypass_source }).len()
         + (if has("bypass_destination") { &p.bypass_destination } else { &cur.bypass_destination }).len();
-    if nat64 && (bypass > 0 || algs.values().any(|on| *on)) {
-        return usage("% a NAT64 pool takes no bypass and no ALG");
+    if nat64 && bypass > 0 {
+        return usage("% a NAT64 pool takes no bypass");
+    }
+    // FTP through NAT64 since 0.150.1 (#60); the other gateways never, each with its sentence.
+    if let Some(a) = algs.iter().filter(|(a, on)| **on && a.as_str() != "ftp").map(|(a, _)| a).next().filter(|_| nat64) {
+        return usage(format!("% alg {a} cannot be used on a NAT64 pool"));
     }
     let sub_len = if has("subscriber_length") { p.subscriber_length } else { cur.subscriber_length };
     let n64 = if has("nat64_prefix") { &p.nat64_prefix } else { &cur.nat64_prefix };
@@ -957,7 +961,9 @@ mod tests {
         assert!(plan.shown.contains(&"subscriber-length 56".to_string()), "{:?}", plan.shown);
         let mut alg = v6.clone();
         alg.algs.insert("ftp".into(), true);
-        assert!(set_pool(&c, &alg, &s(&["prefix_inside", "prefix_outside", "algs"])).is_err(), "no ALG on a NAT64 pool");
+        assert!(set_pool(&c, &alg, &s(&["prefix_inside", "prefix_outside", "algs"])).is_ok(), "FTP through NAT64 (0.150.1)");
+        alg.algs.insert("sip".into(), true);
+        assert!(set_pool(&c, &alg, &s(&["prefix_inside", "prefix_outside", "algs"])).is_err(), "no other ALG on a NAT64 pool");
         let mut v4 = new.clone();
         v4.subscriber_length = 56;
         assert!(set_pool(&c, &v4, &s(&["prefix_inside", "prefix_outside", "subscriber_length"])).is_err(), "a subscriber length is NAT64's");

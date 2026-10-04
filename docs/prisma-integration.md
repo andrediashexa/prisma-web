@@ -190,7 +190,7 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) the proto and the coverage map.
 
-Read up to 0.150.0 in `clients.md` and already handled:
+Read up to 0.150.1 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -385,12 +385,13 @@ Read up to 0.150.0 in `clients.md` and already handled:
   prefix each subscriber gets, `subscriber-length <32-128>`) and `nat64_prefix` (26, "" is the
   well-known `64:ff9b::/96`, `nat64-prefix <X:X::X:X/M>`); `prefix-inside` takes either family.
   The pool form asks for them once an inside prefix is IPv6, drops them for an IPv4 pool, and
-  offers no ALG on a NAT64 pool (the box refuses `bypass` and ALGs there in its commit check,
-  shown in its words); changing the subscriber length warns of a remap as the block size does.
+  offers only the FTP ALG on a NAT64 pool (FTP64 since 0.150.1, #60; the box refuses `bypass`
+  and the other ALGs there for good in its commit check, each in its own words; a 0.150.0 box
+  refuses FTP too); changing the subscriber length warns of a remap as the block size does.
   A NAT64 subscriber is its delegated prefix (`2001:db8:1200:ab00::/56`) in the live log, which
   filters by any address inside it, and in `Clear`'s subscriber target, which takes one; a port
   forward on a NAT64 pool takes an IPv6 private address (edited in Settings, by the grammar). The
-  mock takes NAT64 pools (typed and as lines), refuses an ALG or bypass on one and a subscriber
+  mock takes NAT64 pools (typed and as lines) and FTP on one, refuses another ALG or a bypass on one and a subscriber
   length on an IPv4 pool, and streams a NAT64 subscriber as its /56. A fresh 0.150.0 install has
   `prisma-operator` from the start. 192.0.2.166 is on 0.150.0 since 2026-10-04. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the

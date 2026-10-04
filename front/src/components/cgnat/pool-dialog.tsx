@@ -14,6 +14,7 @@ import {
   ALGS,
   emptyPool,
   isNat64,
+  NAT64_ALGS,
   poolChanges,
   poolErrors,
   poolKey,
@@ -207,16 +208,16 @@ export function PoolDialog({
           </div>
         </section>
 
-        {nat64 ? (
-          <p className={errors.algs ? "text-destructive text-xs" : "text-muted-foreground text-xs"}>
-            A NAT64 pool takes no application gateway (ALG) and no bypass: the router refuses them.
-            {errors.algs && " Turn the ALGs off first, with IPv4 inside prefixes, or in Settings."}
-          </p>
-        ) : (
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Application gateways (ALG)</h3>
+          {nat64 && (
+            <p className={errors.algs ? "text-destructive text-xs" : "text-muted-foreground text-xs"}>
+              A NAT64 pool takes the FTP gateway only, and no bypass: the router refuses the others.
+              {errors.algs && " Turn the other gateways off first, with IPv4 inside prefixes, or in Settings."}
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            {ALGS.map((a) => (
+            {ALGS.filter((a) => !nat64 || NAT64_ALGS.includes(a)).map((a) => (
               <ChoiceField
                 key={a}
                 label={a.toUpperCase()}
@@ -227,7 +228,6 @@ export function PoolDialog({
             ))}
           </div>
         </section>
-        )}
 
         {pool && (
           <section className="space-y-1 text-sm">

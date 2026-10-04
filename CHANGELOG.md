@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.25.1 - FTP64 — 2026-10-04
+
+### Changed
+- A NAT64 pool offers the FTP application gateway, which Prisma 0.150.1 takes through NAT64; the other gateways stay hidden on one, as the router refuses them (#60).
+
+### Internal
+- Integration notes read up to Prisma 0.150.1 (contract unchanged). The simulated Prisma takes FTP on a NAT64 pool (#60).
+
 ## 0.25.0 - NAT64 — 2026-10-04
 
 ### Added
