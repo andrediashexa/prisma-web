@@ -5,7 +5,7 @@ import { linesRouterId as routerId } from "./helpers"
 
 test("PREF64 is offered while router advertisements go out, and staged as ipv6 nd nat64", async ({ page }) => {
   await page.goto(`/routers/${routerId()}/interfaces`)
-  await page.getByRole("button", { name: "Edit lan0" }).click()
+  await page.getByRole("button", { name: "Edit lan0", exact: true }).click()
   const dialog = page.getByRole("dialog")
   const pref = dialog.locator("[data-pref64]")
   await expect(pref).toBeVisible()
