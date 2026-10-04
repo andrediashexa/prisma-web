@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.24.4 - Restart held again — 2026-10-04
+
+### Fixed
+- The dataplane restart stays refused on Prisma 0.149.29, whose restart fails at once on the router without running (measured on 192.0.2.166); it is offered from 0.149.30 (#55).
+
+### Internal
+- Integration notes read up to Prisma 0.149.29 (contract unchanged) (#55).
+
 ## 0.24.3 - Restart still held — 2026-10-04
 
 ### Fixed
