@@ -190,7 +190,7 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) the proto and the coverage map.
 
-Read up to 0.149.27 in `clients.md` and already handled:
+Read up to 0.149.28 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -349,13 +349,17 @@ Read up to 0.149.27 in `clients.md` and already handled:
   reaches it at once (revoked and re-granted on 192.0.2.198, `can_operate` followed), and a
   candidate opened before it is closed and answers `CANDIDATE_EXPIRED`, which prisma-web shows as
   an expired change (#11).
-- **A dataplane restart through the API is refused on 0.149.25 to 0.149.27** (#51, #53): the
+- **A dataplane restart through the API is refused on 0.149.25 to 0.149.28** (#51, #53, #54): the
   containers' stop fails early and the restart script gives up without starting them again, and
   every client connection meanwhile counts against the API socket's trigger limit, which keeps
   the API down even after (prismarouting #564). 0.149.27 runs the restart as a host unit of its
   own and resets the socket, but on 192.0.2.198 on 2026-10-04 the host refused to start that
-  unit ("could not be started the host's door"), safely; 0.149.28 fixes it, and prisma-web offers
-  the restart from there (#53). On 2026-10-04 one on
+  unit ("could not be started the host's door"), safely (#53). 0.149.28 lets it through the door,
+  but on 192.0.2.166 (upgraded from 0.149.14 with a reboot, `operator` granted) the call hung
+  for its 180 s deadline without reaching the host (`/run/prisma-routing/api/` missing); the box
+  stayed up and prisma-web's monitor, polling every 5 s with a telemetry stream, never lost its
+  API (76 of 76 polls answered). Fixed as 0.149.29: prisma-web offers the restart from there
+  (`RESTART_FIXED`), raised again if a lab box shows otherwise (#54). On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
@@ -366,6 +370,6 @@ Read up to 0.149.27 in `clients.md` and already handled:
   drops off the network. The mock reports `can_operate`; prisma-mock-2 is a 0.149.26 box
   (`MOCK_RELEASE`) whose account has no `operator`, and `mock restart-dataplane drops` makes the
   next restart lose the connection. prisma-web sends no power action or upgrade to a real box.
-- The lab box is on 0.149.13 since 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
+- The lab box was on 0.149.13 from 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
