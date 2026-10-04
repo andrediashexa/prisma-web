@@ -145,7 +145,7 @@ def tls_checks(admin, args):
         check(st == 200 and any(e == "progress" and json.loads(d)["phase"] == "CHECKED" for e, d in evs),
               "the upgrade check is every account's since 0.149.26", evs if st != 200 else evs[:1])
         st, b = admin.post(f"/routers/{r['id']}/system/restart-dataplane", {"confirm": r["name"]})
-        check(st == 409 and "#564" in errmsg(b), "a dataplane restart is refused before the box on 0.149.25 to 0.149.27 (prismarouting #564)", b)
+        check(st == 409 and "#564" in errmsg(b), "a dataplane restart is refused before the box on 0.149.25 to 0.149.28 (prismarouting #564)", b)
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
