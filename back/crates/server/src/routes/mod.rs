@@ -1,4 +1,5 @@
 mod audit;
+mod cgnat_screens;
 mod auth;
 pub mod config;
 mod dashboard;
@@ -49,6 +50,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/bundles", get(ops::bundles))
         .route("/routers/{id}/show", post(ops::show))
         .route("/routers/{id}/clear", post(ops::clear))
+        .route("/routers/{id}/cgnat/{screen}", get(cgnat_screens::screen))
         .route("/routers/{id}/system/upgrade", get(system::upgrade_status).post(system::upgrade))
         .route("/routers/{id}/system/{action}", post(system::action))
         .route("/routers/{id}/policies", get(ops::policies))

@@ -488,6 +488,8 @@ def line_fallback_checks(admin, args):
         check(st == 501, "and Clear answers 501 there", b)
         st, b = sse(admin, f"{R}/logging/watch?seconds=3")
         check(st == 501, "and WatchLogging too", b)
+        st, b = admin.get(f"{R}/cgnat/drops")
+        check(st == 501, "and the typed show cgnat screens (0.150.3) too", b)
     finally:
         admin.delete(R)
 
@@ -633,6 +635,24 @@ def system_checks(admin, R, router_id):
     check(audit["items"] and audit["items"][0]["details"].get("connection_lost") is True, "the audit log says the connection was lost", audit["items"][:1])
 
 
+def cgnat_screen_checks(admin, R, router_id):
+    """The rest of show cgnat, typed (Prisma 0.150.3, #63)."""
+    for name, key in [("top", "subscribers"), ("blocks", "pools"), ("drops", "nodes"), ("memory", "heap_bytes"), ("algs", "pools"),
+                      ("forwards", "forwards"), ("identity", "loaded"), ("ha", "fingerprint"), ("history", "verdict")]:
+        st, b = admin.get(f"{R}/cgnat/{name}")
+        check(st == 200 and key in b and b.get("text"), f"the {name} screen answers its fields and the router's screen", b)
+    st, b = admin.get(f"{R}/cgnat/history")
+    check(b.get("verdict") == "INTACT", "the history verdict reads by name", b)
+    st, b = admin.get(f"{R}/cgnat/translation?address=203.0.113.70&port=8443")
+    check(st == 200 and b["subscriber"].startswith("100.64.") and b["source"] == "DYNAMIC", "a public address and port lead to their subscriber", b)
+    st, b = admin.get(f"{R}/cgnat/translation?address=192.0.2.1&port=80")
+    check(st == 404 and "outside address" in errmsg(b), "an address no pool owns is NOT_FOUND, in the box's words", b)
+    st, b = admin.get(f"{R}/cgnat/translation?address=nope&port=80")
+    check(st == 422, "a bad address is refused before the box", b)
+    st, audit = admin.get(f"/audit?router_id={router_id}&action=router.translation&limit=5")
+    check(any(e["success"] and e["details"].get("port") == 8443 for e in audit["items"]), "each lookup is in the audit log", audit["items"][:2])
+
+
 def log_export_checks(admin, router_id):
     """CGNAT log export (Prisma 0.149.15, #34) on prisma-mock-2, which has all three streams."""
     R = f"/routers/{router_id}"
@@ -695,6 +715,10 @@ def access_checks(admin, args):
         check(st == 403, "nor clear anything on the router (#48)", b)
         st, b = sse(v, f"/routers/{ra}/logging/watch?seconds=3")
         check(st == 403, "nor watch the CGNAT log, which says who had which address (#49)", b)
+        st, b = v.get(f"/routers/{ra}/cgnat/translation?address=203.0.113.70&port=8443")
+        check(st == 403, "nor look up who used a public address (#63)", b)
+        st, b = v.get(f"/routers/{ra}/cgnat/top")
+        check(st == 200, "but reads the other CGNAT screens", b)
         st, b = admin.put(f"/users/{made_user}/access/{ra}", {"role": "operator"})
         check(st == 204, "admin raises the viewer to operator on router a", b)
         st, b = admin.put(f"/users/{made_user}/access/{rb}", {"role": "none"})
@@ -943,6 +967,14 @@ def lab(admin, args):
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
         lab_typed_checks(admin, R)
+        # The typed show cgnat screens (0.150.3, #63): reads only; no translation lookup.
+        st, b = admin.get(f"{R}/cgnat/drops")
+        if st == 501:
+            check(True, "no typed show cgnat screens: a box before 0.150.3")
+        else:
+            for name in ("top", "drops", "memory", "blocks", "identity", "history", "algs", "forwards", "ha"):
+                st, b = admin.get(f"{R}/cgnat/{name}")
+                check(st == 200 and b.get("text") is not None, f"the real Prisma's {name} screen ({st})", b if st != 200 else None)
         # WatchLogging only reads the box's observation ring: a 3 s watch, read-only (#49).
         if st_lab.get("system_service"):
             check(True, f"WhoAmI can_operate on the real Prisma: {(st_lab.get('access') or {}).get('can_operate')} (#51)")
@@ -1096,6 +1128,7 @@ def main():
         typed_form_checks(admin, R)
         clear_checks(admin, R, router_id)
         log_watch_checks(admin, R, router_id)
+        cgnat_screen_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

@@ -13,6 +13,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "router.command": "command",
   "router.clear": "clear",
   "router.log_watch": "live log",
+  "router.translation": "translation lookup",
   "router.system.reboot": "reboot",
   "router.system.shutdown": "shutdown",
   "router.system.restart-dataplane": "dataplane restart",

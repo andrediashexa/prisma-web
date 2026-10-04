@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.27.0 - CGNAT diagnostics — 2026-10-04
+
+### Added
+- On a router with Prisma 0.150.3 or newer, the CGNAT tab has a **Diagnostics** card: which subscriber used a public address and port (an operator's, recorded in the audit log), the fullest subscribers, the port blocks per worker, the drops, the CGNAT memory, the ALGs and port forwards of each pool, the identity file and RADIUS, HA and the history file's verification. Each shows its main figures and the router's own screen (#63).
+
+### Changed
+- On Prisma 0.150.3, which fixes 0.150.2's typed interface writes, the interface form writes typed again (#63).
+
+### Internal
+- Client regenerated from the Prisma 0.150.3 contract; integration notes read up to 0.150.3. The simulated Prisma answers the ten new screens (#63).
+
 ## 0.26.1 - Interfaces as lines on 0.150.2 — 2026-10-04
 
 ### Fixed
