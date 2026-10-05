@@ -93,21 +93,37 @@ pub static MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
 pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
     // From Prisma 0.149.24 each argument says where it stands among the words (#47).
     let positional = release_at_least(&schema.release, (0, 149, 24));
-    schema
-        .modes
-        .iter()
-        .map(|m| Mode {
-            key: if m.path.is_empty() { "config".into() } else { m.path.join(" > ") },
+    // One VTY level can be several of the box's modes ("router bgp" and "bgp neighbor" both at
+    // `router bgp <asn>`, 0.151.5): they are one mode here, each a group, so a line of that level
+    // is matched against all of them (192.0.2.166, #71).
+    let mut modes: Vec<Mode> = vec![];
+    for m in &schema.modes {
+        let key = if m.path.is_empty() { "config".to_string() } else { m.path.join(" > ") };
+        let group = Group {
             title: m.mode.clone(),
-            path_tokens: m.path.iter().map(|e| parse_syntax(e)).collect(),
-            path: m.path.clone(),
-            roles: m.roles.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect(),
-            groups: vec![Group {
+            statements: m.statements.iter().map(|s| if positional { statement_positional(s) } else { statement_from_schema(s) }).collect(),
+        };
+        let roles = m.roles.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
+        match modes.iter_mut().find(|x| x.key == key) {
+            Some(x) => {
+                for r in roles {
+                    if !x.roles.contains(&r) {
+                        x.roles.push(r);
+                    }
+                }
+                x.groups.push(group);
+            }
+            None => modes.push(Mode {
+                key,
                 title: m.mode.clone(),
-                statements: m.statements.iter().map(|s| if positional { statement_positional(s) } else { statement_from_schema(s) }).collect(),
-            }],
-        })
-        .collect()
+                path_tokens: m.path.iter().map(|e| parse_syntax(e)).collect(),
+                path: m.path.clone(),
+                roles: roles.collect(),
+                groups: vec![group],
+            }),
+        }
+    }
+    modes
 }
 
 fn release_at_least(release: &str, min: (u32, u32, u32)) -> bool {
@@ -522,6 +538,47 @@ mod tests {
         let bgp = find("router bgp <asn>");
         assert!(bgp.lines[0].statement.is_some(), "a neighbor line is a bgp neighbor statement");
         assert!(find("config").lines.iter().any(|l| l.text == "hostname h"));
+    }
+
+    #[test]
+    fn modes_at_one_level_are_one_mode() {
+        use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
+        // As 192.0.2.166 (0.151.5) states `router bgp <asn>`: "router bgp" and "bgp neighbor" (#71).
+        let st = |words: &[&str], arg: &str, kind: &str| SchemaStatement {
+            words: words.iter().map(|w| w.to_string()).collect(),
+            forms: vec![SchemaForm { arguments: vec![SchemaArgument { name: arg.into(), kind: kind.into(), position: words.len() as u32, ..Default::default() }] }],
+            ..Default::default()
+        };
+        let mode = |name: &str, s: SchemaStatement| SchemaMode { mode: name.into(), path: vec!["router bgp <asn>".into()], roles: "administrator".into(), statements: vec![s], ..Default::default() };
+        let schema = ConfigSchema {
+            modes: vec![
+                SchemaMode { mode: "config".into(), ..Default::default() },
+                mode("router bgp", st(&["bgp", "router-id"], "<A.B.C.D>", "ipv4_address")),
+                mode(
+                    "bgp neighbor",
+                    SchemaStatement {
+                        words: vec!["neighbor".into(), "description".into()],
+                        forms: vec![SchemaForm {
+                            arguments: vec![
+                                SchemaArgument { name: "<address>".into(), kind: "address".into(), position: 1, ..Default::default() },
+                                SchemaArgument { name: "<text>".into(), kind: "text".into(), position: 2, ..Default::default() },
+                            ],
+                        }],
+                        ..Default::default()
+                    },
+                ),
+            ],
+            release: "0.151.5".into(),
+            ..Default::default()
+        };
+        let modes = from_schema(&schema);
+        assert_eq!(modes.len(), 2);
+        let m = modes.iter().find(|m| m.key == "router bgp <asn>").unwrap();
+        assert_eq!((m.groups.len(), m.roles.clone()), (2, vec!["administrator".to_string()]));
+        let found = instances(&tree("router bgp 64496\n bgp router-id 192.0.2.33\n neighbor 192.0.2.34 description core\nexit\n"), &modes);
+        let bgp = found.iter().find(|i| i.mode == "router bgp <asn>").unwrap();
+        let at: Vec<_> = bgp.lines.iter().map(|l| l.statement).collect();
+        assert_eq!(at, vec![Some((0, 0)), Some((1, 0))], "each line matches in its group");
     }
 
     #[test]

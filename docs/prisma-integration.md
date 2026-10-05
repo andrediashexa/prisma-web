@@ -542,7 +542,11 @@ Read up to 0.151.5 in `clients.md` and already handled:
   line of a running box's configuration matches a statement" does not hold for it. prisma-web
   reads an `address` completed from `next_hops` as a next hop (`next_hop`: one word, any of
   those), so the line matches and the form takes it; any other `address` stays an address. For
-  the Prisma side to fix in its schema; prisma-web does not write to prismarouting.
+  the Prisma side to fix in its schema; prisma-web does not write to prismarouting. The same run
+  showed that the schema states one VTY level as several modes with the same `path` ("router
+  bgp" and "bgp neighbor" at `router bgp <asn>`; "address-family" and "address-family neighbor"
+  below it): prisma-web had kept the last one only, so `bgp router-id` and `network` matched no
+  statement. Modes with the same path are now one mode, each of the box's modes a group in it.
 - The lab box was on 0.149.13 from 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

@@ -20,6 +20,7 @@ Portuguese and are kept as published (issue #15).
 
 ### Fixed
 - A static route to `blackhole`, `Null0`, `reject` or an interface matches its statement on the configuration screen, and the statement's form takes such a next hop: the router's schema calls the next hop an address, though it takes all of these (#71).
+- On a router with Prisma 0.151.5, `bgp router-id`, `network` and the other statements of a BGP level that the router describes in more than one part match their statements again on the configuration screen (#71).
 
 ## 0.33.0 - Pending configuration — 2026-10-05
 
