@@ -21,7 +21,9 @@ test("a NAT64 pool is staged under nat > nat64, and a CGNAT pool cannot turn int
   await form.getByRole("button", { name: "Add to the changes" }).click()
   await page.getByRole("button", { name: /Review and apply \(1\)/ }).click()
   const review = page.getByRole("dialog")
-  await expect(review.getByText("nat > nat64 > pool UI68").first()).toBeVisible()
+  // The router staged it under its own hierarchy.
+  await expect(review.getByTestId("typed-staged")).toContainText("nat › nat64 › pool UI68")
+  await expect(review.getByTestId("typed-staged")).toContainText("subscriber-length 56")
   await review.getByRole("button", { name: "Discard" }).click()
 
   // An existing CGNAT pool keeps IPv4 inside prefixes: a NAT64 pool is a new one.
