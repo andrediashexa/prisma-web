@@ -377,3 +377,121 @@ export function ProbePanel({ routerId }: { routerId: string }) {
     </Card>
   )
 }
+
+const BFD_TONE: Record<string, string> = {
+  UP: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+  DOWN: "bg-destructive/15 text-destructive",
+  INIT: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  ADMIN_DOWN: "bg-muted text-muted-foreground",
+}
+
+type BfdChange = { at: string | null; kind: string; peer: string; from: string; to: string }
+
+/**
+ * BFD's sessions (Prisma 0.150.10, #66), kept live by WatchBfd: a session that changes
+ * is redrawn as it changes, and listed with when.
+ */
+export function BfdSessionsCard({ routerId }: { routerId: string }) {
+  const list = useScreen(routerId, "bfd-sessions")
+  const [changes, setChanges] = useState<BfdChange[]>([])
+  const [live, setLive] = useState(false)
+  const { mutate } = list
+  const available = !!list.data
+
+  useEffect(() => {
+    if (!available) return
+    const ctl = new AbortController()
+    void (async () => {
+      try {
+        const res = await fetch(`/api${routerApi(routerId, "/bfd/watch")}`, { credentials: "same-origin", signal: ctl.signal })
+        if (!res.ok) return
+        await readEvents(res, (event, data) => {
+          if (event === "open") setLive(true)
+          if (event === "error") setLive(false)
+          if (event !== "bfd") return
+          const e = JSON.parse(data) as { kind: string; at: string | null; session?: any; previous_state?: string }
+          if (e.kind === "INITIAL") return
+          setChanges((xs) =>
+            [{ at: e.at, kind: e.kind, peer: e.session?.peer ?? "", from: e.previous_state ?? "", to: e.session?.state ?? "" }, ...xs].slice(0, 20),
+          )
+          void mutate()
+        })
+      } catch {
+        // Aborted when the page leaves; a broken stream leaves the list as last read.
+      } finally {
+        if (!ctl.signal.aborted) setLive(false)
+      }
+    })()
+    return () => ctl.abort()
+  }, [available, routerId, mutate])
+
+  if (list.hidden || (!list.data && !list.error)) return null
+  const s = list.data
+  return (
+    <Card data-screen="bfd-sessions">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          BFD sessions {live && <Badge variant="outline">live</Badge>}
+        </CardTitle>
+        <CardDescription>Each session&apos;s state and timers; a change shows as it happens.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {list.error ? (
+          <p className="text-destructive text-sm">{errorMessage(list.error)}</p>
+        ) : s?.answered === false ? (
+          <p className="text-muted-foreground text-sm">bfdd did not answer.</p>
+        ) : (s?.sessions ?? []).length === 0 ? (
+          <p className="text-muted-foreground text-sm">No BFD session.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Peer</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead className="text-right">For</TableHead>
+                <TableHead>Timers (rx/tx × mult)</TableHead>
+                <TableHead className="text-right">Up / down</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(s?.sessions ?? []).map((b: any) => (
+                <TableRow key={`${b.vrf}-${b.peer}-${b.interface}`} data-peer={b.peer}>
+                  <TableCell className="font-mono text-sm">
+                    {b.peer}
+                    {b.interface && <span className="text-muted-foreground"> · {b.interface}</span>}
+                    {b.multihop && <Badge variant="outline" className="ml-2">multi-hop</Badge>}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className={BFD_TONE[b.state]}>
+                      {String(b.state).toLowerCase().replace("_", " ")}
+                    </Badge>
+                    {b.state !== "UP" && b.diagnostic && <span className="text-muted-foreground ml-2 text-xs">{b.diagnostic}</span>}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{formatNumber(b.seconds_in_state)} s</TableCell>
+                  <TableCell className="tabular-nums">
+                    {b.receive_interval_ms}/{b.transmit_interval_ms} ms × {b.detect_multiplier}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {b.counters_known ? `${b.session_up_count} / ${b.session_down_count}` : "—"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {changes.length > 0 && (
+          <ul className="space-y-1 text-sm" data-bfd-changes>
+            {changes.map((c, i) => (
+              <li key={i}>
+                <span className="text-muted-foreground font-mono text-xs">{c.at ? new Date(c.at).toLocaleTimeString("en-US", { hour12: false }) : ""}</span>{" "}
+                <span className="font-mono">{c.peer}</span> {c.kind.toLowerCase()}
+                {c.kind === "CHANGED" && `: ${c.from.toLowerCase()} → ${c.to.toLowerCase()}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        <ScreenText text={s?.text} />
+      </CardContent>
+    </Card>
+  )
+}

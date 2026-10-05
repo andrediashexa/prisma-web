@@ -55,6 +55,7 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/screens/{name}", get(screens::screen))
         .route("/routers/{id}/snmp-file", get(screens::snmp_file))
         .route("/routers/{id}/probe/{tool}", post(screens::probe))
+        .route("/routers/{id}/bfd/watch", get(screens::watch_bfd))
         .route("/routers/{id}/system/upgrade", get(system::upgrade_status).post(system::upgrade))
         .route("/routers/{id}/system/{action}", post(system::action))
         .route("/routers/{id}/policies", get(ops::policies))

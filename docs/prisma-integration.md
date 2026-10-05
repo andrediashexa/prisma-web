@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.6 | `8cc49ae67f9d8279a77b0d443d7ad5f6d016ae0518c6b96c000b32256973efa1` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.150.6 | `81f04e0ad7ee3580bf608306a7e7cb07c5c1ff0452312d73104c1c10a4ac40c9` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.8 | `ada3c2b8277ef32fcd64a7517e5ec9eb2942066277b4644aea04b96f05b7c86f` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.10 | `3c758e3cf29cdcf8cc738e973502cd69fcb07ec93969d83a99bdf26a0c1c5305` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.150.10 | `0447fcc9bb1f4114e10d9cdf35d4ab3f4adfca69ea81d847311ffcdeb9d99052` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.10 | `04cc2c7037a1224a74fb4c454032154b3eb23bbba5967e6b305e2eeccb941661` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) all three.
 
-Read up to 0.150.8 in `clients.md` and already handled:
+Read up to 0.150.10 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -451,7 +451,20 @@ Read up to 0.150.8 in `clients.md` and already handled:
   switch writes `neighbor X bfd` as before. A box upgraded to 0.150.8 refuses BFD statements at
   commit until its routing container restarts (a reboot), and says so. **Known bug
   (prismarouting #570):** once BFD is committed, removing it fails the commit check; prisma-web
-  shows that refusal in the box's words, and its tests commit no BFD on a real box. On 2026-10-04 one on
+  shows that refusal in the box's words, and its tests commit no BFD on a real box. 0.150.9
+  fixes it: a `no` of a block now removes its whole body (checked on 192.0.2.166).
+- 0.150.10 (additive) types BFD's sessions, followed in #66. `GET /api/routers/{id}/screens/
+  bfd-sessions` relays `ListBfdSessions` (state by name, seconds in it, diagnostics, both ends'
+  timers in ms, the counters; `answered` false is bfdd not answering) and `GET …/bfd/watch`
+  relays `WatchBfd` as Server-Sent Events (`bfd` per event: `INITIAL` for each session, then
+  `CHANGED` with the previous state, `APPEARED`, `GONE`, `UNANSWERED`; at most 30 minutes; the
+  page leaving cancels it). The Routing tab's **BFD sessions** card reads the list and keeps it
+  live from the watch, listing each change with its time. BFD configuration stays lines. Over
+  SNMP the box serves BFD-STD-MIB (RFC 7331, no traps), but on a real box it answers nothing yet
+  (snmpd's user cannot reach bfdd, prismarouting #571): prisma-web reads BFD through the API.
+  The mock seeds one session (the `bfd` block's peer on lan0) and one per BGP neighbor with
+  `bfd`, and `mock bfd down|up <peer>` flips one for the tests. `--lab` reads the list and opens
+  a short watch. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no

@@ -38,8 +38,84 @@ pub async fn screen(State(st): State<AppState>, _: CurrentUser, Path((id, name))
         "isis-interfaces" => to_json(&ops.list_isis_interfaces(req(ListIsisInterfacesRequest {})).await?.into_inner()),
         "hardware" => to_json(&ops.get_hardware(req(GetHardwareRequest {})).await?.into_inner()),
         "routing-logging" => to_json(&ops.get_routing_logging(req(GetRoutingLoggingRequest {})).await?.into_inner()),
+        // Prisma 0.150.10 (#66): states by name.
+        "bfd-sessions" => {
+            let b = ops.list_bfd_sessions(req(ListBfdSessionsRequest::default())).await?.into_inner();
+            let mut v = to_json(&b);
+            v["sessions"] = Value::Array(b.sessions.iter().map(session_json).collect());
+            v
+        }
         s => return Err(AppError::NotFound(format!("no screen {s}"))),
     }))
+}
+
+/// A BFD session as the page reads it: its state by name (`UP`, `DOWN`, ...).
+fn session_json(s: &BfdSession) -> Value {
+    let mut v = to_json(s);
+    v["state"] = json!(state_name(s.state));
+    v
+}
+
+fn state_name(state: i32) -> &'static str {
+    bfd_session::State::try_from(state).unwrap_or_default().as_str_name().trim_start_matches("STATE_")
+}
+
+/// A `BfdEvent` as the page reads it: the kind and the states by name.
+fn bfd_event_json(e: &BfdEvent) -> Value {
+    let mut v = to_json(e);
+    v["kind"] = json!(e.kind().as_str_name().trim_start_matches("KIND_"));
+    v["session"] = e.session.as_ref().map(session_json).unwrap_or(Value::Null);
+    v["previous_state"] = json!(state_name(e.previous_state));
+    v
+}
+
+/// The longest a BFD watch runs: a forgotten tab does not hold a stream (as the live log, #49).
+const BFD_WATCH_MAX: Duration = Duration::from_secs(30 * 60);
+
+/// `WatchBfd` as Server-Sent Events (`bfd` per event, `error`, `end`); leaving the page cancels it.
+pub async fn watch_bfd(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>) -> AppResult<Sse<impl Stream<Item = Result<Event, Infallible>>>> {
+    let r = st.routers.get(id).await?;
+    // The box answers the call with its first event: with no session that can be never. The page
+    // gets its stream at once (`open`), and the call runs behind it (192.0.2.166, #66).
+    let (tx, rx) = tokio::sync::mpsc::channel::<Event>(32);
+    let mut ops = r.ops();
+    tokio::spawn(async move {
+        let send = |e: Event| tx.send(e);
+        if send(Event::default().event("open").data("watching")).await.is_err() {
+            return;
+        }
+        let call = ops.watch_bfd(grpc::req_with(WatchBfdRequest { interval_seconds: 0 }, BFD_WATCH_MAX));
+        let mut stream = tokio::select! {
+            res = call => match res {
+                Ok(s) => s.into_inner(),
+                Err(s) => {
+                    let _ = send(Event::default().event("error").data(grpc::describe(&s))).await;
+                    return;
+                }
+            },
+            // The page left before the box answered.
+            _ = tx.closed() => return,
+        };
+        loop {
+            let m = tokio::select! {
+                m = stream.next() => m,
+                _ = tx.closed() => return,
+            };
+            let e = match m {
+                Some(Ok(e)) => Event::default().event("bfd").json_data(bfd_event_json(&e)).unwrap_or_default(),
+                // The deadline passing is the watch's end, not an error.
+                Some(Err(s)) if s.code() == tonic::Code::DeadlineExceeded => break,
+                Some(Err(s)) => Event::default().event("error").data(grpc::describe(&s)),
+                None => break,
+            };
+            if send(e).await.is_err() {
+                return;
+            }
+        }
+        let _ = send(Event::default().event("end").data("done")).await;
+    });
+    let events = tokio_stream::wrappers::ReceiverStream::new(rx).map(Ok);
+    Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
 #[derive(Deserialize)]
@@ -147,6 +223,15 @@ pub async fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bfd_reads_by_name() {
+        let s = BfdSession { peer: "192.0.2.1".into(), state: bfd_session::State::Down as i32, ..Default::default() };
+        assert_eq!(session_json(&s)["state"], "DOWN");
+        let e = BfdEvent { kind: bfd_event::Kind::Changed as i32, session: Some(s), previous_state: bfd_session::State::Up as i32, ..Default::default() };
+        let v = bfd_event_json(&e);
+        assert_eq!((v["kind"].as_str(), v["previous_state"].as_str(), v["session"]["state"].as_str()), (Some("CHANGED"), Some("UP"), Some("DOWN")));
+    }
 
     #[test]
     fn a_probe_takes_one_host_and_the_boxs_count() {

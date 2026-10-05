@@ -47,6 +47,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "prisma.v1.LogEvent.at", "prisma.v1.LogEvent.boot_time", "prisma.v1.UpgradeProgress.started_at",
         // Prisma 0.150.3 (#63).
         "prisma.v1.HaStatus.peer_copied",
+        // Prisma 0.150.10 (#66).
+        "prisma.v1.BfdEvent.at",
     ] {
         cfg = cfg.field_attribute(ts, "#[serde(serialize_with = \"crate::ser::timestamp\")]");
     }

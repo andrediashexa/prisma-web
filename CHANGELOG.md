@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.29.0 - BFD live — 2026-10-05
+
+### Added
+- On a router with Prisma 0.150.10 or newer, the Routing tab shows the BFD sessions with their state, time in it, timers and counters, kept live: a session that goes down or comes back is redrawn as it happens and listed with the time (#66).
+
+### Internal
+- Client regenerated from the Prisma 0.150.10 contract; integration notes read up to 0.150.10 (0.150.9 fixes removing BFD). `GET /api/routers/{id}/bfd/watch` relays `WatchBfd` as Server-Sent Events, opened at once even while the router has nothing to report. The simulated Prisma answers both BFD calls (#66).
+
 ## 0.28.1 - BFD statements — 2026-10-05
 
 ### Changed

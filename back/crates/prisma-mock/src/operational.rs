@@ -436,6 +436,64 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         crate::screens::probe("mtr", req.into_inner()).map(Response::new)
     }
 
+    // BFD (0.150.10, #66).
+    async fn list_bfd_sessions(&self, req: Request<ListBfdSessionsRequest>) -> R<BfdSessions> {
+        before_0_150_3()?;
+        let peer = req.into_inner().peer;
+        if !peer.is_empty() && peer.parse::<IpAddr>().is_err() {
+            return Err(Status::invalid_argument(format!("% '{peer}' is not an address")));
+        }
+        let st = self.shared.state.lock().unwrap();
+        let sessions: Vec<_> = crate::screens::bfd_sessions(&st).into_iter().filter(|s| peer.is_empty() || s.peer == peer).collect();
+        let text = crate::screens::bfd_text(&sessions);
+        Ok(Response::new(BfdSessions { answered: true, sessions, text }))
+    }
+
+    async fn watch_bfd(&self, req: Request<WatchBfdRequest>) -> Result<Response<tonic::codegen::BoxStream<BfdEvent>>, Status> {
+        use prisma_proto::v1::bfd_event::Kind;
+        before_0_150_3()?;
+        let every = match req.into_inner().interval_seconds {
+            0 => 2,
+            n => n.clamp(1, 60),
+        };
+        let shared = self.shared.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        tokio::spawn(async move {
+            let now = || Some(crate::state::timestamp(chrono::Utc::now()));
+            let mut last = crate::screens::bfd_sessions(&shared.state.lock().unwrap());
+            for s in &last {
+                if tx.send(Ok(BfdEvent { kind: Kind::Initial as i32, at: now(), session: Some(s.clone()), ..Default::default() })).await.is_err() {
+                    return;
+                }
+            }
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(every.into())) => {}
+                    _ = tx.closed() => return,
+                }
+                let cur = crate::screens::bfd_sessions(&shared.state.lock().unwrap());
+                let mut out = vec![];
+                for s in &cur {
+                    match last.iter().find(|x| x.peer == s.peer) {
+                        None => out.push(BfdEvent { kind: Kind::Appeared as i32, at: now(), session: Some(s.clone()), ..Default::default() }),
+                        Some(x) if x.state != s.state => out.push(BfdEvent { kind: Kind::Changed as i32, at: now(), session: Some(s.clone()), previous_state: x.state }),
+                        _ => {}
+                    }
+                }
+                for x in last.iter().filter(|x| !cur.iter().any(|s| s.peer == x.peer)) {
+                    out.push(BfdEvent { kind: Kind::Gone as i32, at: now(), session: Some(x.clone()), previous_state: x.state });
+                }
+                last = cur;
+                for e in out {
+                    if tx.send(Ok(e)).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))))
+    }
+
     async fn get_subscriber(&self, req: Request<GetSubscriberRequest>) -> R<Subscriber> {
         let _turno = self.shared.ops.lock().await;
         let address = req.into_inner().address;
@@ -659,6 +717,17 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             };
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
+        // Test hook (#66): a BFD peer goes down or comes back.
+        if let Some(rest) = command.trim().strip_prefix("mock bfd ") {
+            let (state, peer) = rest.split_once(' ').unwrap_or((rest, ""));
+            let mut st = self.shared.state.lock().unwrap();
+            match state {
+                "down" => st.bfd_down.insert(peer.to_string()),
+                "up" => st.bfd_down.remove(peer),
+                _ => return Err(Status::invalid_argument("mock bfd down|up <peer>")),
+            };
+            return Ok(Response::new(ShowResponse { text: format!("bfd peer {peer} {state}\n"), ..Default::default() }));
         }
         // Test hook: how the next dataplane restart answers: it drops the connection, as on a box
         // whose management address is on a dataplane interface (#51), or answers apply_failed
