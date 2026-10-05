@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.0 | `d804c1426273155583621247c0e43bc7f04896523e560f14a214dce07a3966c8` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.151.0 | `7323700213f05ea268683dee36a8de4e826ca7ea9b94154c372bcfa40c3510c4` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.0 | `ece67206a120e8321317ffe7040572e141870856ab7279838b82afa3e8937dac` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.2 | `e2c8775ff68e9937fe092aa4102792786d248e6ef1fefa1850ac9fa88a7041e2` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.151.2 | `7323700213f05ea268683dee36a8de4e826ca7ea9b94154c372bcfa40c3510c4` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.2 | `29eea6bca9cd20201deb6b6a823a7633025e5b7ba355b3aa0ebf7644a51c2282` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) all three; 0.150.9 and 0.150.11 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) all three; 0.150.9, 0.150.11 and 0.151.1 none.
 
-Read up to 0.151.0 in `clients.md` and already handled:
+Read up to 0.151.2 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -493,7 +493,18 @@ Read up to 0.151.0 in `clients.md` and already handled:
   pool's own two fields, no longer in this client's contract, are read off the configuration
   tree and written as lines. The pools table marks NAT64 pools. The mock is 0.151.0's: NAT64 pools
   under `nat > nat64` (typed and as lines), `mode bpa`, the refusals above, `level` in
-  ListPools. On 2026-10-04 one on
+  ListPools. 0.151.1 changes nothing through the API (`show cgnat pool` says `bpa` too).
+- 0.151.2 (additive) makes SFP+ modules the ixgbe driver does not list an opt-in (prismarouting
+  #574), followed in #69: `unsupported-sfp allow` under `system > hardware` (lines through Edit;
+  `SystemConfig.hardware` reads it), in effect from the next boot, and `SystemInfo`'s
+  `unsupported_sfp_configured`, `unsupported_sfp_booted`, `unsupported_sfp_booted_known` and
+  `hardware_text`. On 2026-10-05 a refused module took 192.0.2.166 dark for about 45 minutes
+  after a reboot: the box refused its whole saved configuration, management included, for the
+  card that was missing (prismarouting #575 will apply the rest and report the gap). The
+  Interfaces tab's **Third-party SFP+ modules** card shows the configured and the booted state,
+  says when the next boot will change it, and stages the line (or its `no`) through the review,
+  where the box's grammar has the `system hardware` mode. The mock reads the setting from its
+  configuration and "boots" with it at a simulated reboot. No test reboots a real box. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
