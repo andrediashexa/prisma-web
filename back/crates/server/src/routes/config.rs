@@ -860,7 +860,7 @@ pub async fn validate(
 // --- The configuration as fields (Prisma 0.149.20 and 0.149.22, #46) -----------
 
 /// The areas GetConfig answers since 0.149.22; anything else is refused here.
-const TYPED_AREAS: [&str; 9] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing"];
+const TYPED_AREAS: [&str; 10] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd"];
 
 #[derive(Deserialize)]
 pub struct TypedQuery {
@@ -929,6 +929,9 @@ pub struct SetBody {
     logging: Option<LoggingConfig>,
     static_route: Option<StaticRouteConfig>,
     bgp_neighbor: Option<BgpNeighborEdit>,
+    /// BFD (Prisma 0.150.12, #67).
+    bfd_peer: Option<BfdPeerConfig>,
+    bfd_profile: Option<BfdProfileConfig>,
     #[serde(default)]
     fields: Vec<String>,
 }
@@ -942,12 +945,14 @@ impl SetBody {
             self.logging.map(Object::Logging),
             self.static_route.map(Object::StaticRoute),
             self.bgp_neighbor.map(Object::BgpNeighbor),
+            self.bfd_peer.map(Object::BfdPeer),
+            self.bfd_profile.map(Object::BfdProfile),
         ]
         .into_iter()
         .flatten()
         .collect();
         let [object] = <[Object; 1]>::try_from(objects).map_err(|_| {
-            AppError::BadRequest("send exactly one object: interface, pool, logging, static_route or bgp_neighbor".into())
+            AppError::BadRequest("send exactly one object: interface, pool, logging, static_route, bgp_neighbor, bfd_peer or bfd_profile".into())
         })?;
         // An empty mask sets EVERY field to the value sent, clearing what a partial
         // object leaves out (docs/prisma-api.md): this server never sends one.
@@ -1015,6 +1020,10 @@ pub struct DeleteBody {
     asn: String,
     #[serde(default)]
     vrf: String,
+    /// The BFD session to remove (area `bfd`, Prisma 0.150.12, #67); with no `name` either,
+    /// the whole `bfd` block.
+    #[serde(default)]
+    bfd_peer: Option<BfdPeerConfig>,
 }
 
 /// DeleteConfig: an interface, pool, collector, static route or BGP neighbor
@@ -1027,8 +1036,8 @@ pub async fn typed_delete(
 ) -> AppResult<Json<SetConfigResponse>> {
     user.require(Role::Operator)?;
     st.candidates.check(id, &cid, &user)?;
-    if !["interfaces", "pools", "logging", "static", "bgp"].contains(&b.area.as_str()) {
-        return Err(AppError::BadRequest("area is one of interfaces, pools, logging, static, bgp".into()));
+    if !["interfaces", "pools", "logging", "static", "bgp", "bfd"].contains(&b.area.as_str()) {
+        return Err(AppError::BadRequest("area is one of interfaces, pools, logging, static, bgp, bfd".into()));
     }
     let r = st.routers.get(id).await?;
     require_can_change(&st, &r).await?;
@@ -1041,6 +1050,7 @@ pub async fn typed_delete(
         next_hop: b.next_hop,
         asn: b.asn,
         vrf: b.vrf,
+        bfd_peer: b.bfd_peer,
         ..Default::default()
     };
     let resp = r.config().delete_config(req(msg)).await.map_err(gone(&st, &cid))?.into_inner();

@@ -92,6 +92,11 @@ export interface TypedStaticRoute {
   family: string
   extra: string[]
   line: string
+  /** Prisma 0.150.12 (#67): the route's BFD, no longer among its `extra` words. */
+  bfd?: boolean
+  bfd_multihop?: boolean
+  bfd_source?: string
+  bfd_profile?: string
 }
 
 export interface TypedRedistribute {
@@ -197,9 +202,44 @@ export interface TypedConfig {
   ospf: TypedOspf[]
   ospf6: TypedOspf[]
   interface_routing: TypedInterfaceRouting[]
+  /** BFD (Prisma 0.150.12, #67). */
+  bfd_peers?: TypedBfdPeer[]
+  bfd_profiles?: TypedBfdProfile[]
 }
 
-export type TypedArea = "interfaces" | "pools" | "logging" | "static" | "bgp" | "ospf" | "ospf6" | "isis" | "interface_routing"
+/** BFD's timers (Prisma 0.150.12, #67): 0 / false is not stated, FRR's default applies. */
+export interface TypedBfdTimers {
+  detect_multiplier: number
+  receive_interval_ms: number
+  transmit_interval_ms: number
+  minimum_ttl: number
+  echo_mode: boolean
+  passive_mode: boolean
+  shutdown: boolean
+  echo_receive_interval_ms: number
+  echo_receive_disabled: boolean
+  echo_transmit_interval_ms: number
+}
+
+export interface TypedBfdPeer {
+  address: string
+  multihop: boolean
+  local_address: string
+  interface: string
+  vrf: string
+  profile: string
+  timers: TypedBfdTimers | null
+  other: string[]
+  header: string
+}
+
+export interface TypedBfdProfile {
+  name: string
+  timers: TypedBfdTimers | null
+  other: string[]
+}
+
+export type TypedArea = "interfaces" | "pools" | "logging" | "static" | "bgp" | "ospf" | "ospf6" | "isis" | "interface_routing" | "bfd"
 
 /** What SetConfig sets: one object, and the fields of it that change. */
 export type TypedObject =
@@ -207,6 +247,8 @@ export type TypedObject =
   | { pool: Partial<TypedPool> & { name: string } }
   | { logging: Partial<TypedLogging> }
   | { static_route: Partial<TypedStaticRoute> & { prefix: string; next_hop: string } }
+  | { bfd_peer: Partial<TypedBfdPeer> & { address: string } }
+  | { bfd_profile: Partial<TypedBfdProfile> & { name: string } }
   | {
       bgp_neighbor: {
         asn: string
@@ -219,8 +261,10 @@ export type TypedObject =
     }
 
 export interface TypedDelete {
-  area: "interfaces" | "pools" | "logging" | "static" | "bgp"
+  area: "interfaces" | "pools" | "logging" | "static" | "bgp" | "bfd"
   name?: string
+  /** area `bfd`: the session to remove (#67). */
+  bfd_peer?: Partial<TypedBfdPeer> & { address: string }
   transport?: string
   prefix?: string
   next_hop?: string

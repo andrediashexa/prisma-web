@@ -9,6 +9,7 @@ import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
 import { ClearAction, useClears } from "@/components/clear-action"
 import { BfdSessionsCard, IsisInterfacesCard, OspfInterfacesCard, RoutingLoggingCard } from "@/components/screens"
+import { BfdConfig } from "@/components/routing/bfd-config"
 import { BgpPanel } from "@/components/routing/bgp-config"
 import { OspfPanel } from "@/components/routing/ospf-config"
 import { StaticRoutesPanel } from "@/components/routing/static-routes"
@@ -284,6 +285,8 @@ export default function RoutingPage() {
 
       {/* Prisma 0.150.6 (#64): OSPF and IS-IS interfaces, FRR's logging. */}
       <BfdSessionsCard routerId={id} />
+      {/* Prisma 0.150.12 (#67): BFD's configuration as fields. */}
+      <BfdConfig routerId={id} editable={editable} onStage={(c) => cc.stage(c)} />
       <OspfInterfacesCard routerId={id} />
       <IsisInterfacesCard routerId={id} />
       <RoutingLoggingCard routerId={id} />

@@ -230,6 +230,13 @@ impl Config {
             .collect()
     }
 
+    /// The mode at `path`, created empty when it is not there (#67).
+    pub fn ensure_block(&mut self, path: &[String]) {
+        if !self.blocks.iter().any(|b| b.path == path) {
+            self.blocks.push(Block { path: path.to_vec(), lines: Vec::new() });
+        }
+    }
+
     pub fn block(&self, path: &[&str]) -> Option<&Block> {
         self.blocks.iter().find(|b| b.path.iter().map(String::as_str).eq(path.iter().copied()))
     }

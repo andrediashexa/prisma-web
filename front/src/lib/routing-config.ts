@@ -747,6 +747,11 @@ function ospfFromTyped(version: OspfVersion, t: TypedOspf | undefined, ifRouting
   return c
 }
 
+function staticBfdWords(r: TypedStaticRoute): string[] {
+  if (!r.bfd) return []
+  return ["bfd", r.bfd_multihop && "multi-hop", r.bfd_source && `source ${r.bfd_source}`, r.bfd_profile && `profile ${r.bfd_profile}`].filter(Boolean) as string[]
+}
+
 function staticFromTyped(r: TypedStaticRoute): StaticRoute {
   return {
     prefix: r.prefix,
@@ -757,7 +762,8 @@ function staticFromTyped(r: TypedStaticRoute): StaticRoute {
     family: r.family === "ipv6" || r.prefix.includes(":") ? 6 : 4,
     line: r.line,
     vrf: r.vrf || undefined,
-    extra: r.extra.length ? r.extra : undefined,
+    // A route's BFD words are typed since 0.150.12 (#67), shown with the others it carries.
+    extra: [...r.extra, ...staticBfdWords(r)].length ? [...r.extra, ...staticBfdWords(r)] : undefined,
   }
 }
 
