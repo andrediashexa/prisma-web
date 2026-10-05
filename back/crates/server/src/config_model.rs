@@ -237,6 +237,9 @@ fn arg_token(a: &prisma_proto::v1::SchemaArgument, next_id: &mut usize, last: bo
         "ipv4_address" => Kind::Ipv4,
         "ipv6_prefix" => Kind::Ipv6Prefix,
         "ipv6_address" => Kind::Ipv6,
+        // The box completes a next hop from its own and says `address`, though it takes an
+        // interface, `blackhole`, `Null0` or `reject` as well (192.0.2.166, #71).
+        "address" if a.source == "next_hops" => Kind::NextHop,
         "address" => Kind::Address,
         "prefix" => Kind::Prefix,
         _ => Kind::Text,
@@ -519,6 +522,31 @@ mod tests {
         let bgp = find("router bgp <asn>");
         assert!(bgp.lines[0].statement.is_some(), "a neighbor line is a bgp neighbor statement");
         assert!(find("config").lines.iter().any(|l| l.text == "hostname h"));
+    }
+
+    #[test]
+    fn a_next_hop_is_an_address_an_interface_or_a_blackhole() {
+        use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
+        // As 192.0.2.166 (0.151.5) states it: `address`, completed from `next_hops` (#71).
+        let arg = |name: &str, kind: &str, source: &str, position: u32| SchemaArgument { name: name.into(), kind: kind.into(), source: source.into(), position, ..Default::default() };
+        let statement = |source: &str| SchemaStatement {
+            words: vec!["next-hop".into()],
+            forms: vec![SchemaForm { arguments: vec![arg("<prefix>", "prefix", "", 0), arg("<next-hop>", "address", source, 1)] }],
+            ..Default::default()
+        };
+        let mode = |source: &str| ConfigSchema {
+            modes: vec![SchemaMode { mode: "router static".into(), path: vec!["router static".into()], statements: vec![statement(source)], ..Default::default() }],
+            release: "0.151.5".into(),
+            ..Default::default()
+        };
+        let t = from_schema(&mode("next_hops"))[0].groups[0].statements[0].tokens.clone();
+        for nh in ["203.0.113.9", "2001:db8::1", "wan0", "blackhole", "Null0", "reject"] {
+            assert!(match_line(&t, &w(&format!("203.0.113.128/28 next-hop {nh}"))).is_some(), "{nh}");
+        }
+        // Any other address stays an address.
+        let t = from_schema(&mode(""))[0].groups[0].statements[0].tokens.clone();
+        assert!(match_line(&t, &w("203.0.113.128/28 next-hop blackhole")).is_none());
+        assert!(match_line(&t, &w("203.0.113.128/28 next-hop 203.0.113.9")).is_some());
     }
 
     #[test]

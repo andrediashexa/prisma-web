@@ -751,6 +751,21 @@ def sfp_checks(admin, R):
         admin.delete(C)
 
 
+def next_hop_checks(admin, R):
+    """A static route to blackhole, Null0, reject or an interface matches its statement (#71)."""
+    st, c = admin.post(f"{R}/config/candidates")
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    try:
+        routes = ["198.51.100.0/24 next-hop blackhole description pool", "198.51.100.64/26 next-hop Null0", "198.51.100.128/26 next-hop reject", "198.51.100.192/26 next-hop wan0"]
+        st, b = admin.post(f"{C}/edit", {"path": ["router static"], "lines": routes})
+        check(st == 200, "static routes to blackhole, Null0, reject and an interface are taken", b)
+        st, t = admin.get(f"{R}/config/tree?candidate={c['candidate_id']}")
+        lines = {l["text"]: l for i in t["instances"] for l in i["lines"]}
+        check(all(lines.get(r, {}).get("statement") for r in routes), "and each matches the next-hop statement", [lines.get(r) for r in routes])
+    finally:
+        admin.delete(C)
+
+
 def pending_configuration_checks(admin, R, router_id):
     """A configuration partially applied at boot (Prisma 0.151.5, #70): the health, the screen, save refused, given up."""
     status = lambda: next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
@@ -1327,6 +1342,7 @@ def main():
         sfp_checks(admin, R)
         bfd_checks(admin, R)
         pending_configuration_checks(admin, R, router_id)
+        next_hop_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

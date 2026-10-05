@@ -96,12 +96,14 @@ fn args(toks: &[Tok], optional: bool) -> Vec<SchemaArgument> {
                     Kind::Ipv4Prefix => ("ipv4_prefix", 0, 0),
                     Kind::Ipv6 => ("ipv6_address", 0, 0),
                     Kind::Ipv6Prefix => ("ipv6_prefix", 0, 0),
-                    Kind::Address => ("address", 0, 0),
+                    Kind::Address | Kind::NextHop => ("address", 0, 0),
                     Kind::Prefix => ("prefix", 0, 0),
                     _ if *rest => ("text", 0, 0),
                     _ => ("word", 0, 0),
                 };
-                out.push(SchemaArgument { name: format!("<{label}>"), kind: k.into(), min, max, optional, ..Default::default() });
+                // As the box states a next hop: `address`, completed from `next_hops` (#71).
+                let source = if matches!(kind, Kind::NextHop) { "next_hops" } else { "" };
+                out.push(SchemaArgument { name: format!("<{label}>"), kind: k.into(), min, max, optional, source: source.into(), ..Default::default() });
             }
             Tok::Opt { items } => out.extend(args(items, true)),
             Tok::Alt { options } => {

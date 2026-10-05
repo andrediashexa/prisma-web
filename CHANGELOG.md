@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.33.1 - Blackhole next hops — 2026-10-05
+
+### Fixed
+- A static route to `blackhole`, `Null0`, `reject` or an interface matches its statement on the configuration screen, and the statement's form takes such a next hop: the router's schema calls the next hop an address, though it takes all of these (#71).
+
 ## 0.33.0 - Pending configuration — 2026-10-05
 
 ### Added

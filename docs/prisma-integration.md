@@ -535,6 +535,14 @@ Read up to 0.151.5 in `clients.md` and already handled:
   router page shows a banner with the cards and the statements, and an operator can give them up
   through the clear's confirmation. The mock's `mock pending on|off` stands in for the missing
   card. `--lab` reads only the health and the screen.
+- On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
+  `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
+  interface, blackhole, Null0 or reject" and the box's own configuration holds
+  `203.0.113.128/28 next-hop blackhole description pool-cgnat-publico`: the contract's "every
+  line of a running box's configuration matches a statement" does not hold for it. prisma-web
+  reads an `address` completed from `next_hops` as a next hop (`next_hop`: one word, any of
+  those), so the line matches and the form takes it; any other `address` stays an address. For
+  the Prisma side to fix in its schema; prisma-web does not write to prismarouting.
 - The lab box was on 0.149.13 from 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.
