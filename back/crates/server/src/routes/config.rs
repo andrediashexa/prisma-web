@@ -860,7 +860,7 @@ pub async fn validate(
 // --- The configuration as fields (Prisma 0.149.20 and 0.149.22, #46) -----------
 
 /// The areas GetConfig answers since 0.149.22; anything else is refused here.
-const TYPED_AREAS: [&str; 10] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd"];
+const TYPED_AREAS: [&str; 11] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd", "nat64"];
 
 #[derive(Deserialize)]
 pub struct TypedQuery {
@@ -926,6 +926,8 @@ pub async fn typed(
 pub struct SetBody {
     interface: Option<InterfaceConfig>,
     pool: Option<PoolConfig>,
+    /// NAT64 pools, `nat > nat64` (Prisma 0.151.0, #68).
+    nat64_pool: Option<Nat64PoolConfig>,
     logging: Option<LoggingConfig>,
     static_route: Option<StaticRouteConfig>,
     bgp_neighbor: Option<BgpNeighborEdit>,
@@ -942,6 +944,7 @@ impl SetBody {
         let objects: Vec<Object> = [
             self.interface.map(Object::Interface),
             self.pool.map(Object::Pool),
+            self.nat64_pool.map(Object::Nat64Pool),
             self.logging.map(Object::Logging),
             self.static_route.map(Object::StaticRoute),
             self.bgp_neighbor.map(Object::BgpNeighbor),
@@ -952,7 +955,7 @@ impl SetBody {
         .flatten()
         .collect();
         let [object] = <[Object; 1]>::try_from(objects).map_err(|_| {
-            AppError::BadRequest("send exactly one object: interface, pool, logging, static_route, bgp_neighbor, bfd_peer or bfd_profile".into())
+            AppError::BadRequest("send exactly one object: interface, pool, nat64_pool, logging, static_route, bgp_neighbor, bfd_peer or bfd_profile".into())
         })?;
         // An empty mask sets EVERY field to the value sent, clearing what a partial
         // object leaves out (docs/prisma-api.md): this server never sends one.
@@ -1036,8 +1039,8 @@ pub async fn typed_delete(
 ) -> AppResult<Json<SetConfigResponse>> {
     user.require(Role::Operator)?;
     st.candidates.check(id, &cid, &user)?;
-    if !["interfaces", "pools", "logging", "static", "bgp", "bfd"].contains(&b.area.as_str()) {
-        return Err(AppError::BadRequest("area is one of interfaces, pools, logging, static, bgp, bfd".into()));
+    if !["interfaces", "pools", "nat64", "logging", "static", "bgp", "bfd"].contains(&b.area.as_str()) {
+        return Err(AppError::BadRequest("area is one of interfaces, pools, nat64, logging, static, bgp, bfd".into()));
     }
     let r = st.routers.get(id).await?;
     require_can_change(&st, &r).await?;

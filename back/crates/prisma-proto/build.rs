@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // front end posts them as JSON, a field left out at its default.
     for m in [
         "InterfaceConfig", "PoolConfig", "PortForwardConfig", "LogCollectorConfig", "LoggingConfig",
-        "StaticRouteConfig", "BfdPeerConfig", "BfdProfileConfig", "BfdTimers", "BgpNeighborEdit", "BgpNeighborConfig", "BgpNeighborFamilyEdit", "BgpNeighborFamilyConfig",
+        "StaticRouteConfig", "Nat64PoolConfig", "BfdPeerConfig", "BfdProfileConfig", "BfdTimers", "BgpNeighborEdit", "BgpNeighborConfig", "BgpNeighborFamilyEdit", "BgpNeighborFamilyConfig",
         "KeyValue",
     ] {
         cfg = cfg.type_attribute(format!(".prisma.v1.{m}"), "#[derive(serde::Deserialize)] #[serde(default)]");

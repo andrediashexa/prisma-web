@@ -20,7 +20,7 @@ pub fn translation(st: &State, req: &LookupTranslationRequest) -> Result<Transla
     let block = (req.port.saturating_sub(1024)) / 512;
     let subscriber = format!("100.64.{}.{}", block % 250, u32::from(o[3]) - 63);
     let text = format!(
-        "Translation {}:{}\n  subscriber {subscriber}\n  pool       {pool}\n  block      {block}\n  source     dynamic\n",
+        "Translation {}:{}\n  subscriber {subscriber}\n  pool       {pool}\n  block      {block}\n  source     bpa\n",
         req.public_address, req.port
     );
     Ok(Translation {
@@ -29,7 +29,7 @@ pub fn translation(st: &State, req: &LookupTranslationRequest) -> Result<Transla
         subscriber,
         pool,
         block,
-        source: translation::Source::Dynamic as i32,
+        source: translation::Source::Bpa as i32,
         nat64: false,
         now_only: true,
         text,

@@ -15,9 +15,11 @@ import { invalid, type Instance, type Kind } from "@/lib/config-model"
 import { describeSet, n2s, s2n, typedSet, type TypedCollector, type TypedConfig, type TypedPool } from "@/lib/typed-config"
 
 export const CGNAT_PATH = ["nat", "cgnat"]
-export const poolPath = (name: string) => [...CGNAT_PATH, `pool ${name}`]
+/** A pool's level: CGNAT, or NAT64 in its own hierarchy since Prisma 0.151.0 (#68). */
+export type PoolLevel = "cgnat" | "nat64"
+export const poolPath = (name: string, level: PoolLevel = "cgnat") => ["nat", level, `pool ${name}`]
 /** The Settings key of a pool, for the link to its other statements. */
-export const poolKey = (name: string) => poolPath(name).join(" > ")
+export const poolKey = (name: string, level: PoolLevel = "cgnat") => poolPath(name, level).join(" > ")
 
 const INT32: Kind = { k: "int", min: 1, max: 4294967295 }
 
@@ -92,6 +94,8 @@ export const NAT64_ALGS: readonly Alg[] = ["ftp"]
 
 export interface PoolConfig {
   name: string
+  /** Where it is written: `nat > cgnat`, or `nat > nat64` on a router with that hierarchy (#68). */
+  level: PoolLevel
   inside: string[]
   outside: string[]
   /** The value after the keyword (`ports` is "low high", `tcp-mss` is "auto"). */
@@ -117,9 +121,10 @@ const after = (w: string[], key: string) => {
 
 export const emptyTarget = (): LogTarget => ({ state: "", collector: "", port: "", source: "", enterprise: "", options: "" })
 
-export function emptyPool(name = ""): PoolConfig {
+export function emptyPool(name = "", level: PoolLevel = "cgnat"): PoolConfig {
   return {
     name,
+    level,
     inside: [],
     outside: [],
     scalars: Object.fromEntries(POOL_SCALARS.map((k) => [k, ""])) as Record<PoolScalar, string>,
@@ -128,8 +133,8 @@ export function emptyPool(name = ""): PoolConfig {
   }
 }
 
-function readPool(name: string, lines: string[]): PoolConfig {
-  const p = emptyPool(name)
+function readPool(name: string, lines: string[], level: PoolLevel = "cgnat"): PoolConfig {
+  const p = emptyPool(name, level)
   for (const l of lines) {
     const w = words(l)
     if (w[0] === "prefix-inside" && w[1]) p.inside.push(w[1])
@@ -190,8 +195,8 @@ export function readCgnat(instances: Instance[]): CgnatConfig {
     } else other.push(l)
   }
   const pools = instances
-    .filter((i) => i.path.length === 3 && i.path[0] === "nat" && i.path[1] === "cgnat" && i.path[2].startsWith("pool "))
-    .map((i) => readPool(i.path[2].slice("pool ".length).trim(), i.lines.map((l) => l.text)))
+    .filter((i) => i.path.length === 3 && i.path[0] === "nat" && (i.path[1] === "cgnat" || i.path[1] === "nat64") && i.path[2].startsWith("pool "))
+    .map((i) => readPool(i.path[2].slice("pool ".length).trim(), i.lines.map((l) => l.text), i.path[1] as PoolLevel))
   return { global, logging, pools, other }
 }
 
@@ -257,8 +262,12 @@ const SCALAR_KIND: Partial<Record<PoolScalar, Kind>> = {
 /** Statements the VTY has no `no` form for: once set, they can only be changed. */
 const NO_UNSET: PoolScalar[] = ["block-size", "mode", "policy"]
 
-export function poolErrors(before: PoolConfig | null, p: PoolConfig, taken: string[]): Record<string, string> {
+export function poolErrors(before: PoolConfig | null, p: PoolConfig, taken: string[], nat64Area = false): Record<string, string> {
   const e: Record<string, string | null> = {}
+  // A pool is a CGNAT or a NAT64 one, in its own hierarchy, for good (Prisma 0.151.0, #68).
+  if (before && nat64Area && isNat64(p) !== (before.level === "nat64")) {
+    e.inside = before.level === "nat64" ? "a NAT64 pool's inside prefixes are IPv6: add a CGNAT pool instead" : "a CGNAT pool's inside prefixes are IPv4: add a NAT64 pool instead"
+  }
   if (!before) {
     e.name = !p.name.trim() ? "required" : noSpaces(p.name) ?? (taken.includes(p.name.trim()) ? "a pool with this name exists" : null)
   }
@@ -380,8 +389,14 @@ export const remapWarning = (what: string) =>
   `Changing the ${what} remaps subscribers: they get a different public address or port block. The review asks you to acknowledge it.`
 
 /** The lines that take a pool from `a` (null: a new pool) to `b`. */
-export function poolChanges(a: PoolConfig | null, b: PoolConfig, typed = false): ConfigChange[] {
-  if (typed) return poolChangesTyped(a, b)
+/** Where a pool goes: where it is, or, new, by its inside prefixes on a router with `nat > nat64` (#68). */
+export const poolLevel = (a: PoolConfig | null, b: PoolConfig, nat64Area: boolean): PoolLevel =>
+  a ? a.level : nat64Area && isNat64(b) ? "nat64" : "cgnat"
+
+export function poolChanges(a: PoolConfig | null, b: PoolConfig, typed = false, nat64Area = false): ConfigChange[] {
+  const level = poolLevel(a, b, nat64Area)
+  // Before 0.151.0 a NAT64 pool's own fields are not in this client's contract: lines (#68).
+  if (typed && !(isNat64(b) && level === "cgnat")) return poolChangesTyped(a, b, level)
   const was = a ?? emptyPool(b.name)
   const lines: string[] = []
   const list = (key: string, from: string[], to: string[]) => {
@@ -406,7 +421,7 @@ export function poolChanges(a: PoolConfig | null, b: PoolConfig, typed = false):
   const remap = remapReasons(a, b)
   return [
     {
-      path: poolPath(b.name.trim()),
+      path: poolPath(b.name.trim(), level),
       lines,
       label: a ? `pool ${b.name}` : `new pool ${b.name}`,
       warning: remap.length ? remapWarning(remap.join(" and ")) : undefined,
@@ -416,9 +431,9 @@ export function poolChanges(a: PoolConfig | null, b: PoolConfig, typed = false):
 
 export function poolRemoval(p: PoolConfig, typed = false): ConfigChange {
   return {
-    path: CGNAT_PATH,
+    path: ["nat", p.level],
     lines: typed ? [] : [`no pool ${p.name}`],
-    ...(typed && { typed: [{ remove: { area: "pools" as const, name: p.name } }], summary: [`remove pool ${p.name}`] }),
+    ...(typed && { typed: [{ remove: { area: p.level === "nat64" ? ("nat64" as const) : ("pools" as const), name: p.name } }], summary: [`remove pool ${p.name}`] }),
     label: `remove pool ${p.name}`,
     warning: "Removing the pool remaps its subscribers. The review asks you to acknowledge it.",
   }
@@ -426,8 +441,8 @@ export function poolRemoval(p: PoolConfig, typed = false): ConfigChange {
 
 // --- Typed (Prisma 0.149.20, #46) ----------------------------------------------
 
-function poolFromTyped(t: TypedPool, other: string[]): PoolConfig {
-  const p = emptyPool(t.name)
+function poolFromTyped(t: TypedPool, other: string[], level: PoolLevel = "cgnat"): PoolConfig {
+  const p = emptyPool(t.name, level)
   p.inside = [...t.prefix_inside]
   p.outside = [...t.prefix_outside]
   p.scalars["block-size"] = n2s(t.block_size)
@@ -471,7 +486,16 @@ function targetFromTyped(c: TypedCollector | undefined): LogTarget {
  */
 export function readCgnatTyped(typed: TypedConfig, instances: Instance[]): CgnatConfig {
   const base = readCgnat(instances)
-  const pools = typed.pools.map((t) => poolFromTyped(t, base.pools.find((p) => p.name === t.name)?.other ?? []))
+  const tree = (name: string) => base.pools.find((p) => p.name === name)
+  const pools = [
+    ...typed.pools.map((t) => {
+      const p = poolFromTyped(t, tree(t.name)?.other ?? [])
+      // A NAT64 pool under `nat > cgnat` (before 0.151.0): its own two fields are read off the tree (#68).
+      for (const k of ["subscriber-length", "nat64-prefix"] as const) if (!p.scalars[k]) p.scalars[k] = tree(t.name)?.scalars[k] ?? ""
+      return p
+    }),
+    ...(typed.nat64_pools ?? []).map((t) => poolFromTyped(t, tree(t.name)?.other ?? [], "nat64")),
+  ]
   const by = (k: LogKind) => typed.logging?.collectors.find((c) => c.transport === k)
   const logging: CgnatLogging = {
     export: typed.logging?.enabled ? "enable" : "",
@@ -497,10 +521,13 @@ const POOL_FIELD: Record<PoolScalar, string> = {
   "nat64-prefix": "nat64_prefix",
 }
 
-export function toTypedPool(b: PoolConfig): Partial<TypedPool> & { name: string } {
+export function toTypedPool(b: PoolConfig, level: PoolLevel = "cgnat"): Partial<TypedPool> & { name: string } {
   const v = (k: PoolScalar) => b.scalars[k].trim().replace(/\s+/g, " ")
   const [lo = "", hi = ""] = v("ports").split(" ")
+  // NAT64's own two are a NAT64 pool's only since 0.151.0 (#68).
+  const nat64 = level === "nat64" ? { subscriber_length: s2n(v("subscriber-length")), nat64_prefix: v("nat64-prefix") } : {}
   return {
+    ...nat64,
     name: b.name.trim(),
     prefix_inside: b.inside.map((x) => x.trim()).filter(Boolean),
     prefix_outside: b.outside.map((x) => x.trim()).filter(Boolean),
@@ -516,14 +543,12 @@ export function toTypedPool(b: PoolConfig): Partial<TypedPool> & { name: string 
     max_session_rate: s2n(v("max-session-rate")),
     filter: v("filter"),
     tcp_mss: v("tcp-mss"),
-    subscriber_length: s2n(v("subscriber-length")),
-    nat64_prefix: v("nat64-prefix"),
     algs: Object.fromEntries(ALGS.filter((a) => b.algs[a]).map((a) => [a, b.algs[a] === "on"])),
   }
 }
 
 /** The pool's fields that differ from `a` (null: a new pool), by their names in the contract. */
-export function typedPoolFields(a: PoolConfig | null, b: PoolConfig): string[] {
+export function typedPoolFields(a: PoolConfig | null, b: PoolConfig, level: PoolLevel = "cgnat"): string[] {
   const was = a ?? emptyPool(b.name)
   const same = (x: string[], y: string[]) => x.length === y.length && x.every((v) => y.includes(v))
   const out: string[] = []
@@ -534,23 +559,25 @@ export function typedPoolFields(a: PoolConfig | null, b: PoolConfig): string[] {
     if (v === was.scalars[k]) continue
     // No `no` form on the VTY for these: they are changed, never cleared (#41).
     if (!v && NO_UNSET.includes(k)) continue
+    // A CGNAT pool has no NAT64 fields (#68).
+    if (level === "cgnat" && (k === "subscriber-length" || k === "nat64-prefix")) continue
     out.push(POOL_FIELD[k])
   }
   if (ALGS.some((g) => b.algs[g] !== was.algs[g])) out.push("algs")
   return out
 }
 
-function poolChangesTyped(a: PoolConfig | null, b: PoolConfig): ConfigChange[] {
-  const fields = typedPoolFields(a, b)
+function poolChangesTyped(a: PoolConfig | null, b: PoolConfig, level: PoolLevel = "cgnat"): ConfigChange[] {
+  const fields = typedPoolFields(a, b, level)
   if (!fields.length) return []
-  const object = toTypedPool(b)
+  const object = toTypedPool(b, level)
   const remap = remapReasons(a, b)
   const shown = { ...object, ports: object.port_first || object.port_last ? `${object.port_first} ${object.port_last}` : "" }
   return [
     {
-      path: poolPath(b.name.trim()),
+      path: poolPath(b.name.trim(), level),
       lines: [],
-      typed: [typedSet({ pool: object }, fields)],
+      typed: [typedSet(level === "nat64" ? { nat64_pool: object } : { pool: object }, fields)],
       summary: describeSet(fields, shown as Record<string, unknown>),
       label: a ? `pool ${b.name}` : `new pool ${b.name}`,
       warning: remap.length ? remapWarning(remap.join(" and ")) : undefined,

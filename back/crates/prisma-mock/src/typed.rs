@@ -53,7 +53,7 @@ pub fn mask(line: &str) -> String {
 // --- Reading ------------------------------------------------------------------
 
 pub fn read(c: &Config, areas: &[String]) -> Result<TypedConfig, Usage> {
-    const KNOWN: [&str; 10] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd"];
+    const KNOWN: [&str; 11] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd", "nat64"];
     if let Some(a) = areas.iter().find(|a| !KNOWN.contains(&a.as_str())) {
         return usage(format!("unknown area {a}"));
     }
@@ -85,6 +85,9 @@ pub fn read(c: &Config, areas: &[String]) -> Result<TypedConfig, Usage> {
     }
     if want("interface_routing") {
         t.interface_routing = c.interfaces.iter().filter_map(interface_routing).collect();
+    }
+    if want("nat64") {
+        t.nat64_pools = c.nat64_pool_names().iter().map(|n| nat64_pool(c, n)).collect();
     }
     if want("bfd") {
         t.bfd_peers = bfd_peers(c);
@@ -133,17 +136,53 @@ fn interface(i: &crate::config::Iface) -> InterfaceConfig {
 
 /// The NAT64 prefixes the box's NAT64 pools translate ("" is the well-known one), #61.
 fn nat64_prefixes(c: &Config) -> Vec<String> {
-    c.pool_names()
+    c.nat64_pool_names()
         .iter()
-        .map(|n| pool(c, n))
-        .filter(|p| p.prefix_inside.iter().any(|x| x.contains(':')))
+        .map(|n| nat64_pool(c, n))
         .map(|p| if p.nat64_prefix.is_empty() { "64:ff9b::/96".to_string() } else { p.nat64_prefix })
         .collect()
 }
 
 fn pool(c: &Config, name: &str) -> PoolConfig {
-    let lines = c.block(&["nat", "cgnat", &format!("pool {name}")]).map(|b| b.lines.clone()).unwrap_or_default();
+    pool_at(c, "cgnat", name).0
+}
+
+/// A NAT64 pool (`nat > nat64`, Prisma 0.151.0, #68): the pool's fields and NAT64's own.
+pub fn nat64_pool(c: &Config, name: &str) -> Nat64PoolConfig {
+    let (p, subscriber_length, nat64_prefix) = pool_at(c, "nat64", name);
+    Nat64PoolConfig {
+        name: p.name,
+        prefix_inside: p.prefix_inside,
+        prefix_outside: p.prefix_outside,
+        block_size: p.block_size,
+        port_first: p.port_first,
+        port_last: p.port_last,
+        policy: p.policy,
+        mode: p.mode,
+        vrf: p.vrf,
+        outside_vrf: p.outside_vrf,
+        timeouts: p.timeouts,
+        max_blocks: p.max_blocks,
+        initial_allocation: p.initial_allocation,
+        block_stride: p.block_stride,
+        reserve: p.reserve,
+        utilisation_alarm: p.utilisation_alarm,
+        max_sessions: p.max_sessions,
+        max_session_rate: p.max_session_rate,
+        tcp_mss: p.tcp_mss,
+        filter: p.filter,
+        algs: p.algs,
+        forwards: p.forwards,
+        subscriber_length,
+        nat64_prefix,
+    }
+}
+
+/// The pool's lines at `nat > <level> > pool <name>`, and NAT64's two of them.
+fn pool_at(c: &Config, level: &str, name: &str) -> (PoolConfig, u32, String) {
+    let lines = c.block(&["nat", level, &format!("pool {name}")]).map(|b| b.lines.clone()).unwrap_or_default();
     let mut p = PoolConfig { name: name.into(), max_blocks: 1, ..Default::default() };
+    let (mut subscriber_length, mut nat64_prefix) = (0, String::new());
     for l in &lines {
         let ws = w(l);
         match ws.as_slice() {
@@ -169,15 +208,15 @@ fn pool(c: &Config, name: &str) -> PoolConfig {
             ["max-session-rate", n] => p.max_session_rate = num(Some(n)),
             ["tcp-mss", v] => p.tcp_mss = (*v).into(),
             ["filter", v] => p.filter = (*v).into(),
-            ["subscriber-length", n] => p.subscriber_length = num(Some(n)),
-            ["nat64-prefix", x] => p.nat64_prefix = (*x).into(),
+            ["subscriber-length", n] => subscriber_length = num(Some(n)),
+            ["nat64-prefix", x] => nat64_prefix = (*x).into(),
             ["alg", a, v] => {
                 p.algs.insert((*a).into(), *v == "on");
             }
             _ => {}
         }
     }
-    p
+    (p, subscriber_length, nat64_prefix)
 }
 
 fn static_route(line: &str, vrf: &str) -> Option<StaticRouteConfig> {
@@ -508,42 +547,100 @@ pub fn set_interface(c: &Config, i: &InterfaceConfig, fields: &[String]) -> Resu
     Ok(Plan::at(vec![format!("interface {}", i.name)], out))
 }
 
-const POOL_FIELDS: [&str; 25] = [
+const POOL_FIELDS: [&str; 23] = [
     "name", "prefix_inside", "prefix_outside", "block_size", "ports", "policy", "mode", "vrf", "outside_vrf", "timeouts", "max_blocks",
     "initial_allocation", "block_stride", "reserve", "bypass_source", "bypass_destination", "utilisation_alarm", "max_sessions",
-    "max_session_rate", "tcp_mss", "filter", "algs", "forwards", "subscriber_length", "nat64_prefix",
+    "max_session_rate", "tcp_mss", "filter", "algs", "forwards",
+];
+/// A NAT64 pool's (0.151.0, #68): no bypass, and NAT64's two.
+const NAT64_FIELDS: [&str; 23] = [
+    "name", "prefix_inside", "prefix_outside", "block_size", "ports", "policy", "mode", "vrf", "outside_vrf", "timeouts", "max_blocks",
+    "initial_allocation", "block_stride", "reserve", "utilisation_alarm", "max_sessions", "max_session_rate", "tcp_mss", "filter",
+    "algs", "forwards", "subscriber_length", "nat64_prefix",
 ];
 
+/// A CGNAT pool (`nat > cgnat`). Since 0.151.0 a NAT64 pool is not one (#68).
 pub fn set_pool(c: &Config, p: &PoolConfig, fields: &[String]) -> Result<Plan, Usage> {
     let named = mask_of(fields, &POOL_FIELDS)?;
+    if c.nat64_pool_names().contains(&p.name) {
+        return usage(format!("% '{}' is a pool under 'nat64'", p.name));
+    }
+    if named.contains(&"prefix_inside") && p.prefix_inside.iter().any(|x| x.contains(':')) {
+        return usage("% an IPv6 inside prefix is a NAT64 pool's: it goes under nat > nat64");
+    }
+    set_pool_at(c, "cgnat", p, &named)
+}
+
+/// A NAT64 pool (`nat > nat64`, 0.151.0, #68): IPv6 inside prefixes, FTP the only ALG (0.150.1,
+/// #60), no bypass, and its subscriber length and NAT64 prefix.
+pub fn set_nat64_pool(c: &Config, n: &Nat64PoolConfig, fields: &[String]) -> Result<Plan, Usage> {
+    let named = mask_of(fields, &NAT64_FIELDS)?;
+    if c.pool_names().contains(&n.name) {
+        return usage(format!("% '{}' is a pool under 'cgnat'", n.name));
+    }
+    let (cur, cur_len, cur_prefix) = pool_at(c, "nat64", &n.name);
+    let has = |f: &str| named.contains(&f);
+    let inside = if has("prefix_inside") { &n.prefix_inside } else { &cur.prefix_inside };
+    if has("prefix_inside") && !inside.iter().all(|x| x.contains(':')) {
+        return usage("% a NAT64 pool's inside prefixes are IPv6");
+    }
+    let algs = if has("algs") { &n.algs } else { &cur.algs };
+    if let Some(a) = algs.iter().filter(|(a, on)| **on && a.as_str() != "ftp").map(|(a, _)| a).next() {
+        return usage(format!("% alg {a} cannot be used on a NAT64 pool"));
+    }
+    let p = PoolConfig {
+        name: n.name.clone(),
+        prefix_inside: n.prefix_inside.clone(),
+        prefix_outside: n.prefix_outside.clone(),
+        block_size: n.block_size,
+        port_first: n.port_first,
+        port_last: n.port_last,
+        policy: n.policy.clone(),
+        mode: n.mode.clone(),
+        vrf: n.vrf,
+        outside_vrf: n.outside_vrf,
+        timeouts: n.timeouts.clone(),
+        max_blocks: n.max_blocks,
+        initial_allocation: n.initial_allocation,
+        block_stride: n.block_stride,
+        reserve: n.reserve,
+        utilisation_alarm: n.utilisation_alarm,
+        max_sessions: n.max_sessions,
+        max_session_rate: n.max_session_rate,
+        tcp_mss: n.tcp_mss.clone(),
+        filter: n.filter.clone(),
+        algs: n.algs.clone(),
+        forwards: n.forwards.clone(),
+        ..Default::default()
+    };
+    let common: Vec<&str> = named.iter().copied().filter(|f| !matches!(*f, "subscriber_length" | "nat64_prefix")).collect();
+    let mut plan = set_pool_at(c, "nat64", &p, &common)?;
+    let mut extra = vec![];
+    if has("subscriber_length") && n.subscriber_length != cur_len {
+        extra.push(if n.subscriber_length == 0 { "no subscriber-length".into() } else { format!("subscriber-length {}", n.subscriber_length) });
+    }
+    if has("nat64_prefix") && n.nat64_prefix != cur_prefix {
+        extra.push(if n.nat64_prefix.is_empty() { "no nat64-prefix".into() } else { format!("nat64-prefix {}", n.nat64_prefix) });
+    }
+    plan.shown.extend(extra.iter().cloned());
+    if let Some((_, lines)) = plan.steps.first_mut() {
+        lines.extend(extra);
+    }
+    Ok(plan)
+}
+
+/// What both levels share; `mode` is "deterministic" or "bpa" since 0.151.0 (#68).
+fn set_pool_at(c: &Config, level: &str, p: &PoolConfig, named: &[&str]) -> Result<Plan, Usage> {
     if p.name.trim().is_empty() || p.name.contains(char::is_whitespace) {
         return usage("a pool needs a one-word name");
     }
-    let exists = c.pool_names().contains(&p.name);
-    let cur = if exists { pool(c, &p.name) } else { PoolConfig { name: p.name.clone(), max_blocks: 1, ..Default::default() } };
-    // NAT64 (0.150.0, #59): IPv6 inside prefixes; such a pool takes no bypass and no ALG, as the
-    // box's commit check says, and only it takes a subscriber length or a NAT64 prefix.
-    let has = |f: &str| named.contains(&f);
-    let inside = if has("prefix_inside") { &p.prefix_inside } else { &cur.prefix_inside };
-    let nat64 = inside.iter().any(|x| x.contains(':'));
-    if nat64 && !inside.iter().all(|x| x.contains(':')) {
-        return usage("% a pool's inside prefixes are of one family");
+    if named.contains(&"mode") && p.mode == "dynamic" {
+        return usage("% mode dynamic is mode bpa since 0.151.0");
     }
-    let algs = if has("algs") { &p.algs } else { &cur.algs };
-    let bypass = (if has("bypass_source") { &p.bypass_source } else { &cur.bypass_source }).len()
-        + (if has("bypass_destination") { &p.bypass_destination } else { &cur.bypass_destination }).len();
-    if nat64 && bypass > 0 {
-        return usage("% a NAT64 pool takes no bypass");
-    }
-    // FTP through NAT64 since 0.150.1 (#60); the other gateways never, each with its sentence.
-    if let Some(a) = algs.iter().filter(|(a, on)| **on && a.as_str() != "ftp").map(|(a, _)| a).next().filter(|_| nat64) {
-        return usage(format!("% alg {a} cannot be used on a NAT64 pool"));
-    }
-    let sub_len = if has("subscriber_length") { p.subscriber_length } else { cur.subscriber_length };
-    let n64 = if has("nat64_prefix") { &p.nat64_prefix } else { &cur.nat64_prefix };
-    if !nat64 && (sub_len != 0 || !n64.is_empty()) {
-        return usage("% subscriber-length and nat64-prefix are a NAT64 pool's (IPv6 inside prefixes)");
-    }
+    let names = if level == "nat64" { c.nat64_pool_names() } else { c.pool_names() };
+    let exists = names.contains(&p.name);
+    let cur = if exists { pool_at(c, level, &p.name).0 } else { PoolConfig { name: p.name.clone(), max_blocks: 1, ..Default::default() } };
+    let named = named.to_vec();
     let mut out = vec![];
     // A number whose default is "no statement": 0 (or 1 for max-blocks) removes it.
     let scalar = |out: &mut Vec<String>, key: &str, old: u32, new: u32, default: u32| {
@@ -606,8 +703,6 @@ pub fn set_pool(c: &Config, p: &PoolConfig, fields: &[String]) -> Result<Plan, U
             "bypass_destination" => list(&mut out, &cur.bypass_destination, &p.bypass_destination, |x| format!("bypass destination {x}")),
             "tcp_mss" => swap(&mut out, &cur.tcp_mss, &p.tcp_mss, |v| format!("tcp-mss {v}"), "no tcp-mss"),
             "filter" => swap(&mut out, &cur.filter, &p.filter, |v| format!("filter {v}"), "no filter"),
-            "subscriber_length" => scalar(&mut out, "subscriber-length", cur.subscriber_length, p.subscriber_length, 0),
-            "nat64_prefix" => swap(&mut out, &cur.nat64_prefix, &p.nat64_prefix, |v| format!("nat64-prefix {v}"), "no nat64-prefix"),
             // Only the ALGs the operator chose: the map is set whole.
             "algs" => {
                 for (a, on) in &cur.algs {
@@ -627,7 +722,7 @@ pub fn set_pool(c: &Config, p: &PoolConfig, fields: &[String]) -> Result<Plan, U
             _ => {}
         }
     }
-    Ok(Plan::at(vec!["nat".into(), "cgnat".into(), format!("pool {}", p.name)], out))
+    Ok(Plan::at(vec!["nat".into(), level.into(), format!("pool {}", p.name)], out))
 }
 
 fn collector_line(c: &LogCollectorConfig) -> Result<String, Usage> {
@@ -857,6 +952,8 @@ pub fn delete(c: &Config, r: &DeleteConfigRequest) -> Result<Plan, Usage> {
     match r.area.as_str() {
         "pools" if c.pool_names().contains(&r.name) => Ok(Plan::at(CGNAT_PATH.map(String::from).to_vec(), vec![format!("no pool {}", r.name)])),
         "pools" => usage(format!("no pool {}", r.name)),
+        "nat64" if c.nat64_pool_names().contains(&r.name) => Ok(Plan::at(vec!["nat".into(), "nat64".into()], vec![format!("no pool {}", r.name)])),
+        "nat64" => usage(format!("no NAT64 pool {}", r.name)),
         "logging" if ["udp", "tcp", "syslog"].contains(&r.transport.as_str()) => {
             Ok(Plan::at(CGNAT_PATH.map(String::from).to_vec(), vec![format!("logging {} disable", r.transport)]))
         }
@@ -901,7 +998,7 @@ pub fn delete(c: &Config, r: &DeleteConfigRequest) -> Result<Plan, Usage> {
 
 /// Whether a typed edit stays in `nat > cgnat`, all a cgnat-operator may change (#41).
 pub fn is_cgnat(o: &set_config_request::Object) -> bool {
-    matches!(o, set_config_request::Object::Pool(_) | set_config_request::Object::Logging(_))
+    matches!(o, set_config_request::Object::Pool(_) | set_config_request::Object::Logging(_) | set_config_request::Object::Nat64Pool(_))
 }
 
 #[cfg(test)]
@@ -978,24 +1075,26 @@ mod tests {
         assert_eq!(c.pool_block_size("RFC6598"), 512);
         let new = PoolConfig { name: "BIZ".into(), prefix_inside: s(&["10.0.0.0/8"]), prefix_outside: s(&["198.51.100.0/28"]), ..Default::default() };
         assert_eq!(set_pool(&c, &new, &s(&["prefix_inside", "prefix_outside"])).ok().unwrap().path, ["nat", "cgnat", "pool BIZ"]);
-        // NAT64 (0.150.0, #59): IPv6 inside, a subscriber length; no ALG on it.
-        let v6 = PoolConfig {
+        // NAT64 under nat > nat64 (0.151.0, #68): IPv6 inside, a subscriber length; FTP its only ALG.
+        let v6 = Nat64PoolConfig {
             name: "NAT64".into(),
             prefix_inside: s(&["2001:db8:1200::/40"]),
             prefix_outside: s(&["198.51.100.64/28"]),
             subscriber_length: 56,
             ..Default::default()
         };
-        let plan = set_pool(&c, &v6, &s(&["prefix_inside", "prefix_outside", "subscriber_length"])).ok().unwrap();
+        let plan = set_nat64_pool(&c, &v6, &s(&["prefix_inside", "prefix_outside", "subscriber_length"])).ok().unwrap();
+        assert_eq!(plan.path, ["nat", "nat64", "pool NAT64"]);
         assert!(plan.shown.contains(&"subscriber-length 56".to_string()), "{:?}", plan.shown);
         let mut alg = v6.clone();
         alg.algs.insert("ftp".into(), true);
-        assert!(set_pool(&c, &alg, &s(&["prefix_inside", "prefix_outside", "algs"])).is_ok(), "FTP through NAT64 (0.150.1)");
+        assert!(set_nat64_pool(&c, &alg, &s(&["prefix_inside", "prefix_outside", "algs"])).is_ok(), "FTP through NAT64 (0.150.1)");
         alg.algs.insert("sip".into(), true);
-        assert!(set_pool(&c, &alg, &s(&["prefix_inside", "prefix_outside", "algs"])).is_err(), "no other ALG on a NAT64 pool");
-        let mut v4 = new.clone();
-        v4.subscriber_length = 56;
-        assert!(set_pool(&c, &v4, &s(&["prefix_inside", "prefix_outside", "subscriber_length"])).is_err(), "a subscriber length is NAT64's");
+        assert!(set_nat64_pool(&c, &alg, &s(&["prefix_inside", "prefix_outside", "algs"])).is_err(), "no other ALG on a NAT64 pool");
+        let v4inside = PoolConfig { name: "X".into(), prefix_inside: s(&["2001:db8::/40"]), ..Default::default() };
+        assert!(set_pool(&c, &v4inside, &s(&["prefix_inside"])).is_err(), "an IPv6 inside prefix is not a CGNAT pool's");
+        let dynamic = PoolConfig { name: "BIZ".into(), mode: "dynamic".into(), ..Default::default() };
+        assert!(set_pool(&c, &dynamic, &s(&["mode"])).is_err(), "mode dynamic is mode bpa (0.151.0)");
         let l = LoggingConfig {
             collectors: vec![LogCollectorConfig { transport: "udp".into(), configured: true, collector: "192.0.2.9".into(), source: "203.0.113.10".into(), port: 2055, ..Default::default() }],
             ..Default::default()

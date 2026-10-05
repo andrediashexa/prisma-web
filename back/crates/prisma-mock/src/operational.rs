@@ -42,7 +42,8 @@ fn pool(st: &State, name: &str) -> Pool {
     let subscribers = if name == config::SEED_POOL { (st.subscribers as u64).min(capacity) } else { 0 };
     Pool {
         name: name.into(),
-        mode: c.pool_line(name, "mode ", "dynamic"),
+        mode: c.pool_line(name, "mode ", "bpa"),
+        level: "cgnat".into(),
         policy: c.pool_line(name, "policy ", "interleaved"),
         block_size,
         prefixes_inside: c.pool_prefixes(name, "prefix-inside "),
@@ -355,7 +356,21 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     async fn list_pools(&self, _: Request<ListPoolsRequest>) -> R<ListPoolsResponse> {
         let _turno = self.shared.ops.lock().await;
         let st = self.shared.state.lock().unwrap();
-        let pools = st.running.pool_names().iter().map(|n| pool(&st, n)).collect();
+        let mut pools: Vec<Pool> = st.running.pool_names().iter().map(|n| pool(&st, n)).collect();
+        // NAT64 pools (`nat > nat64`, 0.151.0, #68), their `level` saying so.
+        for n in st.running.nat64_pool_names() {
+            let p = crate::typed::nat64_pool(&st.running, &n);
+            pools.push(Pool {
+                name: n,
+                mode: if p.mode.is_empty() { "bpa".into() } else { p.mode },
+                policy: if p.policy.is_empty() { "interleaved".into() } else { p.policy },
+                block_size: p.block_size.max(512),
+                prefixes_inside: p.prefix_inside,
+                prefixes_outside: p.prefix_outside,
+                level: "nat64".into(),
+                ..Default::default()
+            });
+        }
         Ok(Response::new(ListPoolsResponse { pools, ..Default::default() }))
     }
 

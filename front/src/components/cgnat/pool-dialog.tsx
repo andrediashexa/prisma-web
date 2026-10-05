@@ -37,8 +37,11 @@ export function PoolDialog({
   onClose,
   onStage,
   typed = false,
+  nat64Area = false,
 }: {
   routerId: string
+  /** NAT64 pools in their own hierarchy, `nat > nat64` (Prisma 0.151.0, #68). */
+  nat64Area?: boolean
   /** The box answers SetConfig for pools (#46): fields, not lines. */
   typed?: boolean
   /** The configured pool; null for a new one. */
@@ -61,8 +64,8 @@ export function PoolDialog({
   // NAT64 fields the form hides, so they are cleared, not left behind.
   const nat64 = isNat64(form)
   const asked = nat64 ? form : { ...form, scalars: { ...form.scalars, "subscriber-length": "", "nat64-prefix": "" } }
-  const errors = poolErrors(pool, asked, taken)
-  const changes = Object.keys(errors).length ? [] : poolChanges(pool, asked, typed)
+  const errors = poolErrors(pool, asked, taken, nat64Area)
+  const changes = Object.keys(errors).length ? [] : poolChanges(pool, asked, typed, nat64Area)
   const remap = remapReasons(pool, asked)
   const scalar = (k: PoolScalar) => form.scalars[k]
   const setScalar = (k: PoolScalar, v: string) => setForm((f) => ({ ...f, scalars: { ...f.scalars, [k]: v } }))
@@ -155,7 +158,12 @@ export function PoolDialog({
             label="Mode"
             value={scalar("mode")}
             onChange={(v) => setScalar("mode", v)}
-            options={[...(pool?.scalars.mode ? [] : ([["", "Default"]] as [string, string][])), ["dynamic", "Dynamic"], ["deterministic", "Deterministic"]]}
+            // `mode dynamic` is `mode bpa` from Prisma 0.151.0 (#68).
+            options={[
+              ...(pool?.scalars.mode ? [] : ([["", "Default"]] as [string, string][])),
+              nat64Area ? ["bpa", "BPA (dynamic)"] : ["dynamic", "Dynamic"],
+              ["deterministic", "Deterministic"],
+            ]}
           />
           <ChoiceField
             label="Policy"
@@ -241,7 +249,7 @@ export function PoolDialog({
             ) : (
               <p className="text-muted-foreground text-xs">None. Timeouts, bypasses, port forwards and VRFs are set in Settings.</p>
             )}
-            <Link href={`/routers/${routerId}/settings?at=${encodeURIComponent(poolKey(pool.name))}`} className="text-primary inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline">
+            <Link href={`/routers/${routerId}/settings?at=${encodeURIComponent(poolKey(pool.name, pool.level))}`} className="text-primary inline-flex items-center gap-1 text-xs underline-offset-4 hover:underline">
               Every statement of the pool in Settings <ExternalLinkIcon className="size-3" />
             </Link>
           </section>

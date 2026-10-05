@@ -106,8 +106,8 @@ mod tests {
 
     #[test]
     fn enums_read_by_name() {
-        let t = Translation { source: translation::Source::Dynamic as i32, ..Default::default() };
-        assert_eq!(t.source().as_str_name().trim_start_matches("SOURCE_"), "DYNAMIC");
+        let t = Translation { source: translation::Source::Bpa as i32, ..Default::default() };
+        assert_eq!(t.source().as_str_name().trim_start_matches("SOURCE_"), "BPA");
         let h = HistoryVerification { verdict: history_verification::Verdict::Intact as i32, ..Default::default() };
         assert_eq!(h.verdict().as_str_name().trim_start_matches("VERDICT_"), "INTACT");
     }
