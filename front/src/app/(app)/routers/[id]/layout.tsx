@@ -5,6 +5,7 @@ import { useParams, usePathname } from "next/navigation"
 import { EyeIcon, ServerOffIcon, WrenchIcon } from "lucide-react"
 
 import { PendingConfirmBanner } from "@/components/config/pending-confirm"
+import { PendingConfigurationBanner } from "@/components/pending-configuration"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFleetStatus, useRouterAccess, useRouterRole, useRouters } from "@/hooks/use-routers"
@@ -96,6 +97,8 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
         </nav>
       </div>
       <PendingConfirmBanner routerId={id} />
+      {/* Prisma 0.151.5 (#70): a card missing at boot left part of the configuration out. */}
+      <PendingConfigurationBanner routerId={id} notServing={status?.configuration === "not-serving"} />
       {status?.maintenance && (
         <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-800 dark:text-sky-200" data-maintenance>
           <WrenchIcon className="size-4 shrink-0" />

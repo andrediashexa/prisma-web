@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.2 | `e2c8775ff68e9937fe092aa4102792786d248e6ef1fefa1850ac9fa88a7041e2` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.151.2 | `7323700213f05ea268683dee36a8de4e826ca7ea9b94154c372bcfa40c3510c4` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.2 | `29eea6bca9cd20201deb6b6a823a7633025e5b7ba355b3aa0ebf7644a51c2282` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.5 | `708fcb4d476ace72a6b6035153637239a5bd279a492843e500ea9a02471c96c6` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.151.5 | `2fcd828dad370714b5ac2f95183f688dd019e48b33cabc229b3bba7232a16bf2` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.5 | `34781e06ca8b32b2b67842a8298adea6fa56c6bf27f6be376fe3af14ed52e014` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) all three; 0.150.9, 0.150.11 and 0.151.1 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3 and 0.151.4 none.
 
-Read up to 0.151.2 in `clients.md` and already handled:
+Read up to 0.151.5 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -380,6 +380,17 @@ Read up to 0.151.2 in `clients.md` and already handled:
   take about four minutes; prisma-web gives it 310 s and counts a passed deadline as a restart
   that ran (#58). On .166 it completed and the box was back whole in about 83 s; the call itself
   still ends "Socket closed", the API restarting with the containers.
+  No test reboots a real box. On 2026-10-04 a restart on
+  192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
+  network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
+  before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
+  telemetry stream until it is out. The back answers 409 before calling the box, and the page says
+  why. A restart that loses the connection on any release (`Unavailable`, "Socket closed")
+  leaves the box in maintenance (`dataplane`) until it answers again, and its audit entry
+  records `connection_lost`; the confirmation says a box with its management on the dataplane
+  drops off the network. The mock reports `can_operate`; prisma-mock-2 is a 0.149.26 box
+  (`MOCK_RELEASE`) whose account has no `operator`, and `mock restart-dataplane drops` makes the
+  next restart lose the connection. prisma-web sends no power action or upgrade to a real box.
 - 0.150.0 (additive) brings NAT64 (#485 phases 1-4), followed in #59. A pool whose inside
   prefixes are IPv6 is a NAT64 pool, with `PoolConfig.subscriber_length` (25, the delegated
   prefix each subscriber gets, `subscriber-length <32-128>`) and `nat64_prefix` (26, "" is the
@@ -504,17 +515,26 @@ Read up to 0.151.2 in `clients.md` and already handled:
   Interfaces tab's **Third-party SFP+ modules** card shows the configured and the booted state,
   says when the next boot will change it, and stages the line (or its `no`) through the review,
   where the box's grammar has the `system hardware` mode. The mock reads the setting from its
-  configuration and "boots" with it at a simulated reboot. No test reboots a real box. On 2026-10-04 one on
-  192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
-  network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
-  before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no
-  telemetry stream until it is out. The back answers 409 before calling the box, and the page says
-  why. A restart that loses the connection on any release (`Unavailable`, "Socket closed")
-  leaves the box in maintenance (`dataplane`) until it answers again, and its audit entry
-  records `connection_lost`; the confirmation says a box with its management on the dataplane
-  drops off the network. The mock reports `can_operate`; prisma-mock-2 is a 0.149.26 box
-  (`MOCK_RELEASE`) whose account has no `operator`, and `mock restart-dataplane drops` makes the
-  next restart lose the connection. prisma-web sends no power action or upgrade to a real box.
+  configuration and "boots" with it at a simulated reboot.
+- 0.151.3 commits a VLAN sub-interface together with its `cgnat inside|outside` through
+  SetConfig or Edit (prismarouting #578): it failed with "the dataplane does not have it", and a
+  box saved that way came up with nothing at boot. The commit check's words say `bpa` where 0.151.2
+  still said `dynamic` (#577). Nothing else changes through the API.
+- 0.151.4 brings back every card the dataplane held across `RestartDataplane` (prismarouting
+  #576), the management card included, where on 0.151.1 to 0.151.3 a box with an AF_XDP hot card
+  could come back without it. Nothing changes through the API; `RESTART_FIXED` stays 0.149.32.
+- 0.151.5 (additive) applies a saved configuration in part when a card is missing at boot
+  (prismarouting #575, the 2026-10-05 outage on 192.0.2.166 under 0.151.2), followed in #70:
+  the rest is applied, `prisma.v1.Configuration` in grpc.health.v1 turns `NOT_SERVING`, and
+  `OperationalService.GetPendingConfiguration` lists the missing cards, the statements left out,
+  since when, the configuration file, and whether a card came back after a commit
+  (`held_for_a_commit`: then the statements wait for an operator). `save` is refused
+  (`FAILED_PRECONDITION`) until they are applied or given up with `Clear`'s
+  `TARGET_CONFIGURATION_PENDING` (`clear configuration pending`). The monitor probes the service's
+  health with the others (`configuration` in the fleet status, null on a box before 0.151.5); the
+  router page shows a banner with the cards and the statements, and an operator can give them up
+  through the clear's confirmation. The mock's `mock pending on|off` stands in for the missing
+  card. `--lab` reads only the health and the screen.
 - The lab box was on 0.149.13 from 2026-10-02 (upgraded from 0.149.4 with a reboot). The read-only
   checks (`scripts/e2e.py --lab`) pass there, the history included: after the reboot it only holds
   samples since then, as `clients.md` says for 0.149.2.

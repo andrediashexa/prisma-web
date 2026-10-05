@@ -167,6 +167,8 @@ fn clear_request(b: &ClearBody) -> Result<ClearRequest, AppError> {
         "ospf_process" => Target::OspfProcess,
         "ospf_neighbor" => Target::OspfNeighbor,
         "isis_adjacency" => Target::IsisAdjacency,
+        // Prisma 0.151.5 (#70): give up what the boot left out, so `save` writes again.
+        "configuration_pending" => Target::ConfigurationPending,
         t => return Err(AppError::BadRequest(format!("'{t}' is not something to clear"))),
     };
     let bgp = match b.bgp.as_str() {

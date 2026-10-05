@@ -393,6 +393,10 @@ impl ConfigService for ConfigSvc {
     async fn save(&self, _: Request<SaveRequest>) -> R<SaveResponse> {
         {
             let mut st = self.0.state.lock().unwrap();
+            // While the boot left statements out, `save` would drop them: refused (0.151.5, #70).
+            if st.boot_pending.is_some() {
+                return Err(Status::failed_precondition("% part of the saved configuration is pending (card wan9 missing): clear configuration pending first, or bring the card back"));
+            }
             st.saved_revision = st.revision();
         }
         self.0.emit("saved", "/etc/prisma/prisma.conf");

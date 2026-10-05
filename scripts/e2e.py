@@ -751,6 +751,30 @@ def sfp_checks(admin, R):
         admin.delete(C)
 
 
+def pending_configuration_checks(admin, R, router_id):
+    """A configuration partially applied at boot (Prisma 0.151.5, #70): the health, the screen, save refused, given up."""
+    status = lambda: next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+    wait_for(lambda: (lambda s: (s.get("configuration") == "serving", s))(status()), "fleet status carries prisma.v1.Configuration's health (SERVING)")
+    st, b = admin.get(f"{R}/screens/pending-configuration")
+    check(st == 200 and not b.get("pending") and not b.get("left_out"), "with the whole configuration applied nothing is pending", b)
+    st, b = admin.post(f"{R}/show", {"command": "mock pending on"})
+    check(st == 200, "mock: a card missing at boot left part of the configuration out", b)
+    try:
+        wait_for(lambda: (lambda s: (s.get("configuration") == "not-serving", s))(status()), "a pending configuration shows in the fleet status", timeout=20)
+        st, b = admin.get(f"{R}/screens/pending-configuration")
+        check(st == 200 and b["pending"] and b["cards"] == ["wan9"] and "interface wan9" in b["left_out"] and b["since"] and b["path"],
+              "GetPendingConfiguration names the missing card, the statements left out and since when", b)
+        st, b = admin.post(f"{R}/config/save")
+        check(st == 409 and "pending" in errmsg(b), "save is refused while part of the configuration is pending, in the box's words", b)
+        st, b = admin.post(f"{R}/clear", {"target": "configuration_pending"})
+        check(st == 200 and "clear configuration pending" in json.dumps(b), "clear configuration pending gives the statements up", b)
+    finally:
+        admin.post(f"{R}/show", {"command": "mock pending off"})
+    wait_for(lambda: (lambda s: (s.get("configuration") == "serving", s))(status()), "SERVING again once they are given up", timeout=20)
+    st, b = admin.get(f"{R}/screens/pending-configuration")
+    check(st == 200 and not b.get("pending"), "and nothing is pending", b)
+
+
 def screen_checks(admin, R, router_id):
     """The rest of the screens and the probes (Prisma 0.150.6, #64)."""
     for name, key in [("ospf-interfaces", "interfaces"), ("isis-interfaces", "circuits"), ("hardware", "nics"), ("routing-logging", "daemons")]:
@@ -1071,6 +1095,13 @@ def lab(admin, args):
         else:
             check(st == 200 and [s["kind"] for s in lg["streams"]] == ["syslog", "ipfix-tcp", "ipfix-udp"],
                   f"GetLogging of the real Prisma ({sum(s['configured'] for s in lg['streams'])} of 3 streams configured, log export {st_lab.get('log_export')})", lg)
+        # Prisma 0.151.5 (#70): read only, the health and the screen.
+        if st_lab.get("configuration"):
+            st, pc = admin.get(R + "/screens/pending-configuration")
+            check(st == 200 and (pc.get("pending") or False) == (st_lab["configuration"] == "not-serving"),
+                  f"the real Prisma's pending configuration: {st_lab['configuration']}, {len((pc or {}).get('left_out') or [])} statements left out", pc)
+        else:
+            check(True, "prisma.v1.Configuration not in this box's health (before 0.151.5)")
         check(st_lab["version"]["hostname"] and st_lab["system"]["hostname"], f"real Prisma hostname filled in ({st_lab['version']['hostname']})", st_lab)
         for path, key in [("/interfaces", "interfaces"), ("/pools", "pools"), ("/bgp", "neighbors")]:
             st, b = admin.get(R + path)
@@ -1295,6 +1326,7 @@ def main():
         screen_checks(admin, R, router_id)
         sfp_checks(admin, R)
         bfd_checks(admin, R)
+        pending_configuration_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
