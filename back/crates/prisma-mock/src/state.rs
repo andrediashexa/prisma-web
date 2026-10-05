@@ -78,6 +78,8 @@ pub struct State {
     /// Test hook: how the next dataplane restart answers: `drops` the connection (#51) or
     /// `apply-failed` though it ran (0.149.32, #57); `None` answers as it should.
     pub restart_answer: Option<String>,
+    /// Test hook: BFD peers held down (#66).
+    pub bfd_down: std::collections::HashSet<String>,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -155,6 +157,7 @@ impl State {
             saved_revision: 1,
             upgrade: None,
             restart_answer: None,
+            bfd_down: std::collections::HashSet::new(),
         }
     }
 

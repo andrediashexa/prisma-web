@@ -548,6 +548,64 @@ def sse(client, path, body=None):
         return e.code, (json.loads(raw) if raw else None)
 
 
+def sse_until(client, path, done, timeout=30, on_open=None):
+    """Reads a Server-Sent Events stream until `done(events)` holds or `timeout` passes, then
+    closes it. `on_open(events)` runs once per event, for triggers. Returns (status, events)."""
+    import socket
+    req = urllib.request.Request(client.base + "/api" + path)
+    out, event, data = [], "message", []
+    try:
+        r = client.opener.open(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        return e.code, (json.loads(raw) if raw else None)
+    end = time.time() + timeout
+    try:
+        while time.time() < end and not done(out):
+            try:
+                raw = r.readline()
+            except (socket.timeout, TimeoutError):
+                break
+            if not raw:
+                break
+            line = raw.decode().rstrip("\n")
+            if not line:
+                if data:
+                    out.append((event, "\n".join(data)))
+                    if on_open:
+                        on_open(out)
+                event, data = "message", []
+            elif line.startswith("event:"):
+                event = line[6:].strip()
+            elif line.startswith("data:"):
+                data.append(line[5:].lstrip(" "))
+    finally:
+        r.close()
+    return 200, out
+
+
+def bfd_checks(admin, R):
+    """BFD sessions, typed and live (Prisma 0.150.10, #66)."""
+    st, b = admin.get(f"{R}/screens/bfd-sessions")
+    s = next((x for x in (b or {}).get("sessions", []) if x["peer"] == "192.168.10.2"), None)
+    check(st == 200 and s and s["state"] == "UP" and s["detect_multiplier"] == 3 and b.get("text"),
+          "BFD sessions read as fields: the state by name, the timers", b)
+    triggered = []
+    def flip(evs):
+        if not triggered and any(json.loads(d)["kind"] == "INITIAL" for e, d in evs if e == "bfd"):
+            triggered.append(1)
+            admin.post(f"{R}/show", {"command": "mock bfd down 192.168.10.2"})
+    changed = lambda evs: any(e == "bfd" and json.loads(d)["kind"] == "CHANGED" for e, d in evs)
+    try:
+        st, evs = sse_until(admin, f"{R}/bfd/watch", changed, timeout=20, on_open=flip)
+        kinds = [json.loads(d) for e, d in evs if e == "bfd"] if st == 200 else []
+        ch = next((k for k in kinds if k["kind"] == "CHANGED"), None)
+        check(kinds[:1] and kinds[0]["kind"] == "INITIAL" and ch and ch["previous_state"] == "UP" and ch["session"]["state"] == "DOWN" and ch["at"],
+              "WatchBfd sends each session, then a change as it happens", kinds[-2:] or evs)
+    finally:
+        admin.post(f"{R}/show", {"command": "mock bfd up 192.168.10.2"})
+
+
 def log_watch_checks(admin, R, router_id):
     """TelemetryService.WatchLogging (Prisma 0.149.25, #49) relayed as Server-Sent Events."""
     st, evs = sse(admin, f"{R}/logging/watch?subscriber=100.64.7.7&event=alloc&seconds=3")
@@ -998,6 +1056,14 @@ def lab(admin, args):
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
         lab_typed_checks(admin, R)
+        # BFD (0.150.10, #66): the list and a short watch, reads only.
+        st, b = admin.get(f"{R}/screens/bfd-sessions")
+        if st == 501:
+            check(True, "no typed BFD: a box before 0.150.10")
+        else:
+            check(st == 200 and b.get("answered") is not None, f"the real Prisma's BFD sessions: {len(b.get('sessions', []))} (answered {b.get('answered')})", b)
+            st, evs = sse_until(admin, f"{R}/bfd/watch", lambda evs: len(evs) > 0, timeout=6)
+            check(st == 200, f"a short BFD watch on the real Prisma: {[json.loads(d)['kind'] for e, d in evs if e == 'bfd'][:5]}", evs)
         # The 0.150.6 screens and SNMP files (#64): reads only; no probe from a real box.
         st, b = admin.get(f"{R}/screens/hardware")
         if st == 501:
@@ -1176,6 +1242,7 @@ def main():
         log_watch_checks(admin, R, router_id)
         cgnat_screen_checks(admin, R, router_id)
         screen_checks(admin, R, router_id)
+        bfd_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

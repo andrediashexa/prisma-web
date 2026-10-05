@@ -353,6 +353,11 @@ impl Config {
         self.bgp_neighbor_lines(peer).iter().any(|l| l == "shutdown")
     }
 
+    /// Whether `neighbor <peer> bfd [profile <name>]` is configured (#66).
+    pub fn bgp_neighbor_bfd(&self, peer: &str) -> bool {
+        self.bgp_neighbor_lines(peer).iter().any(|l| l == "bfd" || l.starts_with("bfd "))
+    }
+
     pub fn bgp_neighbor_description(&self, peer: &str) -> Option<String> {
         self.bgp_neighbor_lines(peer).iter().find_map(|l| l.strip_prefix("description ").map(str::to_string))
     }

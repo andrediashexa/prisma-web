@@ -154,3 +154,53 @@ pub fn probe(tool: &'static str, req: ProbeRequest) -> Result<BoxStream<ProbeEve
     });
     Ok(Box::pin(ReceiverStream::new(rx)))
 }
+
+/// BFD's sessions (0.150.10, #66): the `bfd` block's peer the mock seeds on lan0, and one for
+/// each BGP neighbor with `bfd`; a peer the test hook holds down reads DOWN.
+pub fn bfd_sessions(st: &crate::state::State) -> Vec<BfdSession> {
+    use bfd_session::State as S;
+    let mut peers: Vec<(String, String, bool)> = vec![("192.168.10.2".into(), "lan0".into(), false)];
+    for (peer, _) in st.running.bgp_neighbors() {
+        if st.running.bgp_neighbor_bfd(&peer) {
+            peers.push((peer, String::new(), true));
+        }
+    }
+    peers
+        .into_iter()
+        .map(|(peer, interface, from_bgp)| {
+            let down = st.bfd_down.contains(&peer);
+            BfdSession {
+                state: if down { S::Down } else { S::Up } as i32,
+                status: if down { "down" } else { "up" }.into(),
+                seconds_in_state: st.uptime_seconds().saturating_sub(120),
+                diagnostic: if down { "control detection time expired".into() } else { "ok".into() },
+                configured: !from_bgp,
+                detect_multiplier: 3,
+                receive_interval_ms: 300,
+                transmit_interval_ms: 300,
+                detection_timeout_ms: 900,
+                remote_receive_interval_ms: 300,
+                remote_transmit_interval_ms: 300,
+                remote_detect_multiplier: 3,
+                counters_known: true,
+                control_packets_in: 4_000,
+                control_packets_out: 4_001,
+                session_up_count: 1,
+                session_down_count: u64::from(down),
+                local: if interface.is_empty() { String::new() } else { "192.168.10.1".into() },
+                interface,
+                vrf: "default".into(),
+                peer,
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+pub fn bfd_text(sessions: &[BfdSession]) -> String {
+    let mut t = String::from("BFD Peers:\n");
+    for s in sessions {
+        t += &format!("\tpeer {}{}\n\t\tStatus: {}\n", s.peer, if s.interface.is_empty() { String::new() } else { format!(" interface {}", s.interface) }, s.status);
+    }
+    t
+}
