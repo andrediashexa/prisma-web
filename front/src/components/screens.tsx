@@ -495,3 +495,65 @@ export function BfdSessionsCard({ routerId }: { routerId: string }) {
     </Card>
   )
 }
+
+/**
+ * SFP+ modules the ixgbe driver does not list (Prisma 0.151.2, #69): refused by default, and a
+ * refused one at boot can cost the box its configuration. The setting takes effect at the next
+ * boot, so the booted state is shown beside it.
+ */
+export function UnsupportedSfpCard({
+  routerId,
+  editable,
+  onStage,
+}: {
+  routerId: string
+  editable: boolean
+  onStage: (c: import("@/hooks/use-config-changes").ConfigChange) => void
+}) {
+  const { data: system } = useSWR<Screen>(routerApi(routerId, "/system"), fetcher, { revalidateOnFocus: false })
+  const { data: grammar } = useSWR<{ modes: { key: string }[] }>(routerApi(routerId, "/config/grammar"), fetcher, { revalidateOnFocus: false })
+  const offered = !!grammar?.modes.some((m) => m.key === "system > hardware")
+  if (!system || !offered) return null
+  const configured = !!system.unsupported_sfp_configured
+  const booted = system.unsupported_sfp_booted_known ? !!system.unsupported_sfp_booted : null
+  return (
+    <Card data-unsupported-sfp>
+      <CardHeader>
+        <CardTitle>Third-party SFP+ modules</CardTitle>
+        <CardDescription>
+          Modules the network driver does not list are refused by default; a refused one at boot leaves its card out. The setting takes effect at
+          the next boot.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p>
+          Configured: <Badge variant={configured ? "secondary" : "outline"}>{configured ? "allowed" : "refused"}</Badge>
+          {booted !== null && (
+            <>
+              {" "}
+              · as booted: <Badge variant={booted ? "secondary" : "outline"}>{booted ? "allowed" : "refused"}</Badge>
+            </>
+          )}
+        </p>
+        {booted !== null && booted !== configured && <p className="text-amber-700 dark:text-amber-300">The next boot applies the configured setting.</p>}
+        {editable && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              onStage({
+                path: ["system", "hardware"],
+                lines: [configured ? "no unsupported-sfp" : "unsupported-sfp allow"],
+                label: configured ? "refuse third-party SFP+ modules" : "allow third-party SFP+ modules",
+                key: "unsupported-sfp",
+                warning: "It takes effect at the next boot of the router.",
+              })
+            }
+          >
+            {configured ? "Refuse them" : "Allow them"}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  )
+}

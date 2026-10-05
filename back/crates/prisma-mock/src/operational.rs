@@ -318,7 +318,18 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         let legacy = std::env::var("MOCK_NO_LOAD_NUMBERS").is_ok_and(|v| v == "1");
         let dataplane = if restarted { now - chrono::Duration::minutes(15) } else { boot + chrono::Duration::seconds(40) };
         let ts = |t: chrono::DateTime<chrono::Utc>| Some(prost_types::Timestamp { seconds: t.timestamp(), nanos: 0 });
+        // Third-party SFP+ modules (0.151.2, #69): configured, and as the mock last "booted".
+        let sfp_configured = st.running.unsupported_sfp_allowed();
+        let sfp_booted = st.unsupported_sfp_booted;
         Ok(Response::new(SystemInfo {
+            unsupported_sfp_configured: sfp_configured,
+            unsupported_sfp_booted: sfp_booted,
+            unsupported_sfp_booted_known: true,
+            hardware_text: format!(
+                "unsupported-sfp: {} (booted: {})\n",
+                if sfp_configured { "allow" } else { "refuse" },
+                if sfp_booted { "allow" } else { "refuse" }
+            ),
             boot_time: ts(boot),
             dataplane_started: ts(dataplane),
             control_plane_started: ts(boot + chrono::Duration::seconds(50)),

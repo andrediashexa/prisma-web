@@ -242,6 +242,11 @@ impl Config {
         self.blocks.iter().find(|b| b.path.iter().map(String::as_str).eq(path.iter().copied()))
     }
 
+    /// `unsupported-sfp allow` under `system > hardware` (0.151.2, #69).
+    pub fn unsupported_sfp_allowed(&self) -> bool {
+        self.block(&["system", "hardware"]).is_some_and(|b| b.lines.iter().any(|l| l == "unsupported-sfp allow"))
+    }
+
     /// Names of the NAT64 pools (`nat > nat64`, 0.151.0, #68), in the order they appear.
     pub fn nat64_pool_names(&self) -> Vec<String> {
         self.children(&["nat".to_string(), "nat64".to_string()]).iter().filter_map(|c| c.strip_prefix("pool ")).map(|n| n.trim().to_string()).collect()

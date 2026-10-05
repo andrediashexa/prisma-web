@@ -67,6 +67,10 @@ impl SystemSvc {
             }
         }
         drop(st);
+        // A reboot boots with what the configuration says about SFP+ modules (0.151.2, #69).
+        let mut st = self.0.state.lock().unwrap();
+        st.unsupported_sfp_booted = st.running.unsupported_sfp_allowed();
+        drop(st);
         self.0.emit("system", format!("system {what} (simulated)"));
         Ok(Response::new(SystemActionResponse { output: format!("the box will {what} now (simulated)"), ..Default::default() }))
     }
