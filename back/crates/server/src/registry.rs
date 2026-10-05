@@ -105,6 +105,9 @@ pub struct RouterStatus {
     /// grpc.health.v1 of `prisma.v1.SystemService` (Prisma 0.149.25): `Some`
     /// on a box that has `SystemService` and `OperationalService.Clear` (#48).
     pub system_service: Option<&'static str>,
+    /// grpc.health.v1 of `prisma.v1.Configuration` (Prisma 0.151.5): `not-serving` exactly while
+    /// part of the saved configuration was left out at boot (a card missing); `None` before (#70).
+    pub configuration: Option<&'static str>,
     /// Set while prisma-web knows the box is in maintenance: an upgrade, a
     /// reboot or a shutdown it asked for (#50).
     pub maintenance: Option<Maintenance>,
@@ -396,14 +399,16 @@ impl Registry {
                         health: None,
                         log_export: None,
                         system_service: None,
+                        configuration: None,
                         maintenance: None,
                     };
                 }
                 let started = Instant::now();
-                let (health, log_export, system_service, res) = tokio::join!(
+                let (health, log_export, system_service, configuration, res) = tokio::join!(
                     health(&h, "prisma.v1.OperationalService"),
                     health(&h, "prisma.v1.LogExport"),
                     health(&h, "prisma.v1.SystemService"),
+                    health(&h, "prisma.v1.Configuration"),
                     tokio::time::timeout(STATUS_TIMEOUT, async {
                         let (mut a, mut b, mut c) = (h.ops(), h.ops(), h.ops());
                         tokio::try_join!(
@@ -429,6 +434,7 @@ impl Registry {
                     health,
                     log_export,
                     system_service,
+                    configuration,
                     maintenance: None,
                 };
                 match res {

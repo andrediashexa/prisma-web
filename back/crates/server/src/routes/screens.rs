@@ -38,6 +38,8 @@ pub async fn screen(State(st): State<AppState>, _: CurrentUser, Path((id, name))
         "isis-interfaces" => to_json(&ops.list_isis_interfaces(req(ListIsisInterfacesRequest {})).await?.into_inner()),
         "hardware" => to_json(&ops.get_hardware(req(GetHardwareRequest {})).await?.into_inner()),
         "routing-logging" => to_json(&ops.get_routing_logging(req(GetRoutingLoggingRequest {})).await?.into_inner()),
+        // Prisma 0.151.5 (#70): what the boot left out.
+        "pending-configuration" => to_json(&ops.get_pending_configuration(req(GetPendingConfigurationRequest {})).await?.into_inner()),
         // Prisma 0.150.10 (#66): states by name.
         "bfd-sessions" => {
             let b = ops.list_bfd_sessions(req(ListBfdSessionsRequest::default())).await?.into_inner();

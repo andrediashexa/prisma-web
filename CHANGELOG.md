@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.33.0 - Pending configuration — 2026-10-05
+
+### Added
+- On a router with Prisma 0.151.5 or newer, a saved configuration the router applied only in part at boot, a card being missing, shows on the router page: the missing cards, the statements left out and since when, with saving refused meanwhile. An operator can give the statements up from there, through a confirmation. The fleet status carries the configuration's health (#70).
+
+### Fixed
+- The integration notes' paragraph on dataplane restarts had been split by a later insertion; it is whole again (#70).
+
+### Internal
+- Client regenerated from the Prisma 0.151.5 contract; integration notes read up to 0.151.5 (0.151.3 and 0.151.4 change nothing through the API). The simulated Prisma can leave part of its configuration pending (`mock pending on|off`), refuses `save` meanwhile, and gives it up on `clear configuration pending` (#70).
+
 ## 0.32.0 - Third-party SFP+ — 2026-10-05
 
 ### Added

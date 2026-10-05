@@ -462,6 +462,12 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         crate::screens::probe("mtr", req.into_inner()).map(Response::new)
     }
 
+    // What the boot left out (0.151.5, #70).
+    async fn get_pending_configuration(&self, _: Request<GetPendingConfigurationRequest>) -> R<PendingConfiguration> {
+        before_0_150_3()?;
+        Ok(Response::new(self.shared.state.lock().unwrap().boot_pending.clone().unwrap_or_default()))
+    }
+
     // BFD (0.150.10, #66).
     async fn list_bfd_sessions(&self, req: Request<ListBfdSessionsRequest>) -> R<BfdSessions> {
         before_0_150_3()?;
@@ -615,6 +621,16 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             Target::OspfProcess => "clear ip ospf process".to_string(),
             Target::OspfNeighbor => if name.is_empty() { "clear ip ospf neighbor".to_string() } else { format!("clear ip ospf neighbor {name}") },
             Target::IsisAdjacency => if name.is_empty() { "clear isis neighbor".to_string() } else { format!("clear isis neighbor {name}") },
+            Target::ConfigurationPending => {
+                let had = st.boot_pending.take().is_some();
+                // The state's lock is held here: the health follows on its own task.
+                let shared = self.shared.clone();
+                tokio::spawn(async move { shared.set_pending(None).await });
+                return Ok(Response::new(ClearResponse {
+                    output: if had { "the statements the boot left out are given up".into() } else { "nothing is pending".into() },
+                    command: "clear configuration pending".into(),
+                }));
+            }
             Target::Unspecified => {
                 let d = Diagnostics { reason: diagnostics::Reason::Usage as i32, output: "a target is required".into(), ..Default::default() };
                 return Err(with_diagnostics(Status::invalid_argument(d.output.clone()), &d));
@@ -743,6 +759,23 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             };
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
+        // Test hook (#70): the "boot" leaves a card's statements out, or not.
+        if let Some(state) = command.trim().strip_prefix("mock pending ") {
+            let pending = match state {
+                "on" => Some(PendingConfiguration {
+                    pending: true,
+                    cards: vec!["wan9".into()],
+                    left_out: vec!["interface wan9".into(), " ipv4 address 198.51.100.200/30".into(), " cgnat outside".into(), "exit".into()],
+                    since: chrono::Utc::now().timestamp(),
+                    path: "/etc/prisma/prisma.conf".into(),
+                    held_for_a_commit: false,
+                }),
+                "off" => None,
+                _ => return Err(Status::invalid_argument("mock pending on|off")),
+            };
+            self.shared.set_pending(pending).await;
+            return Ok(Response::new(ShowResponse { text: format!("pending {state}\n"), ..Default::default() }));
         }
         // Test hook (#66): a BFD peer goes down or comes back.
         if let Some(rest) = command.trim().strip_prefix("mock bfd ") {

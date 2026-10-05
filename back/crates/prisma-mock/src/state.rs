@@ -83,6 +83,8 @@ pub struct State {
     /// Whether the mock "booted" with third-party SFP+ modules allowed (0.151.2, #69): what the
     /// configuration said at its last simulated reboot.
     pub unsupported_sfp_booted: bool,
+    /// What the "boot" left out (0.151.5, #70), set by a test hook.
+    pub boot_pending: Option<prisma_proto::v1::PendingConfiguration>,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -162,6 +164,7 @@ impl State {
             restart_answer: None,
             bfd_down: std::collections::HashSet::new(),
             unsupported_sfp_booted: false,
+            boot_pending: None,
         }
     }
 
@@ -304,10 +307,20 @@ impl Shared {
         // SystemService came with Clear in 0.149.25; the line-only mock is an older box (#48).
         if !crate::typed::disabled() {
             self.health.set_service_status("prisma.v1.SystemService", Serving).await;
+            // NOT_SERVING exactly while part of the configuration is pending (0.151.5, #70).
+            self.health.set_service_status("prisma.v1.Configuration", Serving).await;
         }
         for s in STATS_SERVICES {
             self.health.set_service_status(s, if stats_segment { Serving } else { NotServing }).await;
         }
+    }
+
+    /// Part of the configuration pending, or not (#70): the state and `prisma.v1.Configuration`'s health.
+    pub async fn set_pending(&self, pending: Option<prisma_proto::v1::PendingConfiguration>) {
+        use tonic_health::ServingStatus::{NotServing, Serving};
+        let on = pending.is_some();
+        self.state.lock().unwrap().boot_pending = pending;
+        self.health.set_service_status("prisma.v1.Configuration", if on { NotServing } else { Serving }).await;
     }
 
     /// The log export stalls or delivers again (test hook): health and event as the box gives them.

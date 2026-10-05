@@ -350,6 +350,8 @@ export interface RouterStatus {
   log_export: "serving" | "not-serving" | null
   /** grpc.health.v1 of prisma.v1.SystemService (Prisma 0.149.25): set on a box that has Clear (#48). */
   system_service: "serving" | "not-serving" | null
+  /** grpc.health.v1 of prisma.v1.Configuration (Prisma 0.151.5): "not-serving" while part of the configuration is pending (#70). */
+  configuration?: "serving" | "not-serving" | null
   /** Set while prisma-web knows the box is in maintenance: an upgrade, reboot or shutdown it asked for (#50). */
   maintenance: { what: "upgrade" | "reboot" | "shutdown" | "dataplane"; since: string; until: string | null } | null
 }
@@ -367,7 +369,7 @@ export interface UpgradeProgress {
 }
 
 /** OperationalService.Clear's targets (Prisma 0.149.25, #48). */
-export type ClearTarget = "interface_counters" | "cgnat_subscriber" | "bgp" | "ospf_process" | "ospf_neighbor" | "isis_adjacency"
+export type ClearTarget = "interface_counters" | "cgnat_subscriber" | "bgp" | "ospf_process" | "ospf_neighbor" | "isis_adjacency" | "configuration_pending"
 
 /** TelemetryService.WatchLogging's events (Prisma 0.149.25, #49); the kind by name. */
 export interface WatchedLogEvent {
