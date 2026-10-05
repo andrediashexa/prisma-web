@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.150.12 | `89101b5086029a0be8983270a06a07e407c83e5683df3a392dbbf7e1abf9792b` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.150.12 | `dc5203ad7e0cc1a181448fe20beddb67f69647a11c3a97d5a3810674126f6560` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.150.12 | `b29ab7daf966feb2a18a546218fa27fc0daac83ba841c036f5339bb3016592fd` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.0 | `d804c1426273155583621247c0e43bc7f04896523e560f14a214dce07a3966c8` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.151.0 | `7323700213f05ea268683dee36a8de4e826ca7ea9b94154c372bcfa40c3510c4` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.0 | `ece67206a120e8321317ffe7040572e141870856ab7279838b82afa3e8937dac` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) all three; 0.150.9 and 0.150.11 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) all three; 0.150.9 and 0.150.11 none.
 
-Read up to 0.150.12 in `clients.md` and already handled:
+Read up to 0.151.0 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -477,7 +477,23 @@ Read up to 0.150.12 in `clients.md` and already handled:
   A box before 0.150.12 refuses the area and is offered Settings for BFD, as before. The mock
   serves and takes the `bfd` area. **Announced, breaking, for the next release:** NAT64 moves
   to `nat > nat64` with its own API area (#572), and a pool's `mode dynamic` becomes `mode bpa`
-  (#573); prisma-web follows them when they ship. On 2026-10-04 one on
+  (#573); prisma-web follows them when they ship.
+- **0.151.0 is breaking**, followed in #68. NAT64 pools are their own hierarchy, `nat > nat64`:
+  `Nat64PoolConfig` in GetConfig's area `nat64` (`TypedConfig.nat64_pools`), SetConfig's
+  `nat64_pool`, DeleteConfig's area `nat64`, lines under `["nat","nat64","pool <name>"]`, and
+  GetSchema's `nat64` and `nat64 pool` modes. `PoolConfig` loses `subscriber_length` and
+  `nat64_prefix` (25 and 26 reserved): area `pools` is the CGNAT pools only, an IPv6 inside
+  prefix or a NAT64 pool's name there is refused. A pool's mode is `deterministic` or `bpa`
+  (`dynamic` refused; a box upgraded with a saved `mode dynamic` reads `bpa`), and
+  `Translation.Source` 3 is `BPA`. `ListPools` adds `level`. prisma-web picks the shape by the
+  router's grammar: a `nat > nat64` mode means 0.151.0's (the CGNAT tab then reads area
+  `nat64` too, puts a new pool with IPv6 inside prefixes under `nat > nat64`, typed as
+  `nat64_pool`, removes it in area `nat64`, offers `bpa` for the mode, and refuses turning a
+  CGNAT pool into a NAT64 one or back: it is a new pool); otherwise the old shape, where a NAT64
+  pool's own two fields, no longer in this client's contract, are read off the configuration
+  tree and written as lines. The pools table marks NAT64 pools. The mock is 0.151.0's: NAT64 pools
+  under `nat > nat64` (typed and as lines), `mode bpa`, the refusals above, `level` in
+  ListPools. On 2026-10-04 one on
   192.0.2.198, whose management address is on a dataplane interface (ens18), took it off the
   network until a VM reboot. Since #52 the monitor leaves a box in maintenance alone: no call
   before the `until` the box gave, otherwise a probe at most every 15 s growing to 60 s, and no

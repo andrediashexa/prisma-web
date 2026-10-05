@@ -35,7 +35,7 @@ import {
   type CgnatConfig,
   type PoolConfig,
 } from "@/lib/cgnat-config"
-import { boxAllows, type Instance } from "@/lib/config-model"
+import { boxAllows, type Instance, type Grammar } from "@/lib/config-model"
 import { formatNumber } from "@/lib/format"
 import { useTypedConfig } from "@/lib/typed-config"
 import { roleAtLeast, routerApi, type Pool, type RouterInterface, type Subscriber } from "@/lib/types"
@@ -55,7 +55,10 @@ export default function CgnatPage() {
   const [editing, setEditing] = useState<"global" | "logging" | { pool: PoolConfig | null } | null>(null)
 
   // Pools and collectors typed on a box that answers GetConfig for them (Prisma 0.149.20, #46).
-  const typed = useTypedConfig(id, ["pools", "logging"])
+  // NAT64 pools in their own hierarchy (Prisma 0.151.0, #68): the router's grammar says.
+  const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
+  const nat64Area = !!grammar?.modes.some((m) => m.key === "nat > nat64")
+  const typed = useTypedConfig(id, nat64Area ? ["pools", "nat64", "logging"] : ["pools", "logging"])
   const config = useMemo(
     () => (!tree || typed.typed === undefined ? null : typed.config ? readCgnatTyped(typed.config, tree.instances) : readCgnat(tree.instances)),
     [tree, typed.typed, typed.config],
@@ -141,6 +144,7 @@ export default function CgnatPage() {
                       <div className="font-medium">{name}</div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {p && <Badge variant="outline">{p.mode}</Badge>}
+                        {(p?.level === "nat64" || pc?.level === "nat64") && <Badge variant="secondary">NAT64</Badge>}
                         {p && <Badge variant="outline">{p.policy}</Badge>}
                         {staged(`pool:${name}`) && <Badge variant="secondary">change staged</Badge>}
                       </div>
@@ -243,6 +247,7 @@ export default function CgnatPage() {
             open={typeof editing === "object" && !!editing}
             taken={config.pools.map((p) => p.name)}
             typed={!!typed.typed}
+            nat64Area={nat64Area}
             onClose={() => setEditing(null)}
             onStage={(c) => c[0] && stageAs(`pool:${c[0].path.at(-1)!.slice("pool ".length)}`, c)}
           />

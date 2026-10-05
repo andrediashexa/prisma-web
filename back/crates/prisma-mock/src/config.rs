@@ -184,7 +184,8 @@ impl Config {
                         "prefix-inside 100.64.0.0/10",
                         "prefix-outside 203.0.113.64/27",
                         "block-size 256",
-                        "mode dynamic",
+                        // `mode dynamic` became `mode bpa` in 0.151.0 (#68).
+                        "mode bpa",
                     ]),
                 },
                 Block {
@@ -239,6 +240,11 @@ impl Config {
 
     pub fn block(&self, path: &[&str]) -> Option<&Block> {
         self.blocks.iter().find(|b| b.path.iter().map(String::as_str).eq(path.iter().copied()))
+    }
+
+    /// Names of the NAT64 pools (`nat > nat64`, 0.151.0, #68), in the order they appear.
+    pub fn nat64_pool_names(&self) -> Vec<String> {
+        self.children(&["nat".to_string(), "nat64".to_string()]).iter().filter_map(|c| c.strip_prefix("pool ")).map(|n| n.trim().to_string()).collect()
     }
 
     /// Names of the CGNAT pools, in the order they appear.
@@ -552,6 +558,7 @@ impl Config {
         if path.len() == 1 && path[0] == "router static" {
             check_static(path, line)?;
         }
+        check_pool_line(path, line)?;
         if let Some(rest) = line.strip_prefix("no ").map(str::trim) {
             // A mode under this one (`no pool P` under `nat > cgnat`, `no address-family ipv6
             // unicast` under `router bgp`): the block and everything in it.
@@ -982,5 +989,26 @@ mod tests {
     fn networks() {
         assert_eq!(network("203.0.113.10/29").unwrap(), "203.0.113.8/29");
         assert_eq!(network("2001:db8:200:10::1/64").unwrap(), "2001:db8:200:10::/64");
+    }
+}
+
+/// A pool's lines as 0.151.0 checks them (#68): NAT64's under `nat > nat64` only, `mode bpa`
+/// for what was `mode dynamic`, and no bypass on a NAT64 pool.
+fn check_pool_line(path: &[String], line: &str) -> Result<(), Refusal> {
+    let level = match path {
+        [n, l, p] if n == "nat" && p.starts_with("pool ") => l.as_str(),
+        _ => return Ok(()),
+    };
+    let w: Vec<&str> = line.split_whitespace().collect();
+    let refused = match (level, w.as_slice()) {
+        (_, ["mode", "dynamic"]) => Some("% mode dynamic is mode bpa since 0.151.0"),
+        ("cgnat", ["prefix-inside", p]) if p.contains(':') => Some("% an IPv6 inside prefix is a NAT64 pool's: it goes under nat > nat64"),
+        ("cgnat", ["subscriber-length" | "nat64-prefix", ..]) => Some("% a NAT64 pool's statement: it goes under nat > nat64"),
+        ("nat64", ["bypass", ..]) => Some("% a NAT64 pool takes no bypass"),
+        _ => None,
+    };
+    match refused {
+        Some(m) => Err(refuse(m.to_string(), path, line)),
+        None => Ok(()),
     }
 }

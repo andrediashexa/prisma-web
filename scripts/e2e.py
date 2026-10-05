@@ -359,12 +359,18 @@ def typed_form_checks(admin, R):
                                                    "block_size": 512, "algs": {"sip": False}}, "fields": ["prefix_inside", "prefix_outside", "block_size", "algs"]})
         check(st == 200 and b["path"] == ["nat", "cgnat", "pool E2E46"] and "block-size 512" in b["lines"] and "alg sip off" in b["lines"],
               "a new pool is set as fields", b)
-        # NAT64 (Prisma 0.150.0, #59): IPv6 inside prefixes, a subscriber prefix length, no ALG.
-        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "prefix_inside": ["2001:db8:1200::/40"], "prefix_outside": ["198.51.100.48/28"],
-                                                   "subscriber_length": 56, "nat64_prefix": "2001:db8:64::/96"},
-                                        "fields": ["prefix_inside", "prefix_outside", "subscriber_length", "nat64_prefix"]})
-        check(st == 200 and "prefix-inside 2001:db8:1200::/40" in b["lines"] and "subscriber-length 56" in b["lines"]
-              and "nat64-prefix 2001:db8:64::/96" in b["lines"], "a NAT64 pool is set as fields", b)
+        # NAT64 under nat > nat64 (Prisma 0.151.0, #68; #59): IPv6 inside, a subscriber prefix length.
+        st, b = admin.post(f"{T}/set", {"nat64_pool": {"name": "E2E64", "prefix_inside": ["2001:db8:1200::/40"], "prefix_outside": ["198.51.100.48/28"],
+                                                         "subscriber_length": 56, "nat64_prefix": "2001:db8:64::/96", "mode": "bpa"},
+                                        "fields": ["prefix_inside", "prefix_outside", "subscriber_length", "nat64_prefix", "mode"]})
+        check(st == 200 and b["path"] == ["nat", "nat64", "pool E2E64"] and "prefix-inside 2001:db8:1200::/40" in b["lines"]
+              and "subscriber-length 56" in b["lines"] and "nat64-prefix 2001:db8:64::/96" in b["lines"], "a NAT64 pool is set as fields under nat > nat64", b)
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64X", "prefix_inside": ["2001:db8:1300::/40"]}, "fields": ["prefix_inside"]})
+        check(st == 422 and "nat > nat64" in errmsg(b), "an IPv6 inside prefix is refused on a CGNAT pool (0.151.0)", b)
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64"}, "fields": ["block_size"]})
+        check(st == 422 and "is a pool under 'nat64'" in errmsg(b), "a NAT64 pool's name is refused as a CGNAT pool", b)
+        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E46", "mode": "dynamic"}, "fields": ["mode"]})
+        check(st == 422 and "bpa" in errmsg(b), "mode dynamic is refused: it is mode bpa (#573)", b)
         # BFD as fields (Prisma 0.150.12, #67): a profile, a session naming it, then removed.
         st, b = admin.post(f"{T}/set", {"bfd_profile": {"name": "e2e-fast", "timers": {"receive_interval_ms": 100, "transmit_interval_ms": 100, "detect_multiplier": 3}},
                                         "fields": ["timers.receive_interval_ms", "timers.transmit_interval_ms", "timers.detect_multiplier"]})
@@ -390,12 +396,10 @@ def typed_form_checks(admin, R):
         st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "pref64": ["2001:db8:64::/96"], "router_advertisements": False},
                                         "fields": ["pref64", "router_advertisements"]})
         check(st == 422 and "router advertisements" in errmsg(b), "PREF64 without router advertisements is refused", b)
-        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "algs": {"sip": True}}, "fields": ["algs"]})
+        st, b = admin.post(f"{T}/set", {"nat64_pool": {"name": "E2E64", "algs": {"sip": True}}, "fields": ["algs"]})
         check(st == 422 and "NAT64" in errmsg(b), "an ALG other than FTP on a NAT64 pool is refused in the box's words", b)
-        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E64", "algs": {"ftp": True}}, "fields": ["algs"]})
+        st, b = admin.post(f"{T}/set", {"nat64_pool": {"name": "E2E64", "algs": {"ftp": True}}, "fields": ["algs"]})
         check(st == 200 and "alg ftp on" in b["lines"], "FTP through a NAT64 pool is taken (Prisma 0.150.1, #60)", b)
-        st, b = admin.post(f"{T}/set", {"pool": {"name": "E2E46", "subscriber_length": 56}, "fields": ["subscriber_length"]})
-        check(st == 422 and "NAT64" in errmsg(b), "a subscriber length on an IPv4 pool is refused", b)
         st, b = admin.post(f"{T}/set", {"logging": {"collectors": [{"transport": "tcp", "configured": True, "collector": "192.0.2.46", "port": 4746}]},
                                         "fields": ["collectors"]})
         check(st == 200 and b["lines"] == ["logging tcp 192.0.2.46 port 4746"], "a collector is set as fields", b)
@@ -414,14 +418,15 @@ def typed_form_checks(admin, R):
         st, b = admin.post(f"{T}/set", {"bgp_neighbor": {**nb, "password": ""}, "fields": ["password"]})
         check(st == 200 and b["lines"] == [], "an empty password, even named, never clears the one set", b)
 
-        st, ct = admin.get(f"{R}/config/typed?areas=bgp,static,pools&candidate={cid}")
+        st, ct = admin.get(f"{R}/config/typed?areas=bgp,static,pools,nat64&candidate={cid}")
         n = next((x for x in ct["bgp"][0]["neighbors"] if x["address"] == "192.0.2.46"), None)
         fam = next(f for f in ct["bgp"][0]["families"] if f["afi"] == "ipv4")
         nf = next((x for x in fam["neighbors"] if x["neighbor"] == "192.0.2.46"), None)
         check(ct["source"] == "candidate" and n and n["password_set"] and nf and nf["route_map_in"] == "E2E-IN" and nf["route_map_out"] == "E2E-OUT"
               and any(p["name"] == "E2E46" for p in ct["pools"]), "the candidate reads typed with what was set: password_set, both route maps", [n, nf])
-        p64 = next((p for p in ct["pools"] if p["name"] == "E2E64"), {})
-        check(p64.get("subscriber_length") == 56 and p64.get("nat64_prefix") == "2001:db8:64::/96", "the NAT64 pool reads back typed (#59)", p64)
+        p64 = next((p for p in ct.get("nat64_pools", []) if p["name"] == "E2E64"), {})
+        check(p64.get("subscriber_length") == 56 and p64.get("nat64_prefix") == "2001:db8:64::/96" and not any(p["name"] == "E2E64" for p in ct["pools"]),
+              "the NAT64 pool reads back in the nat64 area, not among the CGNAT pools (#68)", p64)
         check(TYPED_SECRET not in json.dumps(ct), "a password is never read back")
         st, cmp = admin.get(f"{R}/config/candidates/{cid}/compare")
         d = cmp["diff"]
@@ -493,7 +498,7 @@ def line_fallback_checks(admin, args):
         check(st == 501, "and SetConfig too", b)
         st, b = admin.post(f"{C}/edit", {"path": ["router bgp 65000"], "lines": ["neighbor 192.0.2.47 remote-as 64747"]})
         check(st == 200, "a line edit still works on it", b)
-        st, b = admin.post(f"{C}/edit", {"path": ["nat", "cgnat", "pool E2E64L"],
+        st, b = admin.post(f"{C}/edit", {"path": ["nat", "nat64", "pool E2E64L"],
                                          "lines": ["prefix-inside 2001:db8:1300::/40", "prefix-outside 198.51.100.80/28", "subscriber-length 56"]})
         check(st == 200, "a NAT64 pool is written as lines too (#59)", b)
         st, cmp = admin.get(f"{C}/compare")
@@ -721,7 +726,7 @@ def cgnat_screen_checks(admin, R, router_id):
     st, b = admin.get(f"{R}/cgnat/history")
     check(b.get("verdict") == "INTACT", "the history verdict reads by name", b)
     st, b = admin.get(f"{R}/cgnat/translation?address=203.0.113.70&port=8443")
-    check(st == 200 and b["subscriber"].startswith("100.64.") and b["source"] == "DYNAMIC", "a public address and port lead to their subscriber", b)
+    check(st == 200 and b["subscriber"].startswith("100.64.") and b["source"] == "BPA", "a public address and port lead to their subscriber", b)
     st, b = admin.get(f"{R}/cgnat/translation?address=192.0.2.1&port=80")
     check(st == 404 and "outside address" in errmsg(b), "an address no pool owns is NOT_FOUND, in the box's words", b)
     st, b = admin.get(f"{R}/cgnat/translation?address=nope&port=80")

@@ -514,6 +514,7 @@ impl ConfigService for ConfigSvc {
         let plan = match object {
             Object::Interface(i) => typed::set_interface(c, i, &req.fields),
             Object::Pool(p) => typed::set_pool(c, p, &req.fields),
+            Object::Nat64Pool(p) => typed::set_nat64_pool(c, p, &req.fields),
             Object::Logging(l) => typed::set_logging(c, l, &req.fields),
             Object::StaticRoute(r) => typed::set_static(c, r, &req.fields),
             Object::BgpNeighbor(n) => typed::set_bgp_neighbor(c, n, &req.fields),
@@ -532,7 +533,7 @@ impl ConfigService for ConfigSvc {
         }
         let who = crate::session::identity(&crate::session::account_of(&req));
         let req = req.into_inner();
-        if !who.can_configure && !matches!(req.area.as_str(), "pools" | "logging") {
+        if !who.can_configure && !matches!(req.area.as_str(), "pools" | "logging" | "nat64") {
             return Err(refused(tonic::Code::PermissionDenied, format!("account {} is {}: it cannot change this", who.account, who.role), vec![], Reason::Permission));
         }
         let mut st = self.0.state.lock().unwrap();

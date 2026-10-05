@@ -139,6 +139,8 @@ export interface Pool {
   ports_in_use: number
   refusals: number
   sessions: number
+  /** Prisma 0.151.0 (#68): "cgnat" or "nat64". */
+  level?: string
 }
 
 export interface Subscriber {

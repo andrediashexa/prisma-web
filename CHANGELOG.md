@@ -16,6 +16,16 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.31.0 - NAT64 hierarchy — 2026-10-05
+
+### Changed
+- On a router with Prisma 0.151.0 or newer, NAT64 pools are their own hierarchy, `nat > nat64`: the CGNAT tab lists them (marked NAT64) beside the CGNAT pools, creates a pool with IPv6 inside prefixes there, and removes it from there. A pool stays CGNAT or NAT64: turning one into the other is refused in the form; add a new pool instead (#68).
+- The pool mode `dynamic` is `bpa` from Prisma 0.151.0; the form offers "BPA (dynamic)" there, and "Dynamic" on older routers (#68).
+- Routers on Prisma 0.150.x keep working as before (#68).
+
+### Internal
+- Client regenerated from the Prisma 0.151.0 contract (breaking); integration notes read up to 0.151.0. The shape is chosen by the router's grammar. The simulated Prisma follows 0.151.0 (#68).
+
 ## 0.30.0 - BFD configuration — 2026-10-05
 
 ### Added

@@ -202,6 +202,8 @@ export interface TypedConfig {
   ospf: TypedOspf[]
   ospf6: TypedOspf[]
   interface_routing: TypedInterfaceRouting[]
+  /** NAT64 pools, `nat > nat64` (Prisma 0.151.0, #68). */
+  nat64_pools?: TypedPool[]
   /** BFD (Prisma 0.150.12, #67). */
   bfd_peers?: TypedBfdPeer[]
   bfd_profiles?: TypedBfdProfile[]
@@ -239,12 +241,13 @@ export interface TypedBfdProfile {
   other: string[]
 }
 
-export type TypedArea = "interfaces" | "pools" | "logging" | "static" | "bgp" | "ospf" | "ospf6" | "isis" | "interface_routing" | "bfd"
+export type TypedArea = "interfaces" | "pools" | "logging" | "static" | "bgp" | "ospf" | "ospf6" | "isis" | "interface_routing" | "bfd" | "nat64"
 
 /** What SetConfig sets: one object, and the fields of it that change. */
 export type TypedObject =
   | { interface: Partial<TypedInterface> & { name: string } }
   | { pool: Partial<TypedPool> & { name: string } }
+  | { nat64_pool: Partial<TypedPool> & { name: string } }
   | { logging: Partial<TypedLogging> }
   | { static_route: Partial<TypedStaticRoute> & { prefix: string; next_hop: string } }
   | { bfd_peer: Partial<TypedBfdPeer> & { address: string } }
@@ -261,7 +264,7 @@ export type TypedObject =
     }
 
 export interface TypedDelete {
-  area: "interfaces" | "pools" | "logging" | "static" | "bgp" | "bfd"
+  area: "interfaces" | "pools" | "nat64" | "logging" | "static" | "bgp" | "bfd"
   name?: string
   /** area `bfd`: the session to remove (#67). */
   bfd_peer?: Partial<TypedBfdPeer> & { address: string }
