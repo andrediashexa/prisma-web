@@ -53,7 +53,7 @@ pub fn mask(line: &str) -> String {
 // --- Reading ------------------------------------------------------------------
 
 pub fn read(c: &Config, areas: &[String]) -> Result<TypedConfig, Usage> {
-    const KNOWN: [&str; 9] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing"];
+    const KNOWN: [&str; 10] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd"];
     if let Some(a) = areas.iter().find(|a| !KNOWN.contains(&a.as_str())) {
         return usage(format!("unknown area {a}"));
     }
@@ -85,6 +85,10 @@ pub fn read(c: &Config, areas: &[String]) -> Result<TypedConfig, Usage> {
     }
     if want("interface_routing") {
         t.interface_routing = c.interfaces.iter().filter_map(interface_routing).collect();
+    }
+    if want("bfd") {
+        t.bfd_peers = bfd_peers(c);
+        t.bfd_profiles = bfd_profiles(c);
     }
     Ok(t)
 }
@@ -890,6 +894,7 @@ pub fn delete(c: &Config, r: &DeleteConfigRequest) -> Result<Plan, Usage> {
             Ok(plan)
         }
         "interfaces" => usage("an interface is not removed through DeleteConfig on the mock"),
+        "bfd" => delete_bfd(c, r),
         a => usage(format!("unknown area {a}")),
     }
 }
@@ -1060,4 +1065,221 @@ mod tests {
         assert!(!c.render().contains("192.0.2.1"));
         assert!(set_bgp_neighbor(&c, &BgpNeighborEdit { asn: "1".into(), ..e }, &s(&["description"])).is_err(), "no such router bgp");
     }
+}
+
+// --- BFD (Prisma 0.150.12, #67) -------------------------------------------------
+
+/// A `bfd` timer statement and its BfdTimers field: number ones.
+const BFD_NUMBERS: [(&str, &str); 6] = [
+    ("detect-multiplier", "detect_multiplier"),
+    ("receive-interval", "receive_interval_ms"),
+    ("transmit-interval", "transmit_interval_ms"),
+    ("minimum-ttl", "minimum_ttl"),
+    ("echo receive-interval", "echo_receive_interval_ms"),
+    ("echo transmit-interval", "echo_transmit_interval_ms"),
+];
+/// ... and the flags.
+const BFD_FLAGS: [(&str, &str); 3] = [("echo-mode", "echo_mode"), ("passive-mode", "passive_mode"), ("shutdown", "shutdown")];
+
+fn bfd_number(t: &BfdTimers, f: &str) -> u32 {
+    match f {
+        "detect_multiplier" => t.detect_multiplier,
+        "receive_interval_ms" => t.receive_interval_ms,
+        "transmit_interval_ms" => t.transmit_interval_ms,
+        "minimum_ttl" => t.minimum_ttl,
+        "echo_receive_interval_ms" => t.echo_receive_interval_ms,
+        _ => t.echo_transmit_interval_ms,
+    }
+}
+
+fn bfd_flag(t: &BfdTimers, f: &str) -> bool {
+    match f {
+        "echo_mode" => t.echo_mode,
+        "passive_mode" => t.passive_mode,
+        _ => t.shutdown,
+    }
+}
+
+/// A session's or profile's lines into its timers; the rest (and `profile` on a session) apart.
+fn bfd_body(lines: &[String]) -> (BfdTimers, Option<String>, Vec<String>) {
+    let mut t = BfdTimers::default();
+    let (mut profile, mut other) = (None, vec![]);
+    for l in lines {
+        if let Some(p) = l.strip_prefix("profile ") {
+            profile = Some(p.trim().to_string());
+            continue;
+        }
+        let num = BFD_NUMBERS.iter().find_map(|(k, f)| l.strip_prefix(k).and_then(|r| r.trim().parse::<u32>().ok()).map(|n| (*f, n)));
+        match num {
+            Some((f, n)) => match f {
+                "detect_multiplier" => t.detect_multiplier = n,
+                "receive_interval_ms" => t.receive_interval_ms = n,
+                "transmit_interval_ms" => t.transmit_interval_ms = n,
+                "minimum_ttl" => t.minimum_ttl = n,
+                "echo_receive_interval_ms" => t.echo_receive_interval_ms = n,
+                _ => t.echo_transmit_interval_ms = n,
+            },
+            None => match BFD_FLAGS.iter().find(|(k, _)| l == k) {
+                Some((_, "echo_mode")) => t.echo_mode = true,
+                Some((_, "passive_mode")) => t.passive_mode = true,
+                Some(_) => t.shutdown = true,
+                None => other.push(l.clone()),
+            },
+        }
+    }
+    (t, profile, other)
+}
+
+/// `peer <address> [multihop] [local-address X] [interface I] [vrf V]` from its fields.
+fn bfd_header(p: &BfdPeerConfig) -> String {
+    let mut h = format!("peer {}", p.address);
+    if p.multihop {
+        h += " multihop";
+    }
+    for (k, v) in [("local-address", &p.local_address), ("interface", &p.interface), ("vrf", &p.vrf)] {
+        if !v.is_empty() {
+            h += &format!(" {k} {v}");
+        }
+    }
+    h
+}
+
+fn bfd_peer_of(header: &str, lines: &[String]) -> Option<BfdPeerConfig> {
+    let w: Vec<&str> = header.split_whitespace().collect();
+    let (&"peer", rest) = w.split_first()? else { return None };
+    let (address, rest) = rest.split_first()?;
+    let mut p = BfdPeerConfig { address: (*address).into(), header: header.into(), ..Default::default() };
+    let mut i = 0;
+    while i < rest.len() {
+        match (rest[i], rest.get(i + 1)) {
+            ("multihop", _) => {
+                p.multihop = true;
+                i += 1;
+            }
+            ("local-address", Some(v)) => {
+                p.local_address = (*v).into();
+                i += 2;
+            }
+            ("interface", Some(v)) => {
+                p.interface = (*v).into();
+                i += 2;
+            }
+            ("vrf", Some(v)) => {
+                p.vrf = (*v).into();
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    let (timers, profile, other) = bfd_body(lines);
+    p.timers = Some(timers);
+    p.profile = profile.unwrap_or_default();
+    p.other = other;
+    Some(p)
+}
+
+pub fn bfd_peers(c: &Config) -> Vec<BfdPeerConfig> {
+    c.blocks
+        .iter()
+        .filter(|b| b.path.len() == 2 && b.path[0] == "bfd" && b.path[1].starts_with("peer "))
+        .filter_map(|b| bfd_peer_of(&b.path[1], &b.lines))
+        .collect()
+}
+
+pub fn bfd_profiles(c: &Config) -> Vec<BfdProfileConfig> {
+    c.blocks
+        .iter()
+        .filter(|b| b.path.len() == 2 && b.path[0] == "bfd")
+        .filter_map(|b| b.path[1].strip_prefix("profile ").map(|n| (n.trim().to_string(), &b.lines)))
+        .map(|(name, lines)| {
+            let (timers, _, other) = bfd_body(lines);
+            BfdProfileConfig { name, timers: Some(timers), other }
+        })
+        .collect()
+}
+
+/// The timer lines a mask names, from `old` to `new`; `timers` names them all.
+fn bfd_timer_lines(fields: &[&str], old: &BfdTimers, new: &BfdTimers) -> Vec<String> {
+    let named = |f: &str| fields.contains(&"timers") || fields.contains(&format!("timers.{f}").as_str());
+    let mut out = vec![];
+    for (k, f) in BFD_NUMBERS {
+        let (o, n) = (bfd_number(old, f), bfd_number(new, f));
+        if named(f) && o != n {
+            // 0 is not stated: FRR's default applies.
+            out.push(if n == 0 { format!("no {k}") } else { format!("{k} {n}") });
+        }
+    }
+    for (k, f) in BFD_FLAGS {
+        let (o, n) = (bfd_flag(old, f), bfd_flag(new, f));
+        if named(f) && o != n {
+            out.push(if n { k.to_string() } else { format!("no {k}") });
+        }
+    }
+    out
+}
+
+fn bfd_mask(fields: &[String], extra: &[&'static str]) -> Result<Vec<String>, Usage> {
+    let ok = |f: &str| {
+        f == "timers" || extra.contains(&f) || f.strip_prefix("timers.").is_some_and(|t| BFD_NUMBERS.iter().chain(BFD_FLAGS.iter()).any(|(_, x)| *x == t))
+    };
+    if let Some(f) = fields.iter().find(|f| !ok(f)) {
+        return usage(format!("unknown field {f}"));
+    }
+    Ok(fields.to_vec())
+}
+
+pub fn set_bfd_peer(c: &Config, p: &BfdPeerConfig, fields: &[String]) -> Result<Plan, Usage> {
+    if p.address.parse::<std::net::IpAddr>().is_err() {
+        return usage(format!("% '{}' is not a peer address", p.address));
+    }
+    let fields = bfd_mask(fields, &["profile"])?;
+    let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
+    let header = bfd_header(p);
+    let existing = bfd_peers(c).into_iter().find(|x| bfd_header(x) == header);
+    let new = existing.is_none();
+    let cur = existing.unwrap_or_default();
+    let mut lines = vec![];
+    if fields.contains(&"profile") && p.profile != cur.profile {
+        lines.push(if p.profile.is_empty() { format!("no profile {}", cur.profile) } else { format!("profile {}", p.profile) });
+    }
+    lines.extend(bfd_timer_lines(&fields, &cur.timers.unwrap_or_default(), &p.timers.unwrap_or_default()));
+    let mut plan = Plan::at(vec!["bfd".into(), header.clone()], lines);
+    if new {
+        plan.shown.insert(0, header);
+    }
+    Ok(plan)
+}
+
+pub fn set_bfd_profile(c: &Config, p: &BfdProfileConfig, fields: &[String]) -> Result<Plan, Usage> {
+    if p.name.trim().is_empty() || p.name.contains(char::is_whitespace) {
+        return usage("a profile needs a one-word name");
+    }
+    let fields = bfd_mask(fields, &[])?;
+    let fields: Vec<&str> = fields.iter().map(String::as_str).collect();
+    let existing = bfd_profiles(c).into_iter().find(|x| x.name == p.name);
+    let new = existing.is_none();
+    let cur = existing.unwrap_or_default();
+    let lines = bfd_timer_lines(&fields, &cur.timers.unwrap_or_default(), &p.timers.unwrap_or_default());
+    let mut plan = Plan::at(vec!["bfd".into(), format!("profile {}", p.name)], lines);
+    if new {
+        plan.shown.insert(0, format!("profile {}", p.name));
+    }
+    Ok(plan)
+}
+
+pub fn delete_bfd(c: &Config, r: &DeleteConfigRequest) -> Result<Plan, Usage> {
+    if let Some(p) = &r.bfd_peer {
+        let header = bfd_header(p);
+        if !bfd_peers(c).iter().any(|x| bfd_header(x) == header) {
+            return usage(format!("no {header}"));
+        }
+        return Ok(Plan::at(vec!["bfd".into()], vec![format!("no {header}")]));
+    }
+    if !r.name.is_empty() {
+        if !bfd_profiles(c).iter().any(|x| x.name == r.name) {
+            return usage(format!("no profile {}", r.name));
+        }
+        return Ok(Plan::at(vec!["bfd".into()], vec![format!("no profile {}", r.name)]));
+    }
+    Ok(Plan::at(vec![], vec!["no bfd".into()]))
 }

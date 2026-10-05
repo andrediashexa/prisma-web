@@ -142,6 +142,10 @@ fn usage(u: typed::Usage) -> Status {
 fn stage(config: &mut Config, plan: typed::Plan) -> Result<Response<SetConfigResponse>, Status> {
     let mut diagnostics = vec![];
     for (path, lines) in &plan.steps {
+        // A mode entered with nothing in it yet (a new BFD session on its defaults, #67).
+        if lines.is_empty() && !path.is_empty() {
+            config.ensure_block(path);
+        }
         match config.edit(path, lines) {
             Ok(d) => diagnostics.extend(d),
             Err(r) => {
@@ -513,6 +517,8 @@ impl ConfigService for ConfigSvc {
             Object::Logging(l) => typed::set_logging(c, l, &req.fields),
             Object::StaticRoute(r) => typed::set_static(c, r, &req.fields),
             Object::BgpNeighbor(n) => typed::set_bgp_neighbor(c, n, &req.fields),
+            Object::BfdPeer(p) => typed::set_bfd_peer(c, p, &req.fields),
+            Object::BfdProfile(p) => typed::set_bfd_profile(c, p, &req.fields),
             // Prisma 0.149.24's other typed objects: prisma-web writes those areas as lines.
             _ => return Err(Status::unimplemented("SetConfig for this object is not simulated")),
         }

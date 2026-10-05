@@ -365,6 +365,23 @@ def typed_form_checks(admin, R):
                                         "fields": ["prefix_inside", "prefix_outside", "subscriber_length", "nat64_prefix"]})
         check(st == 200 and "prefix-inside 2001:db8:1200::/40" in b["lines"] and "subscriber-length 56" in b["lines"]
               and "nat64-prefix 2001:db8:64::/96" in b["lines"], "a NAT64 pool is set as fields", b)
+        # BFD as fields (Prisma 0.150.12, #67): a profile, a session naming it, then removed.
+        st, b = admin.post(f"{T}/set", {"bfd_profile": {"name": "e2e-fast", "timers": {"receive_interval_ms": 100, "transmit_interval_ms": 100, "detect_multiplier": 3}},
+                                        "fields": ["timers.receive_interval_ms", "timers.transmit_interval_ms", "timers.detect_multiplier"]})
+        check(st == 200 and b["path"] == ["bfd", "profile e2e-fast"] and "receive-interval 100" in b["lines"], "a BFD profile is set as fields", b)
+        st, b = admin.post(f"{T}/set", {"bfd_peer": {"address": "192.0.2.46", "interface": "lan0", "profile": "e2e-fast"}, "fields": ["profile"]})
+        check(st == 200 and b["path"] == ["bfd", "peer 192.0.2.46 interface lan0"] and "profile e2e-fast" in b["lines"], "a BFD session is set as fields, naming the profile", b)
+        st, b = admin.post(f"{T}/set", {"bfd_peer": {"address": "192.0.2.46", "timers": {"colour": 1}}, "fields": ["timers.colour"]})
+        check(st == 422 and (b["error"].get("diagnostics") or {}).get("reason") == "usage", "an unknown BFD timer is REASON_USAGE", b)
+        st, cb = admin.get(f"{R}/config/typed?areas=bfd&candidate={cid}")
+        bp = next((p for p in cb.get("bfd_peers", []) if p["address"] == "192.0.2.46"), {})
+        bf = next((p for p in cb.get("bfd_profiles", []) if p["name"] == "e2e-fast"), {})
+        check(bp.get("profile") == "e2e-fast" and bp.get("interface") == "lan0" and (bf.get("timers") or {}).get("receive_interval_ms") == 100,
+              "the candidate reads BFD typed with what was set", [bp, bf])
+        st, b = admin.post(f"{T}/delete", {"area": "bfd", "bfd_peer": {"address": "192.0.2.46", "interface": "lan0"}})
+        check(st == 200 and b["lines"] == ["no peer 192.0.2.46 interface lan0"], "a BFD session is removed with DeleteConfig", b)
+        st, b = admin.post(f"{T}/delete", {"area": "bfd", "name": "e2e-fast"})
+        check(st == 200 and b["lines"] == ["no profile e2e-fast"], "a BFD profile is removed with DeleteConfig", b)
         # PREF64 (Prisma 0.150.2, #61): a prefix a NAT64 pool translates, on an interface that advertises.
         st, b = admin.post(f"{T}/set", {"interface": {"name": "lan0", "pref64": ["2001:db8:64::/96"]}, "fields": ["pref64"]})
         check(st == 200 and b["lines"] == ["ipv6 nd nat64 2001:db8:64::/96"], "PREF64 is set as a field on an advertising interface", b)
@@ -1056,6 +1073,12 @@ def lab(admin, args):
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
         lab_typed_checks(admin, R)
+        # BFD as fields (0.150.12, #67): read only.
+        st, b = admin.get(f"{R}/config/typed?areas=bfd")
+        if st == 200:
+            check(True, f"the real Prisma's BFD configuration as fields: {len(b.get('bfd_peers', []))} sessions, {len(b.get('bfd_profiles', []))} profiles")
+        else:
+            check(st in (422, 501), f"no typed BFD configuration: a box before 0.150.12 ({st})", b)
         # BFD (0.150.10, #66): the list and a short watch, reads only.
         st, b = admin.get(f"{R}/screens/bfd-sessions")
         if st == 501:
