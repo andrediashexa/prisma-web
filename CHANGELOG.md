@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.32.0 - Third-party SFP+ — 2026-10-05
+
+### Added
+- On a router with Prisma 0.151.2 or newer, the Interfaces tab shows whether SFP+ modules the network driver does not list are allowed, as configured and as the router booted, says when the next boot will change it, and stages allowing or refusing them for the review (#69).
+
+### Internal
+- Client regenerated from the Prisma 0.151.2 contract; integration notes read up to 0.151.2 (0.151.1 changes nothing through the API). The simulated Prisma reports the setting and boots with it (#69).
+
 ## 0.31.0 - NAT64 hierarchy — 2026-10-05
 
 ### Changed
