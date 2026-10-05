@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.30.0 - BFD configuration — 2026-10-05
+
+### Added
+- On a router with Prisma 0.150.12 or newer, the Routing tab adds, edits and removes BFD sessions (peer, interface or local address, multi-hop, VRF, profile, timers) and BFD timer profiles, each staged and reviewed like every change (#67).
+
+### Changed
+- A static route's BFD (and a BGP neighbor's BFD profile) is read from the router's typed fields from Prisma 0.150.12 on (#67).
+
+### Internal
+- Client regenerated from the Prisma 0.150.12 contract; integration notes read up to 0.150.12 (0.150.11 fixes BFD over SNMP), with the breaking change the next Prisma release announces (NAT64 to its own area, `mode dynamic` to `mode bpa`). The simulated Prisma serves and takes the `bfd` area (#67).
+
 ## 0.29.0 - BFD live — 2026-10-05
 
 ### Added
