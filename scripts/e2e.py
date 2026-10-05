@@ -1062,8 +1062,9 @@ def lab(admin, args):
             check(True, "no typed BFD: a box before 0.150.10")
         else:
             check(st == 200 and b.get("answered") is not None, f"the real Prisma's BFD sessions: {len(b.get('sessions', []))} (answered {b.get('answered')})", b)
-            st, evs = sse_until(admin, f"{R}/bfd/watch", lambda evs: len(evs) > 0, timeout=6)
-            check(st == 200, f"a short BFD watch on the real Prisma: {[json.loads(d)['kind'] for e, d in evs if e == 'bfd'][:5]}", evs)
+            st, evs = sse_until(admin, f"{R}/bfd/watch", lambda evs: len(evs) > 1, timeout=6)
+            check(st == 200 and evs and evs[0][0] == "open" and not any(e == "error" for e, _ in evs),
+                  f"a short BFD watch on the real Prisma opens at once: {[json.loads(d)['kind'] for e, d in evs if e == 'bfd'][:5]}", evs)
         # The 0.150.6 screens and SNMP files (#64): reads only; no probe from a real box.
         st, b = admin.get(f"{R}/screens/hardware")
         if st == 501:

@@ -405,8 +405,9 @@ export function BfdSessionsCard({ routerId }: { routerId: string }) {
       try {
         const res = await fetch(`/api${routerApi(routerId, "/bfd/watch")}`, { credentials: "same-origin", signal: ctl.signal })
         if (!res.ok) return
-        setLive(true)
         await readEvents(res, (event, data) => {
+          if (event === "open") setLive(true)
+          if (event === "error") setLive(false)
           if (event !== "bfd") return
           const e = JSON.parse(data) as { kind: string; at: string | null; session?: any; previous_state?: string }
           if (e.kind === "INITIAL") return
