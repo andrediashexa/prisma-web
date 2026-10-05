@@ -33,6 +33,9 @@ pub enum Kind {
     /// An IPv4 or IPv6 prefix.
     Prefix,
     Interface,
+    /// Where a static route goes: an address, an interface, `blackhole`, `Null0` or `reject`,
+    /// one word. The box's schema says `address` with `source: next_hops` (#71).
+    NextHop,
 }
 
 pub fn kind_of(label: &str) -> Kind {
@@ -46,7 +49,8 @@ pub fn kind_of(label: &str) -> Kind {
         "A.B.C.D" => Kind::Ipv4,
         "X:X::X:X/M" => Kind::Ipv6Prefix,
         "X:X::X:X" => Kind::Ipv6,
-        "address" | "neighbour" | "neighbor" | "collector" | "source" | "next-hop" | "nexthop" => Kind::Address,
+        "address" | "neighbour" | "neighbor" | "collector" | "source" => Kind::Address,
+        "next-hop" | "nexthop" => Kind::NextHop,
         "prefix" | "network" => Kind::Prefix,
         "interface" | "ifname" => Kind::Interface,
         "n" | "seq" | "asn" | "MB" | "GB" | "keepalive" | "hold" | "minutes" | "percent" | "metric" | "cost" | "distance" => {
@@ -269,6 +273,7 @@ pub fn valid(kind: &Kind, v: &str) -> bool {
     };
     match kind {
         Kind::Text | Kind::Interface => !v.is_empty(),
+        Kind::NextHop => !v.is_empty() && !v.contains(char::is_whitespace),
         Kind::Int { min, max } => v.parse::<u64>().is_ok_and(|n| n >= *min && n <= *max),
         Kind::Ipv4 => v.parse::<Ipv4Addr>().is_ok(),
         Kind::Ipv6 => v.parse::<Ipv6Addr>().is_ok(),

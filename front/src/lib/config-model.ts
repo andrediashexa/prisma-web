@@ -15,6 +15,8 @@ export type Kind =
   | { k: "address" }
   | { k: "prefix" }
   | { k: "interface" }
+  /** An address, an interface, blackhole, Null0 or reject (#71). */
+  | { k: "next_hop" }
 
 export type Tok =
   | { t: "word"; w: string }
@@ -97,6 +99,8 @@ export function invalid(kind: Kind, v: string): string | null {
     case "text":
     case "interface":
       return null
+    case "next_hop":
+      return /\s/.test(v.trim()) ? "one address, interface, blackhole, Null0 or reject" : null
     case "int":
       return /^\d+$/.test(v) && Number(v) >= kind.min && Number(v) <= kind.max ? null : `a number from ${kind.min} to ${kind.max}`
     case "ipv4":
