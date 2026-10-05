@@ -735,6 +735,22 @@ def cgnat_screen_checks(admin, R, router_id):
     check(any(e["success"] and e["details"].get("port") == 8443 for e in audit["items"]), "each lookup is in the audit log", audit["items"][:2])
 
 
+def sfp_checks(admin, R):
+    """Third-party SFP+ modules, opt-in (Prisma 0.151.2, #69): read, and staged as lines."""
+    st, s = admin.get(f"{R}/system")
+    check(st == 200 and s.get("unsupported_sfp_configured") is False and s.get("unsupported_sfp_booted_known") is True and s.get("hardware_text"),
+          "GetSystem says whether third-party SFP+ modules are allowed, configured and as booted", s)
+    st, c = admin.post(f"{R}/config/candidates")
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    try:
+        st, b = admin.post(f"{C}/edit", {"path": ["system", "hardware"], "lines": ["unsupported-sfp allow"]})
+        check(st == 200, "unsupported-sfp allow is taken under system > hardware", b)
+        st, cmp = admin.get(f"{C}/compare")
+        check("unsupported-sfp allow" in cmp["diff"], "and reaches the diff", cmp)
+    finally:
+        admin.delete(C)
+
+
 def screen_checks(admin, R, router_id):
     """The rest of the screens and the probes (Prisma 0.150.6, #64)."""
     for name, key in [("ospf-interfaces", "interfaces"), ("isis-interfaces", "circuits"), ("hardware", "nics"), ("routing-logging", "daemons")]:
@@ -1078,6 +1094,12 @@ def lab(admin, args):
               f"the real configuration reads as a structure: {known} of {len(lines)} lines match the grammar",
               [l["text"] for l in lines if not l["statement"]])
         lab_typed_checks(admin, R)
+        # Third-party SFP+ modules (0.151.2, #69): read only.
+        st, s = admin.get(f"{R}/system")
+        if "unsupported_sfp_configured" in (s or {}) and s.get("hardware_text"):
+            check(True, f"the real Prisma's SFP+ setting: configured {s['unsupported_sfp_configured']}, booted {s.get('unsupported_sfp_booted')} (known {s.get('unsupported_sfp_booted_known')})")
+        else:
+            check(True, "no SFP+ setting: a box before 0.151.2")
         # BFD as fields (0.150.12, #67): read only.
         st, b = admin.get(f"{R}/config/typed?areas=bfd")
         if st == 200:
@@ -1271,6 +1293,7 @@ def main():
         log_watch_checks(admin, R, router_id)
         cgnat_screen_checks(admin, R, router_id)
         screen_checks(admin, R, router_id)
+        sfp_checks(admin, R)
         bfd_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")

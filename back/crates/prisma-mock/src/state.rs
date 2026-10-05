@@ -80,6 +80,9 @@ pub struct State {
     pub restart_answer: Option<String>,
     /// Test hook: BFD peers held down (#66).
     pub bfd_down: std::collections::HashSet<String>,
+    /// Whether the mock "booted" with third-party SFP+ modules allowed (0.151.2, #69): what the
+    /// configuration said at its last simulated reboot.
+    pub unsupported_sfp_booted: bool,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -158,6 +161,7 @@ impl State {
             upgrade: None,
             restart_answer: None,
             bfd_down: std::collections::HashSet::new(),
+            unsupported_sfp_booted: false,
         }
     }
 
