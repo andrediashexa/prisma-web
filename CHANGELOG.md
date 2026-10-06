@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.37.1 - Transceivers after an upgrade — 2026-10-06
+
+### Fixed
+- After an upgrade, before the dataplane restarts, the Transceivers card says the dataplane listed no port and shows the router's own explanation (its plugin cannot read modules until a dataplane restart or the next reboot), instead of an empty table (#77).
+
 ## 0.37.0 - Transceivers — 2026-10-06
 
 ### Added

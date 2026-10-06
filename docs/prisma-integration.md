@@ -188,9 +188,9 @@ prisma-web compares it with the release recorded below and follows every entry.
 | `docs/prisma-api.md` | `docs/api.md` at v0.151.15 | `cc236c53d77226134422ad8e6ed3c5eb1625686e59a36b1459cdb6f7346b6af6` |
 | `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.15 | `ca7ba039c2d76c00da8d22a2f820396bfe4ca3ba12d9373294d39b69b30d3e77` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 none.
 
-Read up to 0.151.15 in `clients.md` and already handled:
+Read up to 0.151.16 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -619,6 +619,13 @@ Read up to 0.151.15 in `clients.md` and already handled:
   (an RX power past its warnings, a CRC error ratio above 0.01%) are in its text only. The mock
   answers a module of each status (`mock transceiver wan0 rx <mW>` moves wan0's RX power) from
   0.151.15; the main mock reports `0.151.15-mock`.
+- 0.151.16 (contract unchanged) says, between an upgrade and the dataplane's restart, why
+  ListTransceivers lists no dataplane port: `dataplane_answered` is true, the plugin the dataplane
+  still runs predates 0.151.15 and cannot read modules, and the Linux cards are still listed;
+  `system dataplane restart` or the next reboot loads the new plugin. No field says it, only the
+  note in `text`. Seen on 192.0.2.166 on 2026-10-06 (VTY 0.151.16, plugin 0.151.4), followed in
+  #77: with no dataplane port the card says so and shows the box's `text`; the mock answers the
+  case on `mock transceivers old-plugin on|off`.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

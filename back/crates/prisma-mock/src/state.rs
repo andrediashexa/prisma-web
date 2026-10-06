@@ -91,6 +91,8 @@ pub struct State {
     pub dataplane_start: Option<(DateTime<Utc>, String)>,
     /// wan0's RX power in mW (0.151.15, #76), moved by a test hook.
     pub wan0_rx_mw: f64,
+    /// The dataplane still runs the plugin from before the upgrade (0.151.16, #77).
+    pub old_plugin: bool,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -174,6 +176,7 @@ impl State {
             box_log: vec![],
             dataplane_start: None,
             wan0_rx_mw: 0.48,
+            old_plugin: false,
         }
     }
 
