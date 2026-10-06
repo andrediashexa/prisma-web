@@ -20,7 +20,7 @@ test("a pool's inside side is given by a prefix-list from the form", async ({ pa
   await commitLines(page.request, [[[], ["ip prefix-list UI-SUBS seq 5 deny 100.90.1.0/24", "ip prefix-list UI-SUBS seq 10 permit 100.90.0.0/22"]]], "ui tests: lists")
   try {
     await page.goto(`/routers/${routerId()}/cgnat`)
-    await page.getByRole("button", { name: "New pool" }).click()
+    await page.getByRole("button", { name: "Add a pool" }).click()
     const form = page.getByRole("dialog")
     await form.getByLabel("Name").fill("UI-LISTS")
     const inside = form.locator("[data-pool-side=inside]")
