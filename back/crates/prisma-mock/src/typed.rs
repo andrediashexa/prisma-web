@@ -188,6 +188,9 @@ fn pool_at(c: &Config, level: &str, name: &str) -> (PoolConfig, u32, String) {
         match ws.as_slice() {
             ["prefix-inside", x] => p.prefix_inside.push((*x).into()),
             ["prefix-outside", x] => p.prefix_outside.push((*x).into()),
+            // A side given by a list (0.151.12, #73).
+            ["prefix-list-inside", x] => p.prefix_list_inside = (*x).into(),
+            ["prefix-list-outside", x] => p.prefix_list_outside = (*x).into(),
             ["block-size", n] => p.block_size = num(Some(n)),
             ["ports", lo, hi] => (p.port_first, p.port_last) = (num(Some(lo)), num(Some(hi))),
             ["policy", v] => p.policy = (*v).into(),
@@ -547,8 +550,8 @@ pub fn set_interface(c: &Config, i: &InterfaceConfig, fields: &[String]) -> Resu
     Ok(Plan::at(vec![format!("interface {}", i.name)], out))
 }
 
-const POOL_FIELDS: [&str; 23] = [
-    "name", "prefix_inside", "prefix_outside", "block_size", "ports", "policy", "mode", "vrf", "outside_vrf", "timeouts", "max_blocks",
+const POOL_FIELDS: [&str; 25] = [
+    "name", "prefix_inside", "prefix_outside", "prefix_list_inside", "prefix_list_outside", "block_size", "ports", "policy", "mode", "vrf", "outside_vrf", "timeouts", "max_blocks",
     "initial_allocation", "block_stride", "reserve", "bypass_source", "bypass_destination", "utilisation_alarm", "max_sessions",
     "max_session_rate", "tcp_mss", "filter", "algs", "forwards",
 ];
@@ -652,6 +655,15 @@ fn set_pool_at(c: &Config, level: &str, p: &PoolConfig, named: &[&str]) -> Resul
         match f {
             "prefix_inside" => list(&mut out, &cur.prefix_inside, &p.prefix_inside, |x| format!("prefix-inside {x}")),
             "prefix_outside" => list(&mut out, &cur.prefix_outside, &p.prefix_outside, |x| format!("prefix-outside {x}")),
+            // A side's list (0.151.12, #73): "" writes `no prefix-list-<side>`. Both ways on one
+            // side are refused at commit, not here.
+            "prefix_list_inside" | "prefix_list_outside" => {
+                let side = if f == "prefix_list_inside" { "inside" } else { "outside" };
+                let (old, new) = if side == "inside" { (&cur.prefix_list_inside, &p.prefix_list_inside) } else { (&cur.prefix_list_outside, &p.prefix_list_outside) };
+                if old != new {
+                    out.push(if new.is_empty() { format!("no prefix-list-{side}") } else { format!("prefix-list-{side} {new}") });
+                }
+            }
             // No `no` form on the VTY: it can be changed, not cleared (#41).
             "block_size" if p.block_size != cur.block_size => {
                 if p.block_size == 0 {

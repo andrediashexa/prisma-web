@@ -986,6 +986,45 @@ def commit_lines(admin, R, edits, comment, **acks):
     return chk, st, b
 
 
+def pool_list_checks(admin, R):
+    """A CGNAT pool's sides as prefix-lists (Prisma 0.151.12, #73), on the mock."""
+    lists = ['ip prefix-list E2E-SUBS seq 5 deny 100.80.1.0/24 description "management"', "ip prefix-list E2E-SUBS seq 10 permit 100.80.0.0/22",
+             "ip prefix-list E2E-PUB seq 10 permit 198.51.100.64/28"]
+    pool = ["nat", "cgnat", "pool E2E-LISTS"]
+    st, g = admin.get(f"{R}/config/grammar")
+    pm = next((m for m in g["modes"] if m["key"] == "nat > cgnat > pool <name>"), None)
+    check(pm and any(s["syntax"].startswith("prefix-list-inside") for gr in pm["groups"] for s in gr["statements"]),
+          "the grammar has prefix-list-inside under a CGNAT pool", None)
+    chk, st, b = commit_lines(admin, R, [([], lists), (pool, ["prefix-list-inside E2E-SUBS", "prefix-list-outside E2E-PUB", "block-size 512"])], "e2e: pool on lists")
+    check(st == 200, "a pool given by an inside and an outside prefix-list commits", b)
+    try:
+        st, ps = admin.get(f"{R}/pools")
+        p = next((x for x in ps["pools"] if x["name"] == "E2E-LISTS"), {})
+        check(p.get("prefix_list_inside") == "E2E-SUBS" and p.get("prefix_list_outside") == "E2E-PUB"
+              and p.get("prefixes_inside") == ["100.80.0.0/24", "100.80.2.0/23"] and p.get("untranslated") == ["100.80.1.0/24"]
+              and p.get("prefixes_outside") == ["198.51.100.64/28"] and p.get("capacity", 0) > 0,
+              "ListPools names the lists and what they resolve to: permits less denies, the denied source untranslated", p)
+        st, t = admin.get(f"{R}/config/typed?areas=pools")
+        tp = next((x for x in t["pools"] if x["name"] == "E2E-LISTS"), {})
+        check(tp.get("prefix_list_inside") == "E2E-SUBS" and tp.get("prefix_list_outside") == "E2E-PUB" and not tp.get("prefix_inside"),
+              "GetConfig reads the pool's sides as lists, no typed prefixes", tp)
+        st, tree = admin.get(f"{R}/config/tree")
+        lines = {l["text"]: l for i in tree["instances"] for l in i["lines"]}
+        check(all(lines.get(x, {}).get("statement") for x in lists + ["prefix-list-inside E2E-SUBS"]),
+              "each list entry, its description included, and the pool's list line match a statement",
+              [x for x in lists + ["prefix-list-inside E2E-SUBS"] if not lines.get(x, {}).get("statement")])
+        chk, st, b = commit_lines(admin, R, [(pool, ["prefix-inside 10.0.0.0/8"])], "e2e: both ways")
+        check(st == 409 and "prefix-inside and prefix-list-inside both given" in errmsg(b) and not chk["passed"],
+              "a side given both ways is refused at the check and the commit, naming the pool and the side", b)
+        chk, st, b = commit_lines(admin, R, [(pool, ["prefix-list-outside E2E-NONE"])], "e2e: no such list")
+        check(st == 409 and "'E2E-NONE' does not exist" in errmsg(b), "a list that does not exist is refused at commit", b)
+        chk, st, b = commit_lines(admin, R, [([], ["ip prefix-list E2E-PUB seq 10 permit 198.51.100.80/28"])], "e2e: the list moves", acknowledge_remap=True)
+        check(st == 200 and any("E2E-LISTS" in r for r in chk.get("remap", [])), "a change to a list re-maps the pools using it (the remap gate)", chk)
+    finally:
+        commit_lines(admin, R, [(["nat", "cgnat"], ["no pool E2E-LISTS"]), ([], ["no ip prefix-list E2E-SUBS", "no ip prefix-list E2E-PUB"])],
+                     "e2e: undo pool on lists", acknowledge_remap=True)
+
+
 def cgnat_forms_checks(admin, R):
     """CGNAT forms (#41): a pool created, changed and removed; a collector set, reflected by GetLogging, disabled."""
     revisions = lambda: len(admin.get(f"{R}/config/revisions")[1]["revisions"])
@@ -1343,6 +1382,7 @@ def main():
         bfd_checks(admin, R)
         pending_configuration_checks(admin, R, router_id)
         next_hop_checks(admin, R)
+        pool_list_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

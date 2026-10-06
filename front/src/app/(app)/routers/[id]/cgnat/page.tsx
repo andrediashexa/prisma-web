@@ -58,6 +58,12 @@ export default function CgnatPage() {
   // NAT64 pools in their own hierarchy (Prisma 0.151.0, #68): the router's grammar says.
   const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
   const nat64Area = !!grammar?.modes.some((m) => m.key === "nat > nat64")
+  // A pool's sides as prefix-lists (Prisma 0.151.12, #73): the grammar says; the names from the tree.
+  const poolLists = !!grammar?.modes.some((m) => m.key === "nat > cgnat > pool <name>" && m.groups.some((g) => g.statements.some((s) => s.syntax.startsWith("prefix-list-inside"))))
+  const listNames = useMemo(() => {
+    const top = tree?.instances.find((i) => i.path.length === 0)?.lines ?? []
+    return [...new Set(top.map((l) => l.text.trim().split(/\s+/)).filter((w) => w[0] === "ip" && w[1] === "prefix-list" && w[2]).map((w) => w[2]))]
+  }, [tree])
   const typed = useTypedConfig(id, nat64Area ? ["pools", "nat64", "logging"] : ["pools", "logging"])
   const config = useMemo(
     () => (!tree || typed.typed === undefined ? null : typed.config ? readCgnatTyped(typed.config, tree.instances) : readCgnat(tree.instances)),
@@ -150,15 +156,40 @@ export default function CgnatPage() {
                       </div>
                     </TableCell>
                     <TableCell className="font-mono text-xs">
+                      {/* A side given by a list shows it and what it resolved to (#73). */}
+                      {(p?.prefix_list_inside || pc?.lists.inside) && (
+                        <div>
+                          <span className="text-muted-foreground">in list </span>
+                          {p?.prefix_list_inside || pc?.lists.inside}
+                        </div>
+                      )}
                       {inside.map((x) => (
                         <div key={x}>
                           <span className="text-muted-foreground">in </span>
                           {x}
                         </div>
                       ))}
+                      {(p?.untranslated ?? []).map((x) => (
+                        <div key={x} title="Denied by the inside prefix-list: routed with its own address">
+                          <span className="text-muted-foreground">not translated </span>
+                          {x}
+                        </div>
+                      ))}
+                      {(p?.prefix_list_outside || pc?.lists.outside) && (
+                        <div>
+                          <span className="text-muted-foreground">out list </span>
+                          {p?.prefix_list_outside || pc?.lists.outside}
+                        </div>
+                      )}
                       {outside.map((x) => (
                         <div key={x}>
                           <span className="text-muted-foreground">out </span>
+                          {x}
+                        </div>
+                      ))}
+                      {(p?.outside_excluded ?? []).map((x) => (
+                        <div key={x} title="Taken out of the public addresses by the outside prefix-list">
+                          <span className="text-muted-foreground">excluded </span>
                           {x}
                         </div>
                       ))}
@@ -248,6 +279,7 @@ export default function CgnatPage() {
             taken={config.pools.map((p) => p.name)}
             typed={!!typed.typed}
             nat64Area={nat64Area}
+            lists={poolLists ? listNames : undefined}
             onClose={() => setEditing(null)}
             onStage={(c) => c[0] && stageAs(`pool:${c[0].path.at(-1)!.slice("pool ".length)}`, c)}
           />

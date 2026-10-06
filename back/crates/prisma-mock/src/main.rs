@@ -3,6 +3,7 @@
 //! prisma-web can be developed without a real box.
 
 mod config;
+mod lists;
 mod cgnat_screens;
 mod config_service;
 mod log_export;

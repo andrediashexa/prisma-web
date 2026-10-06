@@ -94,7 +94,8 @@ fn gates(running: &Config, candidate: &Config, subscribers: u64) -> Gates {
             continue;
         }
         let (old_bs, new_bs) = (running.pool_block_size(&name), candidate.pool_block_size(&name));
-        let prefixes = |c: &Config| (c.pool_prefixes(&name, "prefix-inside "), c.pool_prefixes(&name, "prefix-outside "));
+        // What the pool maps: a list that changes moves its pools too (0.151.12, #73).
+        let prefixes = |c: &Config| (c.pool_side(&name, "inside").0, c.pool_side(&name, "outside").0);
         if old_bs != new_bs {
             g.remap.push(format!("pool {name}: {moved} subscribers would move"));
             g.diagnostics.push(diag(
@@ -251,6 +252,12 @@ impl ConfigService for ConfigSvc {
         let c = self.candidate_config(&req.into_inner().candidate_id)?;
         let st = self.0.state.lock().unwrap();
         let g = gates(&st.running, &c, st.subscribers as u64);
+        let refusals = c.list_refusals();
+        if !refusals.is_empty() {
+            let diagnostics: Vec<Diagnostic> = refusals.iter().map(|(path, line, m)| diag(Severity::Error, m.clone(), path, line)).collect();
+            let output = refusals.iter().map(|(_, _, m)| format!("error: {m}")).collect::<Vec<_>>().join("\n");
+            return Ok(Response::new(CheckResponse { passed: false, diagnostics, output, ..Default::default() }));
+        }
         let mut out: Vec<String> = g.diagnostics.iter().map(|d| format!("warning: {}", d.message)).collect();
         for (word, list) in [("remap", &g.remap), ("cutoff", &g.cutoff), ("diverge", &g.diverge)] {
             for item in list {
@@ -290,6 +297,12 @@ impl ConfigService for ConfigSvc {
                 vec![],
                 Diagnostics { reason: Reason::StaleBase as i32, running_revision: format!("r{}", st.revision()), ..Default::default() },
             ));
+        }
+        // The pools' lists (0.151.12, #73): refused at commit, each a diagnostic.
+        let refusals = cand.config.list_refusals();
+        if !refusals.is_empty() {
+            let items: Vec<Diagnostic> = refusals.iter().map(|(path, line, m)| diag(Severity::Error, m.clone(), path, line)).collect();
+            return Err(refused(tonic::Code::FailedPrecondition, refusals[0].2.clone(), items, Reason::Validation));
         }
         let g = gates(&st.running, &cand.config, st.subscribers as u64);
         let mut missing = Vec::new();

@@ -141,6 +141,13 @@ export interface Pool {
   sessions: number
   /** Prisma 0.151.0 (#68): "cgnat" or "nat64". */
   level?: string
+  /** Prisma 0.151.12 (#73): a side's list ("" when typed); with one, prefixes_* are what it resolved to. */
+  prefix_list_inside?: string
+  prefix_list_outside?: string
+  /** Sources the inside list denies: routed with their own address. */
+  untranslated?: string[]
+  /** Public addresses the outside list's denies took out. */
+  outside_excluded?: string[]
 }
 
 export interface Subscriber {

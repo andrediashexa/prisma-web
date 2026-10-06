@@ -40,6 +40,9 @@ export interface TypedPool {
   name: string
   prefix_inside: string[]
   prefix_outside: string[]
+  /** Prisma 0.151.12 (#73): the `ip prefix-list` a side is given by, "" when typed. */
+  prefix_list_inside?: string
+  prefix_list_outside?: string
   block_size: number
   port_first: number
   port_last: number

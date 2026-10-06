@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.34.0 - Pool prefix-lists — 2026-10-06
+
+### Added
+- On a router with Prisma 0.151.12 or newer, each side of a CGNAT pool can be given by one of the router's prefix-lists instead of prefixes: the pool form offers the lists, and switching a side stages the removal of the other way. The pools table shows a side's list, the prefixes it resolved to, the sources it leaves untranslated and the public addresses it excludes (#73).
+
+### Internal
+- Client regenerated from the Prisma 0.151.12 contract, and the built-in grammar from its coverage map; integration notes read up to 0.151.12 (0.151.10 and 0.151.11 change nothing for prisma-web). The simulated Prisma keeps prefix-lists, resolves a pool's lists and refuses what the router refuses (#73).
+
 ## 0.33.2 - Listen address lists — 2026-10-06
 
 ### Fixed

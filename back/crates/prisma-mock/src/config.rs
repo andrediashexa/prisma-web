@@ -45,6 +45,8 @@ pub struct Config {
     pub hostname: String,
     pub interfaces: Vec<Iface>,
     pub blocks: Vec<Block>,
+    /// `ip prefix-list` and `ipv6 prefix-list` lines, top level, in order (0.151.12, #73).
+    pub lists: Vec<String>,
 }
 
 /// A CGNAT log collector as a `logging udp|tcp|syslog` line configures it.
@@ -87,6 +89,8 @@ fn single_key(line: &str) -> Option<String> {
             if matches!(
                 *k,
                 "block-size"
+                    | "prefix-list-inside"
+                    | "prefix-list-outside"
                     | "mode"
                     | "policy"
                     | "block-holddown"
@@ -161,6 +165,7 @@ impl Config {
             extra: vec![],
         };
         let mut c = Self {
+            lists: vec![],
             hostname: hostname.into(),
             interfaces: vec![
                 iface("wan0", "Carrier uplink", 1500, &["203.0.113.10/29"], &["2001:db8:100::2/64"]),
@@ -270,9 +275,105 @@ impl Config {
             .unwrap_or(256)
     }
 
-    /// The pool's `prefix-outside` addresses (for the capacity).
+    /// `ip prefix-list` lines (0.151.12, #73): an entry replaces the one with its sequence;
+    /// `no ip prefix-list <name>` removes the list, with an entry only that entry.
+    fn edit_list(&mut self, line: &str) -> Result<bool, Refusal> {
+        let (no, body) = match line.strip_prefix("no ") {
+            Some(b) => (true, b.trim()),
+            None => (false, line.trim()),
+        };
+        let w: Vec<&str> = body.split_whitespace().collect();
+        let (fam, rest) = match w.as_slice() {
+            [f @ ("ip" | "ipv6"), "prefix-list", rest @ ..] => (*f, rest),
+            _ => return Ok(false),
+        };
+        let Some(name) = rest.first() else { return Err(refuse("% a prefix-list needs a name", &[], line)) };
+        let head = format!("{fam} prefix-list {name} ");
+        if no {
+            if rest.len() == 1 {
+                self.lists.retain(|l| !l.starts_with(&head));
+            } else {
+                self.lists.retain(|l| l != body);
+            }
+            return Ok(true);
+        }
+        // The IPv6 list keeps FRR's rules: kept as written.
+        let entry = if fam == "ip" { crate::lists::parse(rest).map_err(|m| refuse(m, &[], line))? } else { None };
+        match entry {
+            Some((_, e)) if e.seq > 0 => {
+                let key = format!("{head}seq {} ", e.seq);
+                match self.lists.iter_mut().find(|l| l.starts_with(&key)) {
+                    Some(l) => *l = body.to_string(),
+                    None => self.lists.push(body.to_string()),
+                }
+            }
+            _ if !self.lists.iter().any(|l| l == body) => self.lists.push(body.to_string()),
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    /// A side of a CGNAT pool: its list's name when a list gives it (0.151.12, #73).
+    pub fn pool_list(&self, pool: &str, side: &str) -> String {
+        self.pool_line(pool, &format!("prefix-list-{side} "), "")
+    }
+
+    /// What a side of a CGNAT pool maps: its typed prefixes, or what its list resolves to
+    /// (permits less denies), with the denies that took something out (0.151.12, #73).
+    pub fn pool_side(&self, pool: &str, side: &str) -> (Vec<String>, Vec<String>) {
+        let list = self.pool_list(pool, side);
+        if list.is_empty() {
+            return (self.pool_prefixes(pool, &format!("prefix-{side} ")), vec![]);
+        }
+        crate::lists::resolve(&crate::lists::entries(&self.lists, &list).unwrap_or_default())
+    }
+
+    /// What a commit refuses about the pools' lists (0.151.12, #73): a side given both ways,
+    /// a list that does not exist or has no entry, an entry that matches no address, an inside
+    /// list that translates nothing, an outside one that leaves no public address.
+    pub fn list_refusals(&self) -> Vec<(Vec<String>, String, String)> {
+        let mut out = vec![];
+        for pool in self.pool_names() {
+            let path = vec!["nat".to_string(), "cgnat".to_string(), format!("pool {pool}")];
+            for side in ["inside", "outside"] {
+                let list = self.pool_list(&pool, side);
+                if list.is_empty() {
+                    continue;
+                }
+                let line = format!("prefix-list-{side} {list}");
+                let mut say = |m: String| out.push((path.clone(), line.clone(), m));
+                if !self.pool_prefixes(&pool, &format!("prefix-{side} ")).is_empty() {
+                    say(format!("pool '{pool}': prefix-{side} and prefix-list-{side} both given"));
+                    continue;
+                }
+                let Some(entries) = crate::lists::entries(&self.lists, &list) else {
+                    say(format!("pool '{pool}': prefix-list '{list}' does not exist"));
+                    continue;
+                };
+                if entries.is_empty() {
+                    say(format!("pool '{pool}': prefix-list '{list}' has no entry"));
+                    continue;
+                }
+                if let Some(e) = entries.iter().find(|e| !e.matches_addresses()) {
+                    say(format!("pool '{pool}': prefix-list '{list}' seq {} can match no address", e.seq));
+                    continue;
+                }
+                if self.pool_side(&pool, side).0.is_empty() {
+                    say(if side == "inside" {
+                        format!("pool '{pool}': prefix-list '{list}' translates nothing")
+                    } else {
+                        format!("pool '{pool}': prefix-list '{list}' leaves no public address")
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// The pool's outside addresses (for the capacity): typed, or what its list resolves to.
     pub fn pool_outside_addresses(&self, pool: &str) -> u64 {
-        self.pool_prefixes(pool, "prefix-outside ")
+        self.pool_side(pool, "outside")
+            .0
             .iter()
             .filter_map(|p| p.split_once('/').and_then(|(_, l)| l.parse::<u32>().ok()))
             .map(|len| 1u64 << (32 - len.min(32)))
@@ -401,6 +502,10 @@ impl Config {
             out.push(format!(" mtu {}", i.mtu));
             out.push(" exit".into());
         }
+        if !self.lists.is_empty() {
+            out.extend(self.lists.iter().cloned());
+            out.push("!".into());
+        }
         for top in self.children(&[]) {
             self.render_tree(&[top], 0, &mut out);
             out.push("!".into());
@@ -456,6 +561,9 @@ impl Config {
     }
 
     fn edit_top(&mut self, line: &str) -> Result<(), Refusal> {
+        if self.edit_list(line)? {
+            return Ok(());
+        }
         // `no router ospf`: the block and everything under it.
         if let Some(rest) = line.strip_prefix("no ").map(str::trim) {
             if self.blocks.iter().any(|b| b.path[0] == rest) {
@@ -991,6 +1099,31 @@ mod tests {
     }
 
     #[test]
+    fn a_pool_side_given_by_a_list() {
+        // Prisma 0.151.12 (#73): the list's permits less its denies; refusals at commit.
+        let mut c = Config::seed("t");
+        c.edit(&[], &p(&["ip prefix-list SUBS seq 5 deny 100.64.1.0/24 description \"management\"", "ip prefix-list SUBS seq 10 permit 100.64.0.0/22"])).ok().unwrap();
+        c.edit(&[], &p(&["ip prefix-list PUBLIC seq 10 permit 198.51.100.0/28"])).ok().unwrap();
+        let pool = p(&["nat", "cgnat", "pool LISTS"]);
+        c.edit(&pool, &p(&["prefix-list-inside SUBS", "prefix-list-outside PUBLIC", "block-size 512"])).ok().unwrap();
+        assert_eq!(c.pool_side("LISTS", "inside"), (p(&["100.64.0.0/24", "100.64.2.0/23"]), p(&["100.64.1.0/24"])));
+        assert_eq!(c.pool_outside_addresses("LISTS"), 16);
+        assert!(c.list_refusals().is_empty(), "{:?}", c.list_refusals());
+        assert!(c.render().contains("ip prefix-list SUBS seq 5 deny 100.64.1.0/24 description \"management\"\n"));
+        // The same sequence replaces the entry; a list a pool names must exist; both ways refused.
+        c.edit(&[], &p(&["ip prefix-list PUBLIC seq 10 permit 198.51.100.16/28"])).ok().unwrap();
+        assert_eq!(c.pool_side("LISTS", "outside").0, ["198.51.100.16/28"]);
+        c.edit(&pool, &p(&["prefix-inside 10.0.0.0/8"])).ok().unwrap();
+        assert!(c.list_refusals()[0].2.contains("prefix-inside and prefix-list-inside both given"));
+        c.edit(&pool, &p(&["no prefix-inside 10.0.0.0/8", "prefix-list-outside NOPE"])).ok().unwrap();
+        assert_eq!(c.list_refusals()[0].2, "pool 'LISTS': prefix-list 'NOPE' does not exist");
+        c.edit(&pool, &p(&["no prefix-list-outside"])).ok().unwrap();
+        assert_eq!(c.pool_list("LISTS", "outside"), "");
+        // A NAT64 pool takes no list.
+        assert!(c.edit(&p(&["nat", "nat64", "pool V6"]), &p(&["prefix-list-inside SUBS"])).is_err());
+    }
+
+    #[test]
     fn networks() {
         assert_eq!(network("203.0.113.10/29").unwrap(), "203.0.113.8/29");
         assert_eq!(network("2001:db8:200:10::1/64").unwrap(), "2001:db8:200:10::/64");
@@ -1010,6 +1143,7 @@ fn check_pool_line(path: &[String], line: &str) -> Result<(), Refusal> {
         ("cgnat", ["prefix-inside", p]) if p.contains(':') => Some("% an IPv6 inside prefix is a NAT64 pool's: it goes under nat > nat64"),
         ("cgnat", ["subscriber-length" | "nat64-prefix", ..]) => Some("% a NAT64 pool's statement: it goes under nat > nat64"),
         ("nat64", ["bypass", ..]) => Some("% a NAT64 pool takes no bypass"),
+        ("nat64", ["prefix-list-inside" | "prefix-list-outside", ..]) => Some("% a NAT64 pool takes no prefix-list"),
         _ => None,
     };
     match refused {
