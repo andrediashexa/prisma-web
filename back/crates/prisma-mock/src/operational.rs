@@ -489,8 +489,11 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         if !crate::transceivers::answered() {
             return Err(Status::unimplemented("ListTransceivers is not in this release"));
         }
-        let rx = self.shared.state.lock().unwrap().wan0_rx_mw;
-        Ok(Response::new(crate::transceivers::list(&req.get_ref().names, rx)))
+        let st = self.shared.state.lock().unwrap();
+        if st.old_plugin {
+            return Ok(Response::new(crate::transceivers::old_plugin()));
+        }
+        Ok(Response::new(crate::transceivers::list(&req.get_ref().names, st.wan0_rx_mw)))
     }
 
     // `show log` (0.151.14, #75); a box before it has no such call.
@@ -802,6 +805,16 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             };
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
+        // Test hook (#77): the dataplane runs the plugin from before the upgrade, or not.
+        if let Some(on) = command.trim().strip_prefix("mock transceivers old-plugin ") {
+            let on = match on {
+                "on" => true,
+                "off" => false,
+                _ => return Err(Status::invalid_argument("mock transceivers old-plugin on|off")),
+            };
+            self.shared.state.lock().unwrap().old_plugin = on;
+            return Ok(Response::new(ShowResponse { text: format!("old plugin {on}\n"), ..Default::default() }));
         }
         // Test hook (#76): wan0's RX power, in mW (0 is no light).
         if let Some(mw) = command.trim().strip_prefix("mock transceiver wan0 rx ") {

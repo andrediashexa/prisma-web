@@ -65,7 +65,7 @@ function Value({ l, unit, label }: { l: TransceiverLevel | null; unit: "°C" | "
  * a minute. Not shown on a box before it (the back answers 501).
  */
 export function TransceiversCard({ routerId }: { routerId: string }) {
-  const { data, error } = useSWR<{ dataplane_answered: boolean; transceivers: Transceiver[] }>(routerApi(routerId, "/transceivers"), fetcher, {
+  const { data, error } = useSWR<{ dataplane_answered: boolean; transceivers: Transceiver[]; text: string }>(routerApi(routerId, "/transceivers"), fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: false,
   })
@@ -91,6 +91,13 @@ export function TransceiversCard({ routerId }: { routerId: string }) {
         )}
         {data && !data.dataplane_answered && (
           <p className="text-sm text-amber-700 dark:text-amber-300">The dataplane did not answer: its ports are missing below, the cards Linux owns are there.</p>
+        )}
+        {/* After an upgrade, before the dataplane restarts, its plugin cannot read modules (0.151.16, #77). */}
+        {data?.dataplane_answered && !data.transceivers.some((t) => t.source !== "linux") && (
+          <div className="space-y-1 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200" data-no-dataplane-ports>
+            <p>The dataplane listed no port. The router says:</p>
+            <pre className="font-mono text-xs whitespace-pre-wrap">{data.text.trim()}</pre>
+          </div>
         )}
         {!data && !error && <Skeleton className="h-24 w-full" />}
         {data && (

@@ -76,6 +76,15 @@ fn optical(name: &str, device: &str, serial: &str, rx_mw: f64) -> Transceiver {
     }
 }
 
+/// Between an upgrade and the dataplane's restart (0.151.16, #77): the plugin it runs cannot read
+/// modules, so no dataplane port is listed; the Linux card still is.
+pub fn old_plugin() -> Transceivers {
+    let mut t = list(&[], 0.48);
+    t.transceivers.retain(|x| x.source == "linux");
+    t.text = "    note: the dataplane runs a plugin older than this VTY, which cannot read\n    its ports' modules; 'system dataplane restart' loads the one this release\n    carries\n".into();
+    t
+}
+
 /// Every module, `rx` the RX power of wan0 (a test hook moves it), narrowed to `names`.
 pub fn list(names: &[String], wan0_rx_mw: f64) -> Transceivers {
     let all = vec![
