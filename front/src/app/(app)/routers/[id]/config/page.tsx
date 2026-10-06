@@ -8,6 +8,7 @@ import { FilePenLineIcon, HardDriveDownloadIcon, HistoryIcon, Loader2Icon, PlayI
 
 import { ChangeReview, discardCandidate } from "@/components/config/change-review"
 import { DiagnosticsList } from "@/components/config/diagnostics"
+import { EditWords } from "@/components/config/edit-words"
 import { ConfigView } from "@/components/config/diff-view"
 import {
   AlertDialog,
@@ -28,7 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { useRouterAccess, useRouterRole } from "@/hooks/use-routers"
+import { useFleetStatus, useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import { formatDateTime, formatTime } from "@/lib/format"
 import {
@@ -40,6 +41,7 @@ import {
   type OpenCandidateResponse,
   type Revision,
 } from "@/lib/types"
+import { editWordsOffered } from "@/lib/edit-words"
 import { parsePath } from "@/lib/vty"
 
 interface AppliedEdit {
@@ -283,6 +285,8 @@ function CandidateEditor({
   const expired = expiredNow || isExpired(textError)
   const [refusal, setRefusal] = useState<Refusal | null>(carried.refusal)
   const [reviewing, setReviewing] = useState(false)
+  // `replace pattern` and `rename` (Prisma 0.151.13, #74): the release says, not the grammar.
+  const editWords = editWordsOffered(useFleetStatus().data?.find((r) => r.id === routerId)?.version?.release)
 
   async function apply(e: React.FormEvent) {
     e.preventDefault()
@@ -405,6 +409,17 @@ function CandidateEditor({
                 Apply to candidate
               </Button>
             </form>
+
+            {editWords && (
+              <EditWords
+                base={base}
+                path={parsePath(path)}
+                onApplied={async (e) => {
+                  setApplied((a) => [...a, e])
+                  await mutate()
+                }}
+              />
+            )}
 
             {applied.length > 0 && (
               <div className="mt-6 space-y-3">

@@ -481,6 +481,22 @@ def typed_form_checks(admin, R):
     check("mtu 9000" not in running["text"] and "logging tcp" not in running["text"], "configuration back to before the typed checks")
 
 
+def syslog_guard_checks(admin, R):
+    """The syslog disable guard (Prisma before 0.149.8, #31), on the line-only mock: the main
+    mock reports 0.151.13 since #74."""
+    st, revs3 = admin.get(f"{R}/config/revisions")
+    st, c3 = admin.post(f"{R}/config/candidates")
+    C3 = f"{R}/config/candidates/{c3['candidate_id']}"
+    st, b = admin.post(f"{C3}/edit", {"path": ["nat", "cgnat"], "lines": ["logging syslog disable"]})
+    check(st == 200, "logging syslog disable applied to a candidate", b)
+    st, b = admin.post(f"{C3}/commit", {"comment": "e2e: syslog disable"})
+    check(st == 409 and "0.149.8" in b["error"]["message"] and "never enabled" in b["error"]["message"],
+          "disabling a never-enabled syslog on a box before 0.149.8 is refused with the reason", b)
+    st, revs4 = admin.get(f"{R}/config/revisions")
+    check(len(revs4["revisions"]) == len(revs3["revisions"]), "nothing was committed")
+    admin.delete(C3)
+
+
 def line_fallback_checks(admin, args):
     """A box without the typed calls (MOCK_NO_TYPED, prisma-mock-lines): the back end answers 501
     and the forms keep writing lines, which still work (#46)."""
@@ -504,6 +520,7 @@ def line_fallback_checks(admin, args):
         st, cmp = admin.get(f"{C}/compare")
         check(any(l.startswith("+") and l[1:].strip() == "neighbor 192.0.2.47 remote-as 64747" for l in cmp["diff"].splitlines()), "and reaches the diff", cmp)
         admin.delete(C)
+        syslog_guard_checks(admin, R)
         s = next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])
         check(s.get("system_service") is None, "a box before 0.149.25 has no SystemService: the clears are not offered", s)
         st, b = admin.post(f"{R}/clear", {"target": "interface_counters"})
@@ -986,6 +1003,37 @@ def commit_lines(admin, R, edits, comment, **acks):
     return chk, st, b
 
 
+def edit_words_checks(admin, R, router_id):
+    """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
+    s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
+    check((s.get("version") or {}).get("release", "").startswith("0.151.13"), "the main mock reports 0.151.13", s.get("version"))
+    st, c = admin.post(f"{R}/config/candidates")
+    C = f"{R}/config/candidates/{c['candidate_id']}"
+    try:
+        st, b = admin.post(f"{C}/edit", {"path": [], "lines": ["ip prefix-list E2E-RN seq 10 permit 100.81.0.0/22"]})
+        st, b = admin.post(f"{C}/edit", {"path": ["nat", "cgnat", "pool E2E-RN"],
+                                         "lines": ["prefix-list-inside E2E-RN", "prefix-outside 198.51.100.112/28", "block-size 512"]})
+        check(st == 200, "a pool on a list in the candidate", b)
+        at = ["nat", "cgnat", "pool E2E-RN"]
+        st, b = admin.post(f"{C}/edit", {"path": at, "lines": ['replace pattern "block-size 512" with "block-size 1024" | compare']})
+        st2, t = admin.get(C)
+        check(st == 200 and "+ block-size 1024" in b["output"] and "block-size 512" in t["text"],
+              "replace with | compare answers the difference and stages nothing", b)
+        st, b = admin.post(f"{C}/edit", {"path": at, "lines": ['replace pattern "block-size (\\d+)" with "block-size 2\\1"']})
+        st2, t = admin.get(C)
+        check(st == 200 and "block-size 2512" in t["text"], "replace stages it, a group in the replacement", (b, t["text"][-400:]))
+        st, b = admin.post(f"{C}/edit", {"path": [], "lines": ["rename ip prefix-list E2E-RN to E2E-RN2"]})
+        st2, t = admin.get(C)
+        check(st == 200 and "ip prefix-list E2E-RN2 seq 10" in t["text"] and "prefix-list-inside E2E-RN2" in t["text"],
+              "rename renames the list and the pool's reference to it", b)
+        st, b = admin.post(f"{C}/edit", {"path": at, "lines": ['replace pattern "x*" with "y"']})
+        check(st >= 400 and "empty string" in errmsg(b), "a pattern that matches an empty string is refused, in the box's words", b)
+        st, b = admin.post(f"{C}/edit", {"path": [], "lines": [f"rename nat cgnat pool E2E-RN to {'RFC6598'}"]})
+        check(st >= 400 and "exists" in errmsg(b), "a rename to a name taken is refused", b)
+    finally:
+        admin.delete(C)
+
+
 def pool_list_checks(admin, R):
     """A CGNAT pool's sides as prefix-lists (Prisma 0.151.12, #73), on the mock."""
     lists = ['ip prefix-list E2E-SUBS seq 5 deny 100.80.1.0/24 description "management"', "ip prefix-list E2E-SUBS seq 10 permit 100.80.0.0/22",
@@ -1383,6 +1431,7 @@ def main():
         pending_configuration_checks(admin, R, router_id)
         next_hop_checks(admin, R)
         pool_list_checks(admin, R)
+        edit_words_checks(admin, R, router_id)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
@@ -1492,19 +1541,6 @@ def main():
         check("mtu 9000" not in running2["text"], "configuration is back to what it was", running2["revision"])
         st, revs2 = admin.get(f"{R}/config/revisions")
         check(len(revs2["revisions"]) == n_revs0 + 2, "two new revisions (commit and rollback)")
-
-        # --- syslog disable guard (Prisma before 0.149.8, #31) ----------------------
-        st, revs3 = admin.get(f"{R}/config/revisions")
-        st, c3 = admin.post(f"{R}/config/candidates")
-        C3 = f"{R}/config/candidates/{c3['candidate_id']}"
-        st, b = admin.post(f"{C3}/edit", {"path": ["nat", "cgnat"], "lines": ["logging syslog disable"]})
-        check(st == 200, "logging syslog disable applied to a candidate", b)
-        st, b = admin.post(f"{C3}/commit", {"comment": "e2e: syslog disable"})
-        check(st == 409 and "0.149.8" in b["error"]["message"] and "never enabled" in b["error"]["message"],
-              "disabling a never-enabled syslog on a box before 0.149.8 is refused with the reason", b)
-        st, revs4 = admin.get(f"{R}/config/revisions")
-        check(len(revs4["revisions"]) == len(revs3["revisions"]), "nothing was committed")
-        admin.delete(C3)
 
         cgnat_forms_checks(admin, R)
 
