@@ -7,6 +7,7 @@ import { StatCard } from "@/components/stat-card"
 import { Badge } from "@/components/ui/badge"
 import { fetcher } from "@/lib/api"
 import { formatBytes, formatNumber, formatPercent, formatUptime, isIpv6, isLinkLocal } from "@/lib/format"
+import { restartNote } from "@/lib/start-cause"
 import {
   routerApi,
   type RouterInterface,
@@ -42,9 +43,9 @@ export function RouterStatsWidget({ routerId }: { routerId: string }) {
           ver && (
             <span className="flex flex-wrap items-center gap-1.5">
               Prisma {ver.release}
-              {sys?.dataplane_restarted && (
-                <Badge variant="destructive" title="The dataplane started well after the box: it restarted by itself and dropped every session it carried.">
-                  dataplane restarted by itself
+              {restartNote(sys) && (
+                <Badge variant={restartNote(sys)!.tone === "destructive" ? "destructive" : "outline"} title={restartNote(sys)!.long}>
+                  {restartNote(sys)!.short}
                 </Badge>
               )}
               {!ver.dataplane_current && (

@@ -24,6 +24,13 @@ const RELEASE: &str = "0.149.0-mock";
 
 /// `MOCK_RELEASE` overrides the release the mock reports (#51: prisma-mock-2 is a 0.149.26
 /// box whose account has no `operator`).
+/// Whether the release the mock reports is `min` or newer.
+pub fn release_at_least(min: (u32, u32, u32)) -> bool {
+    let r = release();
+    let mut it = r.split(['.', '-']).map(|n| n.parse::<u32>().ok());
+    matches!((it.next().flatten(), it.next().flatten(), it.next().flatten()), (Some(a), Some(b), Some(c)) if (a, b, c) >= min)
+}
+
 fn release() -> String {
     std::env::var("MOCK_RELEASE").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| RELEASE.into())
 }
@@ -322,6 +329,13 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         // worker load only as text.
         let legacy = std::env::var("MOCK_NO_LOAD_NUMBERS").is_ok_and(|v| v == "1");
         let dataplane = if restarted { now - chrono::Duration::minutes(15) } else { boot + chrono::Duration::seconds(40) };
+        // Why each last started (0.151.14, #75): as recorded; "" before it, or a start not recorded.
+        let (dataplane, dataplane_cause) = match &st.dataplane_start {
+            Some((at, cause)) => (*at, cause.clone()),
+            None => (dataplane, if restarted { "unexpected".to_string() } else { "boot".to_string() }),
+        };
+        let restarted = restarted || st.dataplane_start.is_some();
+        let recorded = crate::box_log::recorded();
         let ts = |t: chrono::DateTime<chrono::Utc>| Some(prost_types::Timestamp { seconds: t.timestamp(), nanos: 0 });
         // Third-party SFP+ modules (0.151.2, #69): configured, and as the mock last "booted".
         let sfp_configured = st.running.unsupported_sfp_allowed();
@@ -342,6 +356,8 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             last_boot_reason: "system reboot by admin".into(),
             release_installed_at: ts(boot - chrono::Duration::hours(2)),
             dataplane_restarted: restarted,
+            dataplane_start_cause: if recorded { dataplane_cause } else { String::new() },
+            control_plane_start_cause: if recorded { "boot".into() } else { String::new() },
             // Memory and worker load in numbers (Prisma 0.149.2). busy_ratio is
             // VPP's share of node clocks: a saturated worker reads about 0.5.
             memory_total_bytes: if legacy { 0 } else { 32 << 30 },
@@ -468,6 +484,19 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     // What the boot left out (0.151.5, #70).
+    // `show log` (0.151.14, #75); a box before it has no such call.
+    async fn list_events(&self, req: Request<ListEventsRequest>) -> R<ListEventsResponse> {
+        if !crate::box_log::recorded() {
+            return Err(Status::unimplemented("ListEvents is not in this release"));
+        }
+        let mut st = self.shared.state.lock().unwrap();
+        if st.box_log.is_empty() {
+            let boot = chrono::Utc::now() - chrono::Duration::seconds(st.uptime_seconds() as i64);
+            st.box_log = crate::box_log::seed(boot);
+        }
+        crate::box_log::list(&st.box_log, req.get_ref(), chrono::Utc::now()).map(Response::new)
+    }
+
     async fn get_pending_configuration(&self, _: Request<GetPendingConfigurationRequest>) -> R<PendingConfiguration> {
         before_0_150_3()?;
         Ok(Response::new(self.shared.state.lock().unwrap().boot_pending.clone().unwrap_or_default()))
@@ -764,6 +793,22 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             };
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
+        // Test hook (#75): the dataplane starts now for a cause (`none`: a start not recorded).
+        if let Some(cause) = command.trim().strip_prefix("mock dataplane-start ") {
+            let cause = match cause {
+                "boot" | "operator" | "upgrade" | "unexpected" => cause,
+                "none" => "",
+                _ => return Err(Status::invalid_argument("mock dataplane-start boot|operator|upgrade|unexpected|none (boot: back to the boot's start)")),
+            };
+            let mut st = self.shared.state.lock().unwrap();
+            match cause {
+                // Back to the start the boot brought about: no restart.
+                "boot" => st.dataplane_start = None,
+                "" => st.dataplane_start = Some((chrono::Utc::now(), String::new())),
+                _ => st.dataplane_started_now(cause, ""),
+            }
+            return Ok(Response::new(ShowResponse { text: format!("dataplane started ({cause})\n"), ..Default::default() }));
         }
         // Test hook (#70): the "boot" leaves a card's statements out, or not.
         if let Some(state) = command.trim().strip_prefix("mock pending ") {

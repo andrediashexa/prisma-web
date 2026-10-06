@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.13 | `98c0792a12131f8918bdc7a0c87a96e6e0e446da03f1f3f44bd4e3442bc9ba69` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.151.13 | `2fcd828dad370714b5ac2f95183f688dd019e48b33cabc229b3bba7232a16bf2` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.13 | `99d2cb7f74ea386b4c971d356d10ea1bb02e4ecc02dc470dbf7d858bed24a0a5` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.14 | `4a495aa2af8217b138a20a364611114576addf3db0cb0f3b272e9b74adb25834` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.151.14 | `2708c4f7941f4992da37fe3b4e85d05131eb0f0690af5277e328c72d7f4d3aa9` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.14 | `eadbbe259f1ca47514e12cf409dfc090f0735464bbb63e89d4d86a337be2cfc1` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) all three.
 
-Read up to 0.151.13 in `clients.md` and already handled:
+Read up to 0.151.14 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -584,6 +584,27 @@ Read up to 0.151.13 in `clients.md` and already handled:
   IPv4 prefix-lists with their references; the main mock reports `0.151.13-mock` (compose's
   `MOCK_RELEASE`), so the guard for syslog disable before 0.149.8 (#31) is checked on the
   line-only mock, which stays `0.149.0-mock`.
+- 0.151.14 (additive, prismarouting #588 phase 1) gives `show log` as
+  `OperationalService.ListEvents` and the start causes, followed in #75. ListEvents answers the
+  box's record, oldest first: `BoxEvent` with `time`, `severity`, `source`, `text` (shown as
+  is), `account`, `origin`, `kind` (`commit`, `rollback`, `confirm`, `confirm-expired`,
+  `asked`, `start`, `boot`, `upgraded`; more may come) and, for a start, `component` and
+  `cause`; its filters are `last` (0 with no `since` is the last 50), `since` (`30m`, `1h`,
+  `2d`, `1w` or an ISO date or time), `severity` (that level and above) and `source`, and a
+  filter the box does not take is INVALID_ARGUMENT in its words. The back relays it as
+  `GET /routers/{id}/events` (501 before 0.151.14); the router page's **Box log** card shows it,
+  newest first, with the four filters. `SystemInfo.dataplane_start_cause` (25) and
+  `control_plane_start_cause` (26) are `boot`, `operator`, `upgrade`, `unexpected`, or `""`
+  when the box has not recorded that start (a release before 0.151.14 started it): with
+  `dataplane_restarted`, the Uptime card, the router's header badge and the fleet list say
+  "restarted by itself" only for `unexpected`, name the cause for `operator` and `upgrade`, and
+  say the start was not recorded for `""` (on 2026-10-05 the "restarted by itself" on
+  192.0.2.166 was the 0.151.4 upgrade). The API's own commits, confirms and system actions are
+  recorded by the box with the certificate's account. The mock keeps such a record (its commits
+  and confirms, the reboots, shutdowns and dataplane restarts asked, and the starts with their
+  causes; `mock dataplane-start <cause>` for a start), answers the filters and reports the causes
+  from 0.151.14; the main mock reports `0.151.14-mock`, the line-only one has no ListEvents.
+  192.0.2.166 is on 0.151.10.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

@@ -68,8 +68,11 @@ export interface SystemInfo {
   /** Verbatim, as recorded by the box ("system reboot by <account>", "not recorded"). */
   last_boot_reason?: string
   release_installed_at?: string | null
-  /** The dataplane started more than five minutes after the box: it restarted by itself. */
+  /** The dataplane started more than five minutes after the box; why is the cause below. */
   dataplane_restarted?: boolean
+  /** Prisma 0.151.14 (#75): "boot", "operator", "upgrade", "unexpected", or "" (not recorded). */
+  dataplane_start_cause?: string
+  control_plane_start_cause?: string
   // Memory and worker load in numbers, Prisma 0.149.2 (#25). 0 / empty on older boxes.
   /** The host's RAM, from the kernel's meminfo. */
   memory_total_bytes?: number

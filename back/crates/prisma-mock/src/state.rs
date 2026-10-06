@@ -85,6 +85,10 @@ pub struct State {
     pub unsupported_sfp_booted: bool,
     /// What the "boot" left out (0.151.5, #70), set by a test hook.
     pub boot_pending: Option<prisma_proto::v1::PendingConfiguration>,
+    /// `show log` (0.151.14, #75): the box's record, oldest first.
+    pub box_log: Vec<prisma_proto::v1::BoxEvent>,
+    /// The dataplane's last start when it is not the boot's: when, and the cause recorded.
+    pub dataplane_start: Option<(DateTime<Utc>, String)>,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -165,6 +169,8 @@ impl State {
             bfd_down: std::collections::HashSet::new(),
             unsupported_sfp_booted: false,
             boot_pending: None,
+            box_log: vec![],
+            dataplane_start: None,
         }
     }
 
@@ -203,6 +209,27 @@ impl State {
 
     pub fn revision(&self) -> u64 {
         self.revisions.last().map_or(0, |r| r.number)
+    }
+
+    /// Records an event in `show log` (0.151.14, #75), on a box that keeps one.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record(&mut self, severity: &str, source: &str, kind: &str, text: String, account: &str, origin: &str, start: Option<(&str, &str)>) {
+        if !crate::box_log::recorded() {
+            return;
+        }
+        if self.box_log.is_empty() {
+            let boot = Utc::now() - chrono::Duration::seconds(self.uptime_seconds() as i64);
+            self.box_log = crate::box_log::seed(boot);
+        }
+        self.box_log.push(crate::box_log::event(Utc::now(), severity, source, kind, text, account, origin, start));
+    }
+
+    /// The dataplane started now, for `cause` ("" when the start is not recorded).
+    pub fn dataplane_started_now(&mut self, cause: &str, account: &str) {
+        self.dataplane_start = Some((Utc::now(), cause.to_string()));
+        if !cause.is_empty() {
+            self.record(if cause == "unexpected" { "warning" } else { "info" }, "dataplane", "start", format!("the dataplane started ({cause})"), account, "the box", Some(("dataplane", cause)));
+        }
     }
 
     pub fn uptime_seconds(&self) -> u64 {

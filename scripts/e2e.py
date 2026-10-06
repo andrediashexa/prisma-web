@@ -521,6 +521,8 @@ def line_fallback_checks(admin, args):
         check(any(l.startswith("+") and l[1:].strip() == "neighbor 192.0.2.47 remote-as 64747" for l in cmp["diff"].splitlines()), "and reaches the diff", cmp)
         admin.delete(C)
         syslog_guard_checks(admin, R)
+        st, b = admin.get(f"{R}/events")
+        check(st == 501, "a box before 0.151.14 has no ListEvents: 501, the card not shown", b)
         s = next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])
         check(s.get("system_service") is None, "a box before 0.149.25 has no SystemService: the clears are not offered", s)
         st, b = admin.post(f"{R}/clear", {"target": "interface_counters"})
@@ -1003,10 +1005,37 @@ def commit_lines(admin, R, edits, comment, **acks):
     return chk, st, b
 
 
+def box_log_checks(admin, R):
+    """`show log` and why each start (Prisma 0.151.14, #75), on the mock that reports 0.151.14."""
+    st, b = admin.get(f"{R}/events")
+    kinds = [e["kind"] for e in (b or {}).get("events", [])]
+    check(st == 200 and "boot" in kinds and b.get("text"), "ListEvents answers the box's record, the boot in it, and show log's screen", kinds[:5])
+    commits = [e for e in b["events"] if e["kind"] == "commit"]
+    check(commits and commits[-1]["source"] == "api" and commits[-1]["origin"] == "the API" and commits[-1]["account"] and commits[-1]["time"],
+          "a commit through the API is in it, with its account, origin and time", commits[-1:])
+    st, b = admin.get(f"{R}/events?last=1")
+    check(st == 200 and len(b["events"]) == 1 and b["events"][0]["kind"] == kinds[-1], "last=1 is the newest one", b["events"])
+    st, b = admin.get(f"{R}/events?source=api&since=1h")
+    check(st == 200 and b["events"] and all(e["source"] == "api" for e in b["events"]), "source and since filter it", len(b.get("events", [])))
+    st, b = admin.get(f"{R}/events?since=yesterday")
+    check(st == 422 and "is not a time" in errmsg(b), "a since the box does not take is refused, in its words", b)
+    st, sy = admin.get(f"{R}/system")
+    check(st == 200 and sy.get("control_plane_start_cause") == "boot", "GetSystem says why the routing daemons last started", sy.get("control_plane_start_cause"))
+    for cause, restarted in [("unexpected", True), ("operator", True), ("boot", False)]:
+        st, b = admin.post(f"{R}/show", {"command": f"mock dataplane-start {cause}"})
+        st, sy = admin.get(f"{R}/system")
+        check(sy.get("dataplane_start_cause") == cause and sy.get("dataplane_restarted") == restarted,
+              f"mock: a dataplane start for {cause} reads as dataplane_start_cause {cause}", {k: sy.get(k) for k in ("dataplane_start_cause", "dataplane_restarted")})
+    st, b = admin.get(f"{R}/events?source=dataplane&last=2")
+    causes = [e["cause"] for e in b["events"] if e["kind"] == "start"]
+    check(causes[-2:] == ["unexpected", "operator"] and b["events"][-2]["severity"] == "warning",
+          "each start is in the log with its cause, an unexpected one a warning", causes)
+
+
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.151.13"), "the main mock reports 0.151.13", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.151.14"), "the main mock reports 0.151.14 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:
@@ -1197,6 +1226,14 @@ def lab(admin, args):
         else:
             check(st == 200 and [s["kind"] for s in lg["streams"]] == ["syslog", "ipfix-tcp", "ipfix-udp"],
                   f"GetLogging of the real Prisma ({sum(s['configured'] for s in lg['streams'])} of 3 streams configured, log export {st_lab.get('log_export')})", lg)
+        # Prisma 0.151.14 (#75): read only, the box's log and the start causes.
+        st, ev = admin.get(R + "/events?last=20")
+        if st == 501:
+            check(True, "ListEvents not on this box (before 0.151.14)")
+        else:
+            check(st == 200 and isinstance(ev.get("events"), list), f"the real Prisma's log: {len(ev.get('events', []))} events", ev.get("text", "")[:200])
+            st, sy = admin.get(R + "/system")
+            check(st == 200, f"the real Prisma's start causes: dataplane '{sy.get('dataplane_start_cause')}', routing '{sy.get('control_plane_start_cause')}'", None)
         # Prisma 0.151.5 (#70): read only, the health and the screen.
         if st_lab.get("configuration"):
             st, pc = admin.get(R + "/screens/pending-configuration")
@@ -1432,6 +1469,7 @@ def main():
         next_hop_checks(admin, R)
         pool_list_checks(admin, R)
         edit_words_checks(admin, R, router_id)
+        box_log_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

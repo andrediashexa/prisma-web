@@ -53,7 +53,7 @@ fn running_upgrade(st: &crate::state::State) -> bool {
 
 impl SystemSvc {
     /// Reboot and Shutdown: refused while unsaved or inside a confirm window, unless `force`.
-    fn power(&self, req: &SystemActionRequest, what: &str) -> Result<Response<SystemActionResponse>, Status> {
+    fn power(&self, req: &SystemActionRequest, what: &str, account: &str) -> Result<Response<SystemActionResponse>, Status> {
         if let Some(e) = denied() {
             return Err(e);
         }
@@ -70,6 +70,8 @@ impl SystemSvc {
         // A reboot boots with what the configuration says about SFP+ modules (0.151.2, #69).
         let mut st = self.0.state.lock().unwrap();
         st.unsupported_sfp_booted = st.running.unsupported_sfp_allowed();
+        // Recorded as asked, before the box acts (0.151.14, #75).
+        st.record("notice", "api", "asked", format!("system {what} asked by {account}"), account, "the API", Some(("dataplane", "boot")));
         drop(st);
         self.0.emit("system", format!("system {what} (simulated)"));
         Ok(Response::new(SystemActionResponse { output: format!("the box will {what} now (simulated)"), ..Default::default() }))
@@ -79,14 +81,15 @@ impl SystemSvc {
 #[tonic::async_trait]
 impl SystemService for SystemSvc {
     async fn reboot(&self, req: Request<SystemActionRequest>) -> Result<Response<SystemActionResponse>, Status> {
-        self.power(req.get_ref(), "reboot")
+        self.power(req.get_ref(), "reboot", &crate::session::account_of(&req))
     }
 
     async fn shutdown(&self, req: Request<SystemActionRequest>) -> Result<Response<SystemActionResponse>, Status> {
-        self.power(req.get_ref(), "shut down")
+        self.power(req.get_ref(), "shut down", &crate::session::account_of(&req))
     }
 
-    async fn restart_dataplane(&self, _: Request<SystemActionRequest>) -> Result<Response<SystemActionResponse>, Status> {
+    async fn restart_dataplane(&self, req: Request<SystemActionRequest>) -> Result<Response<SystemActionResponse>, Status> {
+        let account = crate::session::account_of(&req);
         if let Some(e) = denied() {
             return Err(e);
         }
@@ -107,6 +110,11 @@ impl SystemService for SystemSvc {
                 _ => {}
             }
         }
+        // Asked, then the start it brings about, `operator` (0.151.14, #75).
+        let mut st = self.0.state.lock().unwrap();
+        st.record("notice", "api", "asked", format!("system dataplane restart asked by {account}"), &account, "the API", Some(("dataplane", "operator")));
+        st.dataplane_started_now("operator", &account);
+        drop(st);
         Ok(Response::new(SystemActionResponse { output: "dataplane restarted (simulated)".into(), ..Default::default() }))
     }
 

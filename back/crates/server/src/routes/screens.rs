@@ -120,6 +120,26 @@ pub async fn watch_bfd(State(st): State<AppState>, _: CurrentUser, Path(id): Pat
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct EventsQuery {
+    last: u32,
+    since: String,
+    severity: String,
+    source: String,
+}
+
+/// `show log` (Prisma 0.151.14, #75): the box's record of what happened on it, oldest first, with
+/// its filters; a filter the box does not take is refused in its words, a box before it is 501.
+pub async fn events(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>, Query(q): Query<EventsQuery>) -> AppResult<Json<Value>> {
+    if q.last > 10_000 {
+        return Err(AppError::BadRequest("last is at most 10000".into()));
+    }
+    let r = st.routers.get(id).await?;
+    let msg = ListEventsRequest { last: q.last, since: q.since.trim().into(), severity: q.severity.trim().into(), source: q.source.trim().into() };
+    Ok(Json(to_json(&r.ops().list_events(req(msg)).await?.into_inner())))
+}
+
 #[derive(Deserialize)]
 pub struct SnmpQuery {
     kind: String,

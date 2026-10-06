@@ -290,6 +290,7 @@ impl ConfigService for ConfigSvc {
     }
 
     async fn commit(&self, req: Request<CommitRequest>) -> R<CommitResponse> {
+        let account = crate::session::account_of(&req);
         let req = req.into_inner();
         let shared = self.0.clone();
         let mut st = shared.state.lock().unwrap();
@@ -354,7 +355,9 @@ impl ConfigService for ConfigSvc {
         let previous = std::mem::replace(&mut st.running, cand.config);
         let comment = if req.comment.is_empty() { "commit".to_string() } else { req.comment.clone() };
         let number = st.push_revision(comment.clone());
-        shared.emit_commit(format!("r{number}"), comment);
+        shared.emit_commit(format!("r{number}"), comment.clone());
+        // `show log` (0.151.14, #75): a commit through the API, by the certificate's account.
+        st.record("notice", "api", "commit", format!("commit r{number} by {account}: {comment}"), &account, "the API", None);
 
         let mut confirm_deadline = None;
         let mut output = format!("commit complete (revision r{number})");
@@ -395,11 +398,14 @@ impl ConfigService for ConfigSvc {
         Ok(Response::new(CommitResponse { revision: format!("r{number}"), confirm_deadline, diagnostics: vec![], output, ..Default::default() }))
     }
 
-    async fn confirm(&self, _: Request<ConfirmRequest>) -> R<ConfirmResponse> {
+    async fn confirm(&self, req: Request<ConfirmRequest>) -> R<ConfirmResponse> {
+        let account = crate::session::account_of(&req);
         let mut st = self.0.state.lock().unwrap();
         if st.pending.take().is_none() {
             return Err(refused(tonic::Code::FailedPrecondition, "no commit confirmed is pending", vec![], Reason::Other));
         }
+        let at = st.revision();
+        st.record("notice", "api", "confirm", format!("commit r{at} confirmed by {account}"), &account, "the API", None);
         self.0.emit("confirmed", format!("revision r{}", st.revision()));
         Ok(Response::new(ConfirmResponse { diagnostics: vec![], output: "commit confirmed".into(), ..Default::default() }))
     }

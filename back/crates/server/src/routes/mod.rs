@@ -54,6 +54,8 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/cgnat/{screen}", get(cgnat_screens::screen))
         .route("/routers/{id}/screens/{name}", get(screens::screen))
         .route("/routers/{id}/snmp-file", get(screens::snmp_file))
+        // Prisma 0.151.14 (#75): `show log`.
+        .route("/routers/{id}/events", get(screens::events))
         .route("/routers/{id}/probe/{tool}", post(screens::probe))
         .route("/routers/{id}/bfd/watch", get(screens::watch_bfd))
         .route("/routers/{id}/system/upgrade", get(system::upgrade_status).post(system::upgrade))
