@@ -89,6 +89,8 @@ pub struct State {
     pub box_log: Vec<prisma_proto::v1::BoxEvent>,
     /// The dataplane's last start when it is not the boot's: when, and the cause recorded.
     pub dataplane_start: Option<(DateTime<Utc>, String)>,
+    /// wan0's RX power in mW (0.151.15, #76), moved by a test hook.
+    pub wan0_rx_mw: f64,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -171,6 +173,7 @@ impl State {
             boot_pending: None,
             box_log: vec![],
             dataplane_start: None,
+            wan0_rx_mw: 0.48,
         }
     }
 

@@ -484,6 +484,15 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     // What the boot left out (0.151.5, #70).
+    // `show interface transceiver` (0.151.15, #76); a box before it has no such call.
+    async fn list_transceivers(&self, req: Request<ListTransceiversRequest>) -> R<Transceivers> {
+        if !crate::transceivers::answered() {
+            return Err(Status::unimplemented("ListTransceivers is not in this release"));
+        }
+        let rx = self.shared.state.lock().unwrap().wan0_rx_mw;
+        Ok(Response::new(crate::transceivers::list(&req.get_ref().names, rx)))
+    }
+
     // `show log` (0.151.14, #75); a box before it has no such call.
     async fn list_events(&self, req: Request<ListEventsRequest>) -> R<ListEventsResponse> {
         if !crate::box_log::recorded() {
@@ -793,6 +802,12 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             };
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
+        }
+        // Test hook (#76): wan0's RX power, in mW (0 is no light).
+        if let Some(mw) = command.trim().strip_prefix("mock transceiver wan0 rx ") {
+            let mw: f64 = mw.parse().map_err(|_| Status::invalid_argument("mock transceiver wan0 rx <mW>"))?;
+            self.shared.state.lock().unwrap().wan0_rx_mw = mw;
+            return Ok(Response::new(ShowResponse { text: format!("wan0 rx {mw} mW\n"), ..Default::default() }));
         }
         // Test hook (#75): the dataplane starts now for a cause (`none`: a start not recorded).
         if let Some(cause) = command.trim().strip_prefix("mock dataplane-start ") {

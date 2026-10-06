@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.37.0 - Transceivers — 2026-10-06
+
+### Added
+- On a router with Prisma 0.151.15 or newer, the Interfaces tab shows each port's transceiver: the module's vendor, part, serial and wavelength, and with diagnostics its temperature, voltage, laser bias and TX and RX power against the module's own thresholds. A level past a warning or an alarm stands out and is counted; a power of 0 mW reads "no light", and a value the module does not give "not measured" (#76).
+
+### Internal
+- Client regenerated from the Prisma 0.151.15 contract; integration notes read up to 0.151.15. The simulated Prisma answers a module of each kind (#76).
+
 ## 0.36.0 - Box log — 2026-10-06
 
 ### Added
