@@ -188,9 +188,9 @@ prisma-web compares it with the release recorded below and follows every entry.
 | `docs/prisma-api.md` | `docs/api.md` at v0.151.5 | `2fcd828dad370714b5ac2f95183f688dd019e48b33cabc229b3bba7232a16bf2` |
 | `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.5 | `34781e06ca8b32b2b67842a8298adea6fa56c6bf27f6be376fe3af14ed52e014` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3 and 0.151.4 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.9 none.
 
-Read up to 0.151.5 in `clients.md` and already handled:
+Read up to 0.151.9 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -535,6 +535,19 @@ Read up to 0.151.5 in `clients.md` and already handled:
   router page shows a banner with the cards and the statements, and an operator can give them up
   through the clear's confirmation. The mock's `mock pending on|off` stands in for the missing
   card. `--lab` reads only the health and the screen.
+- 0.151.6 (an SSH login to the VTY during an upgrade waits) and 0.151.7 (the VTY refuses FRR's
+  `ip address` in an interface block, naming `ipv4 address`; prisma-web never writes it, and the
+  mock already refused it) change nothing through the API.
+- 0.151.8 lets `api listen-address` and `snmp listen-address` hold several addresses,
+  space-separated (prismarouting #582), followed in #72. GetSchema still states one `address`
+  (`many` false) on 192.0.2.166 at 0.151.8, whose configuration holds
+  `api listen-address 192.0.2.166 2001:db8:6::166`: from 0.151.8 prisma-web reads those
+  two statements' address as a list, each value an address (the matcher and the form check every
+  word of a list parameter); `ssh listen-address` and older boxes keep one. For the Prisma side to
+  state as `many`. 0.151.9 changes nothing through the API: SNMP answers IPv6, and a running API's
+  address can change (on 0.151.5 the change rolled back while the API's proxy held the port, seen
+  on .166 on 2026-10-05, where the API's `Save` also wrote a file without the users' password
+  hashes and with stale `ssh` lines; fixed by hand there).
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

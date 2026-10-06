@@ -131,7 +131,7 @@ the router); when that role is read-only, nobody can change that router through 
 | Suite | Command |
 |---|---|
 | Back (unit and mock integration) | `docker run --rm -v "$PWD/back":/src -w /src rust:1-bookworm cargo test --workspace` |
-| Front (lint and build) | `docker run --rm -v "$PWD/front":/w -w /w node:22-alpine sh -c "npm ci && npm run lint && npm run build"` |
+| Front (unit, lint and build) | `docker run --rm -v "$PWD/front":/w -w /w node:22-alpine sh -c "npm ci && npm test && npm run lint && npm run build"` |
 | Front in a browser (Playwright), against the running stack | `E2E_USER=admin E2E_PASSWORD=… scripts/ui-tests.sh` |
 | End to end, against the running stack | `E2E_USER=admin E2E_PASSWORD=… scripts/e2e.py --base http://[::1]` |
 | Real Prisma, **read-only** | `E2E_USER=admin E2E_PASSWORD=… scripts/e2e.py --lab https://<ip>:50051 --lab-profile host/prisma-api` |

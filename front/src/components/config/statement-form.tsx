@@ -5,7 +5,7 @@ import { Fragment } from "react"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { describe, invalid, type FormState, type Kind, type Tok } from "@/lib/config-model"
+import { describe, invalidParam, type FormState, type Kind, type Tok } from "@/lib/config-model"
 import { cn } from "@/lib/utils"
 
 const PLACEHOLDER: Partial<Record<Kind["k"], string>> = {
@@ -46,7 +46,7 @@ export function StatementForm({
         }
         if (t.t === "param") {
           const v = state.values[t.id] ?? ""
-          const why = v ? invalid(t.kind, v) : null
+          const why = v ? invalidParam(t, v) : null
           return (
             <span key={k} className="inline-flex flex-col">
               <span className="inline-flex items-center gap-1">
