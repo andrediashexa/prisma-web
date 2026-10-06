@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { useFleetStatus } from "@/hooks/use-routers"
 import { formatNumber, formatUptime } from "@/lib/format"
+import { restartNote } from "@/lib/start-cause"
 import { cn } from "@/lib/utils"
 
 /** Every registered router, with state and resources. */
@@ -85,9 +86,9 @@ export function FleetWidget() {
                             {" "}· log export stalled
                           </span>
                         )}
-                        {s.dataplane_restarted && (
-                          <span className="text-destructive" title="The dataplane started well after the box: it restarted by itself and dropped every session it carried.">
-                            {" "}· dataplane restarted
+                        {restartNote(s) && (
+                          <span className={restartNote(s)!.tone === "destructive" ? "text-destructive" : "text-amber-600 dark:text-amber-400"} title={restartNote(s)!.long}>
+                            {" "}· {restartNote(s)!.short}
                           </span>
                         )}
                         {!r.version.dataplane_current && (

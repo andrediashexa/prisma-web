@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.36.0 - Box log — 2026-10-06
+
+### Added
+- On a router with Prisma 0.151.14 or newer, the router page shows the **Box log**: what happened on the router as it recorded it (commits, confirms, restarts asked and the starts they caused, upgrades, boots), with who and from where, filtered by number, time, severity and source (#75).
+
+### Changed
+- The Uptime card, the router's badge and the fleet list say why the dataplane restarted after the box booted, as the router recorded it: "restarted by itself" only when nothing on the router asked for it, the cause when an operator or an upgrade did, and "not recorded" when the router does not know (before Prisma 0.151.14) (#75).
+
+### Internal
+- Client regenerated from the Prisma 0.151.14 contract; integration notes read up to 0.151.14. The simulated Prisma keeps a record of events and reports start causes from 0.151.14 (#75).
+
 ## 0.35.0 - Replace and rename — 2026-10-06
 
 ### Added

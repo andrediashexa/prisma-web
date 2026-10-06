@@ -2,6 +2,7 @@
 //! over gRPC, with configuration in the VTY model and synthetic traffic, so that
 //! prisma-web can be developed without a real box.
 
+mod box_log;
 mod config;
 mod lists;
 mod cgnat_screens;
