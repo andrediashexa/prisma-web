@@ -1021,14 +1021,14 @@ def box_log_checks(admin, R):
     check(st == 422 and "is not a time" in errmsg(b), "a since the box does not take is refused, in its words", b)
     st, sy = admin.get(f"{R}/system")
     check(st == 200 and sy.get("control_plane_start_cause") == "boot", "GetSystem says why the routing daemons last started", sy.get("control_plane_start_cause"))
-    for cause, restarted in [("unexpected", True), ("operator", True), ("boot", True)]:
+    for cause, restarted in [("unexpected", True), ("operator", True), ("boot", False)]:
         st, b = admin.post(f"{R}/show", {"command": f"mock dataplane-start {cause}"})
         st, sy = admin.get(f"{R}/system")
         check(sy.get("dataplane_start_cause") == cause and sy.get("dataplane_restarted") == restarted,
               f"mock: a dataplane start for {cause} reads as dataplane_start_cause {cause}", {k: sy.get(k) for k in ("dataplane_start_cause", "dataplane_restarted")})
-    st, b = admin.get(f"{R}/events?source=dataplane&last=3")
+    st, b = admin.get(f"{R}/events?source=dataplane&last=2")
     causes = [e["cause"] for e in b["events"] if e["kind"] == "start"]
-    check(causes[-3:] == ["unexpected", "operator", "boot"] and b["events"][-3]["severity"] == "warning",
+    check(causes[-2:] == ["unexpected", "operator"] and b["events"][-2]["severity"] == "warning",
           "each start is in the log with its cause, an unexpected one a warning", causes)
 
 

@@ -9,7 +9,8 @@ const hook = (page: import("@playwright/test").Page, command: string) => page.re
 test("the box's log is shown with its filters, and a refused filter in the box's words", async ({ page }) => {
   await page.goto(`/routers/${routerId()}`)
   const card = page.locator("[data-box-log]")
-  await expect(card.locator("[data-event-kind=boot]")).toBeVisible()
+  // The newest first: the API's own commits are there.
+  await expect(card.locator("[data-event-kind=commit]").first()).toBeVisible()
   await card.getByRole("combobox", { name: "Source" }).click()
   await page.getByRole("option", { name: "Host" }).click()
   await expect(card.locator("[data-event-kind=commit]")).toHaveCount(0)
@@ -42,6 +43,6 @@ test("the Uptime card says why the dataplane restarted, and 'by itself' only whe
 
 test("a router before 0.151.14 shows no box log", async ({ page }) => {
   await page.goto(`/routers/${linesRouterId()}`)
-  await expect(page.getByText("Uptime", { exact: true })).toBeVisible()
+  await expect(page.locator("[data-slot=card-title]", { hasText: /^Uptime$/ })).toBeVisible()
   await expect(page.locator("[data-box-log]")).toHaveCount(0)
 })

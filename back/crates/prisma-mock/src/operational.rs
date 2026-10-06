@@ -799,13 +799,14 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             let cause = match cause {
                 "boot" | "operator" | "upgrade" | "unexpected" => cause,
                 "none" => "",
-                _ => return Err(Status::invalid_argument("mock dataplane-start boot|operator|upgrade|unexpected|none")),
+                _ => return Err(Status::invalid_argument("mock dataplane-start boot|operator|upgrade|unexpected|none (boot: back to the boot's start)")),
             };
             let mut st = self.shared.state.lock().unwrap();
-            if cause == "none" || cause.is_empty() {
-                st.dataplane_start = Some((chrono::Utc::now(), String::new()));
-            } else {
-                st.dataplane_started_now(cause, "");
+            match cause {
+                // Back to the start the boot brought about: no restart.
+                "boot" => st.dataplane_start = None,
+                "" => st.dataplane_start = Some((chrono::Utc::now(), String::new())),
+                _ => st.dataplane_started_now(cause, ""),
             }
             return Ok(Response::new(ShowResponse { text: format!("dataplane started ({cause})\n"), ..Default::default() }));
         }
