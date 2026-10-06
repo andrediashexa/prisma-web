@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.33.2 - Listen address lists — 2026-10-06
+
+### Fixed
+- On a router with Prisma 0.151.8 or newer, `api listen-address` and `snmp listen-address` with several addresses (IPv4 and IPv6) match their statements on the configuration screen, and the statement's form takes a list, each value checked as an address (#72).
+
+### Internal
+- The front has unit tests of its libraries (`npm test`, `node:test`, no dependency). Integration notes read up to Prisma 0.151.9 (0.151.6 to 0.151.9 change nothing through the API) (#72).
+
 ## 0.33.1 - Blackhole next hops — 2026-10-05
 
 ### Fixed

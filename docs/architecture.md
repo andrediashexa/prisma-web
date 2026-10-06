@@ -406,4 +406,5 @@ cited:
   calling the box. A box older than 0.149.2 answers `UNIMPLEMENTED`: the role is unknown and
   nothing is disabled (#28).
 - The front has browser tests (`scripts/ui-tests.sh`, #5) for the screen rules the API cannot
-  see; `scripts/e2e.py` covers the behaviour through the API.
+  see, and unit tests of its libraries (`npm test`: `node:test` with the types stripped, no
+  dependency; `src/lib/*.test.ts`, since #72); `scripts/e2e.py` covers the behaviour through the API.

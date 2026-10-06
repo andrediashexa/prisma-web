@@ -96,12 +96,20 @@ pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
     // One VTY level can be several of the box's modes ("router bgp" and "bgp neighbor" both at
     // `router bgp <asn>`, 0.151.5): they are one mode here, each a group, so a line of that level
     // is matched against all of them (192.0.2.166, #71).
+    // From 0.151.8 `api` and `snmp listen-address` take a list (prismarouting #582), though the
+    // schema still states one address: read them as one or more (192.0.2.166, #72).
+    let lists = release_at_least(&schema.release, (0, 151, 8));
     let mut modes: Vec<Mode> = vec![];
     for m in &schema.modes {
         let key = if m.path.is_empty() { "config".to_string() } else { m.path.join(" > ") };
         let group = Group {
             title: m.mode.clone(),
-            statements: m.statements.iter().map(|s| if positional { statement_positional(s) } else { statement_from_schema(s) }).collect(),
+            statements: m
+                .statements
+                .iter()
+                .map(|s| if lists { address_list(s) } else { std::borrow::Cow::Borrowed(s) })
+                .map(|s| if positional { statement_positional(&s) } else { statement_from_schema(&s) })
+                .collect(),
         };
         let roles = m.roles.split(',').map(|r| r.trim().to_string()).filter(|r| !r.is_empty());
         match modes.iter_mut().find(|x| x.key == key) {
@@ -124,6 +132,19 @@ pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
         }
     }
     modes
+}
+
+/// `api` and `snmp listen-address` with their address as a list of them (#72).
+fn address_list(s: &prisma_proto::v1::SchemaStatement) -> std::borrow::Cow<'_, prisma_proto::v1::SchemaStatement> {
+    let listens = matches!(s.words.iter().map(String::as_str).collect::<Vec<_>>()[..], ["api" | "snmp", "listen-address"]);
+    if !listens {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let mut s = s.clone();
+    for a in s.forms.iter_mut().flat_map(|f| f.arguments.iter_mut()).filter(|a| a.kind == "address") {
+        a.many = true;
+    }
+    std::borrow::Cow::Owned(s)
 }
 
 fn release_at_least(release: &str, min: (u32, u32, u32)) -> bool {
@@ -263,7 +284,12 @@ fn arg_token(a: &prisma_proto::v1::SchemaArgument, next_id: &mut usize, last: bo
     let id = *next_id;
     *next_id += 1;
     // `text` takes the rest of the line; so does `many` (several values to the end, 0.149.24).
-    Tok::Param { id, label, kind: if a.many { Kind::Text } else { kind }, prefix: String::new(), rest: (a.kind == "text" || a.many) && last }
+    let kind = match kind {
+        Kind::Address => kind,
+        _ if a.many => Kind::Text,
+        _ => kind,
+    };
+    Tok::Param { id, label, kind, prefix: String::new(), rest: (a.kind == "text" || a.many) && last }
 }
 
 /// A line of the configuration and the lines under it.
@@ -538,6 +564,33 @@ mod tests {
         let bgp = find("router bgp <asn>");
         assert!(bgp.lines[0].statement.is_some(), "a neighbor line is a bgp neighbor statement");
         assert!(find("config").lines.iter().any(|l| l.text == "hostname h"));
+    }
+
+    #[test]
+    fn listen_addresses_are_lists_from_0_151_8() {
+        use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
+        // As 192.0.2.166 (0.151.8) states them: one `address`, `many` false (#72).
+        let st = |service: &str| SchemaStatement {
+            words: vec![service.into(), "listen-address".into()],
+            forms: vec![SchemaForm { arguments: vec![SchemaArgument { name: "<A.B.C.D|X:X::X:X>".into(), kind: "address".into(), position: 2, ..Default::default() }] }],
+            ..Default::default()
+        };
+        let schema = |release: &str| ConfigSchema {
+            modes: vec![SchemaMode { mode: "config".into(), statements: vec![st("api"), st("snmp"), st("ssh")], ..Default::default() }],
+            release: release.into(),
+            ..Default::default()
+        };
+        let matches = |release: &str, line: &str| {
+            let m = &from_schema(&schema(release))[0];
+            m.groups[0].statements.iter().any(|s| match_line(&s.tokens, &w(line)).is_some())
+        };
+        for service in ["api", "snmp"] {
+            assert!(matches("0.151.8", &format!("{service} listen-address 192.0.2.166 2001:db8:6::166")), "{service}");
+            assert!(matches("0.151.8", &format!("{service} listen-address 192.0.2.166")));
+            assert!(!matches("0.151.8", &format!("{service} listen-address 192.0.2.166 nope")), "each value is an address");
+            assert!(!matches("0.151.7", &format!("{service} listen-address 192.0.2.166 2001:db8:6::166")), "one before 0.151.8");
+        }
+        assert!(!matches("0.151.8", "ssh listen-address 192.0.2.166 2001:db8:6::166"), "ssh keeps one");
     }
 
     #[test]

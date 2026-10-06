@@ -118,6 +118,12 @@ export function invalid(kind: Kind, v: string): string | null {
   }
 }
 
+/** Why a parameter's value does not fit, or null: a list (addresses, #72) checks each value; text is any words. */
+export function invalidParam(t: { kind: Kind; rest: boolean }, v: string): string | null {
+  if (t.rest && t.kind.k !== "text" && v.trim()) return v.trim().split(/\s+/).map((x) => invalid(t.kind, x)).find(Boolean) ?? null
+  return invalid(t.kind, v)
+}
+
 /** The line a filled form gives, or the first problem. */
 export function buildLine(tokens: Tok[], s: FormState, key = ""): { line: string } | { error: string } {
   const out: string[] = []
@@ -126,7 +132,7 @@ export function buildLine(tokens: Tok[], s: FormState, key = ""): { line: string
     if (t.t === "word") out.push(t.w)
     else if (t.t === "param") {
       const v = (s.values[t.id] ?? "").trim()
-      const why = invalid(t.kind, v)
+      const why = invalidParam(t, v)
       if (why) return { error: `${t.label}: ${why}` }
       out.push(t.prefix + v)
     } else if (t.t === "opt") {

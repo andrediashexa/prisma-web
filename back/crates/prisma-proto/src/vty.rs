@@ -223,6 +223,10 @@ pub fn match_line(toks: &[Tok], words: &[&str]) -> Option<BTreeMap<usize, String
                     return false;
                 }
                 if *takes_rest && rest.is_empty() {
+                    // A list of values (addresses, #72) checks each; text is any words.
+                    if !matches!(kind, Kind::Text) && !words[1..].iter().all(|w| valid(kind, w)) {
+                        return false;
+                    }
                     vals.insert(*id, words.join(" ").strip_prefix(prefix.as_str()).unwrap_or_default().to_string());
                     return true;
                 }
