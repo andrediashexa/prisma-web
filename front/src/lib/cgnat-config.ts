@@ -98,6 +98,8 @@ export interface PoolConfig {
   level: PoolLevel
   inside: string[]
   outside: string[]
+  /** The `ip prefix-list` a side is given by instead of its prefixes, "" when typed (Prisma 0.151.12, #73). */
+  lists: Record<Side, string>
   /** The value after the keyword (`ports` is "low high", `tcp-mss` is "auto"). */
   scalars: Record<PoolScalar, string>
   algs: Record<Alg, "" | "on" | "off">
@@ -127,6 +129,7 @@ export function emptyPool(name = "", level: PoolLevel = "cgnat"): PoolConfig {
     level,
     inside: [],
     outside: [],
+    lists: { inside: "", outside: "" },
     scalars: Object.fromEntries(POOL_SCALARS.map((k) => [k, ""])) as Record<PoolScalar, string>,
     algs: Object.fromEntries(ALGS.map((a) => [a, ""])) as Record<Alg, "" | "on" | "off">,
     other: [],
@@ -139,6 +142,7 @@ function readPool(name: string, lines: string[], level: PoolLevel = "cgnat"): Po
     const w = words(l)
     if (w[0] === "prefix-inside" && w[1]) p.inside.push(w[1])
     else if (w[0] === "prefix-outside" && w[1]) p.outside.push(w[1])
+    else if ((w[0] === "prefix-list-inside" || w[0] === "prefix-list-outside") && w[1] && w.length === 2) p.lists[w[0] === "prefix-list-inside" ? "inside" : "outside"] = w[1]
     else if (w[0] === "alg" && (ALGS as readonly string[]).includes(w[1]) && (w[2] === "on" || w[2] === "off")) p.algs[w[1] as Alg] = w[2]
     else if ((POOL_SCALARS as readonly string[]).includes(w[0]) && w.length > 1) p.scalars[w[0] as PoolScalar] = w.slice(1).join(" ")
     else p.other.push(l.trim())
@@ -262,7 +266,11 @@ const SCALAR_KIND: Partial<Record<PoolScalar, Kind>> = {
 /** Statements the VTY has no `no` form for: once set, they can only be changed. */
 const NO_UNSET: PoolScalar[] = ["block-size", "mode", "policy"]
 
-export function poolErrors(before: PoolConfig | null, p: PoolConfig, taken: string[], nat64Area = false): Record<string, string> {
+/**
+ * Why a pool's form does not fit. `lists` are the router's `ip prefix-list` names on a router
+ * whose pools take one (Prisma 0.151.12, #73); undefined before.
+ */
+export function poolErrors(before: PoolConfig | null, p: PoolConfig, taken: string[], nat64Area = false, lists?: string[]): Record<string, string> {
   const e: Record<string, string | null> = {}
   // A pool is a CGNAT or a NAT64 one, in its own hierarchy, for good (Prisma 0.151.0, #68).
   if (before && nat64Area && isNat64(p) !== (before.level === "nat64")) {
@@ -275,8 +283,15 @@ export function poolErrors(before: PoolConfig | null, p: PoolConfig, taken: stri
   const v6 = isNat64(p)
   p.inside.forEach((x, n) => (e[`inside ${n}`] = check({ k: v6 ? "ipv6_prefix" : "ipv4_prefix" }, x, true)))
   p.outside.forEach((x, n) => (e[`outside ${n}`] = check({ k: "ipv4_prefix" }, x, true)))
-  if (!before && p.inside.length === 0) e.inside = "at least one inside prefix"
-  if (!before && p.outside.length === 0) e.outside = "at least one outside prefix"
+  // A side is its prefixes or one list, never both (#73).
+  for (const side of ["inside", "outside"] as const) {
+    const list = p.lists[side].trim()
+    if (!list) continue
+    if (p[side].length) e[side] = "a side is its prefixes or a prefix-list, not both"
+    else if (lists && !lists.includes(list)) e[`list ${side}`] = "no such prefix-list on the router"
+  }
+  if (!before && p.inside.length === 0 && !p.lists.inside.trim()) e.inside = lists ? "at least one inside prefix, or a prefix-list" : "at least one inside prefix"
+  if (!before && p.outside.length === 0 && !p.lists.outside.trim()) e.outside = lists ? "at least one outside prefix, or a prefix-list" : "at least one outside prefix"
   for (const [k, kind] of Object.entries(SCALAR_KIND) as [PoolScalar, Kind][]) {
     e[k] = check(kind, p.scalars[k], !!before?.scalars[k] && NO_UNSET.includes(k))
   }
@@ -382,6 +397,7 @@ export function remapReasons(a: PoolConfig | null, b: PoolConfig): string[] {
   const same = (x: string[], y: string[]) => x.length === y.length && x.every((v) => y.includes(v))
   if (!same(a.inside, b.inside.map((x) => x.trim()))) out.push("inside prefixes")
   if (!same(a.outside, b.outside.map((x) => x.trim()))) out.push("outside prefixes")
+  for (const side of ["inside", "outside"] as const) if (a.lists[side] !== b.lists[side].trim()) out.push(`${side} prefix-list`)
   return out
 }
 
@@ -406,6 +422,11 @@ export function poolChanges(a: PoolConfig | null, b: PoolConfig, typed = false, 
   }
   list("prefix-inside", was.inside, b.inside)
   list("prefix-outside", was.outside, b.outside)
+  // A side's list (0.151.12, #73): one name, `no` without it.
+  for (const side of ["inside", "outside"] as const) {
+    const v = b.lists[side].trim()
+    if (v !== was.lists[side]) lines.push(v ? `prefix-list-${side} ${v}` : `no prefix-list-${side}`)
+  }
   for (const k of POOL_SCALARS) {
     const v = b.scalars[k].trim().replace(/\s+/g, " ")
     if (v === was.scalars[k]) continue
@@ -445,6 +466,7 @@ function poolFromTyped(t: TypedPool, other: string[], level: PoolLevel = "cgnat"
   const p = emptyPool(t.name, level)
   p.inside = [...t.prefix_inside]
   p.outside = [...t.prefix_outside]
+  p.lists = { inside: t.prefix_list_inside ?? "", outside: t.prefix_list_outside ?? "" }
   p.scalars["block-size"] = n2s(t.block_size)
   p.scalars.mode = t.mode
   p.scalars.policy = t.policy
@@ -531,6 +553,8 @@ export function toTypedPool(b: PoolConfig, level: PoolLevel = "cgnat"): Partial<
     name: b.name.trim(),
     prefix_inside: b.inside.map((x) => x.trim()).filter(Boolean),
     prefix_outside: b.outside.map((x) => x.trim()).filter(Boolean),
+    // A NAT64 pool takes no list (#73).
+    ...(level === "cgnat" && { prefix_list_inside: b.lists.inside.trim(), prefix_list_outside: b.lists.outside.trim() }),
     block_size: s2n(v("block-size")),
     mode: v("mode"),
     policy: v("policy"),
@@ -554,6 +578,7 @@ export function typedPoolFields(a: PoolConfig | null, b: PoolConfig, level: Pool
   const out: string[] = []
   if (!same(was.inside, b.inside.map((x) => x.trim()).filter(Boolean))) out.push("prefix_inside")
   if (!same(was.outside, b.outside.map((x) => x.trim()).filter(Boolean))) out.push("prefix_outside")
+  for (const side of ["inside", "outside"] as const) if (level === "cgnat" && b.lists[side].trim() !== was.lists[side]) out.push(`prefix_list_${side}`)
   for (const k of POOL_SCALARS) {
     const v = b.scalars[k].trim().replace(/\s+/g, " ")
     if (v === was.scalars[k]) continue

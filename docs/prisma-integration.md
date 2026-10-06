@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.5 | `708fcb4d476ace72a6b6035153637239a5bd279a492843e500ea9a02471c96c6` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.151.5 | `2fcd828dad370714b5ac2f95183f688dd019e48b33cabc229b3bba7232a16bf2` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.5 | `34781e06ca8b32b2b67842a8298adea6fa56c6bf27f6be376fe3af14ed52e014` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.12 | `98c0792a12131f8918bdc7a0c87a96e6e0e446da03f1f3f44bd4e3442bc9ba69` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.151.12 | `2fcd828dad370714b5ac2f95183f688dd019e48b33cabc229b3bba7232a16bf2` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.12 | `4d21de62c603a8bee77d8dec2d978632c876e98a504551e3f2873927db66bc0f` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.9 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map.
 
-Read up to 0.151.9 in `clients.md` and already handled:
+Read up to 0.151.12 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -548,6 +548,26 @@ Read up to 0.151.9 in `clients.md` and already handled:
   address can change (on 0.151.5 the change rolled back while the API's proxy held the port, seen
   on .166 on 2026-10-05, where the API's `Save` also wrote a file without the users' password
   hashes and with stale `ssh` lines; fixed by hand there).
+- 0.151.10 (SetConfig no longer warns of a bpa pool with no exporter; SNMP settings from the VTY
+  take effect) and 0.151.11 (the repository's own test suite) change nothing for prisma-web.
+- 0.151.12 (additive, prismarouting #589) gives each side of a CGNAT pool to an `ip prefix-list`
+  instead of typed prefixes, followed in #73: `PoolConfig.prefix_list_inside` / `_outside` (27/28,
+  `prefix-list-inside <name>`, `no prefix-list-inside`), never both on one side (refused at
+  commit); ListPools' `Pool.prefix_list_inside` / `_outside` (14/15), `untranslated` (16, the
+  sources the inside list denies) and `outside_excluded` (17), with `prefixes_inside` /
+  `_outside` now what a list resolved to (permits less denies; an entry with `ge`/`le` covers
+  its prefix only when 32 is in its window). `PrefixListEntry.description` (6) is an entry's own
+  description, written at the end of its line. A NAT64 pool takes no list. On a router whose
+  grammar has `prefix-list-inside` under a CGNAT pool, the pool form lets each side be its
+  prefixes or one of the router's IPv4 prefix-lists (named from the configuration tree);
+  switching stages the removal of the other way, and the review warns of the remap. The pools
+  table shows a side's list, what it resolved to, the untranslated sources and the excluded
+  addresses. Prefix-lists themselves, an entry's description, `insert seq` and `resequence`
+  are edited in Settings, by the box's grammar. The mock keeps top-level `ip prefix-list`
+  lines, resolves a pool's lists, reports the four fields, refuses at the check and the commit
+  what the box does (both ways, a missing or empty list, an entry that matches no address, a
+  list that translates nothing or leaves no public address), and a list change re-maps its
+  pools. 192.0.2.166 is on 0.151.10.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

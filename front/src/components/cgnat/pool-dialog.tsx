@@ -22,6 +22,7 @@ import {
   remapWarning,
   type PoolConfig,
   type PoolScalar,
+  type Side,
 } from "@/lib/cgnat-config"
 
 /**
@@ -38,8 +39,11 @@ export function PoolDialog({
   onStage,
   typed = false,
   nat64Area = false,
+  lists,
 }: {
   routerId: string
+  /** The router's `ip prefix-list` names, on a router whose pools take one (Prisma 0.151.12, #73). */
+  lists?: string[]
   /** NAT64 pools in their own hierarchy, `nat > nat64` (Prisma 0.151.0, #68). */
   nat64Area?: boolean
   /** The box answers SetConfig for pools (#46): fields, not lines. */
@@ -56,21 +60,64 @@ export function PoolDialog({
   // Reset when opened for another pool, not when a refresh hands the same pool again.
   const [shownFor, setShownFor] = useState<string | undefined>(undefined)
   const target = open ? (pool?.name ?? "") : undefined
+  // Each side is its prefixes or one prefix-list (#73).
+  const [byList, setByList] = useState<Record<Side, boolean>>({ inside: false, outside: false })
   if (target !== shownFor) {
     setShownFor(target)
-    if (open) setForm(pool ?? emptyPool())
+    if (open) {
+      setForm(pool ?? emptyPool())
+      setByList({ inside: !!pool?.lists.inside, outside: !!pool?.lists.outside })
+    }
   }
   // IPv6 inside prefixes make it a NAT64 pool (Prisma 0.150.0, #59); an IPv4 one drops the
   // NAT64 fields the form hides, so they are cleared, not left behind.
   const nat64 = isNat64(form)
   const asked = nat64 ? form : { ...form, scalars: { ...form.scalars, "subscriber-length": "", "nat64-prefix": "" } }
-  const errors = poolErrors(pool, asked, taken, nat64Area)
+  // A NAT64 pool takes no list (#73).
+  const offerLists = !!lists && !nat64 && pool?.level !== "nat64"
+  const errors = poolErrors(pool, asked, taken, nat64Area, offerLists ? lists : undefined)
   const changes = Object.keys(errors).length ? [] : poolChanges(pool, asked, typed, nat64Area)
   const remap = remapReasons(pool, asked)
   const scalar = (k: PoolScalar) => form.scalars[k]
   const setScalar = (k: PoolScalar, v: string) => setForm((f) => ({ ...f, scalars: { ...f.scalars, [k]: v } }))
   const [lo = "", hi = ""] = scalar("ports").split(/\s+/)
   const setPorts = (l: string, h: string) => setScalar("ports", l.trim() || h.trim() ? `${l.trim()} ${h.trim()}` : "")
+
+  // Switching a side drops what the other way gave it, so the review removes it (#73).
+  const setSideByList = (side: Side, on: boolean) => {
+    setByList((b) => ({ ...b, [side]: on }))
+    setForm((f) => ({ ...f, [side]: on ? [] : f[side], lists: { ...f.lists, [side]: "" } }))
+  }
+  const side = (s: Side, title: string, example: string) => {
+    if (!offerLists) return prefixList(s, title, example)
+    const noun = s === "inside" ? "Inside" : "Outside"
+    return (
+      <div className="space-y-2" data-pool-side={s}>
+        <ChoiceField
+          label={`${noun} given by`}
+          value={byList[s] ? "list" : "prefixes"}
+          onChange={(v) => setSideByList(s, v === "list")}
+          options={[
+            ["prefixes", "Prefixes"],
+            ["list", "A prefix-list"],
+          ]}
+        />
+        {byList[s] ? (
+          <div className="space-y-1">
+            <ChoiceField
+              label={`${noun} prefix-list`}
+              value={form.lists[s]}
+              onChange={(v) => setForm((f) => ({ ...f, lists: { ...f.lists, [s]: v } }))}
+              options={[["", lists!.length ? "Choose a list" : "No prefix-list on the router"], ...lists!.map((n) => [n, n] as [string, string])]}
+            />
+            {(errors[`list ${s}`] ?? errors[s]) && <p className="text-destructive text-xs">{errors[`list ${s}`] ?? errors[s]}</p>}
+          </div>
+        ) : (
+          prefixList(s, title, example)
+        )}
+      </div>
+    )
+  }
 
   const prefixList = (side: "inside" | "outside", title: string, example: string) => (
     <div className="space-y-2">
@@ -121,9 +168,15 @@ export function PoolDialog({
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {prefixList("inside", "Inside prefixes", "100.64.0.0/10 or 2001:db8:1200::/40")}
-          {prefixList("outside", "Outside prefixes", "203.0.113.0/26")}
+          {side("inside", "Inside prefixes", "100.64.0.0/10 or 2001:db8:1200::/40")}
+          {side("outside", "Outside prefixes", "203.0.113.0/26")}
         </div>
+        {offerLists && (byList.inside || byList.outside) && (
+          <p className="text-muted-foreground text-xs" data-list-note>
+            A side on a prefix-list maps its permits less its denies; a denied source is routed with its own address. A change to the
+            list rebuilds the pool: every session on it ends. Prefix-lists are edited in Settings.
+          </p>
+        )}
 
         {nat64 && (
           <section className="grid gap-3 sm:grid-cols-2" data-nat64>
