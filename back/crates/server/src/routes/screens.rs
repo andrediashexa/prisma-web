@@ -140,6 +140,48 @@ pub async fn events(State(st): State<AppState>, _: CurrentUser, Path(id): Path<U
     Ok(Json(to_json(&r.ops().list_events(req(msg)).await?.into_inner())))
 }
 
+#[derive(Deserialize, Default)]
+#[serde(default)]
+pub struct TransceiversQuery {
+    /// Comma-separated interfaces or Linux cards; empty is every one.
+    names: String,
+}
+
+/// `show interface transceiver` (Prisma 0.151.15, #76): each port's module and its levels, the
+/// status and each level by name; a box before it is 501.
+pub async fn transceivers(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>, Query(q): Query<TransceiversQuery>) -> AppResult<Json<Value>> {
+    let names: Vec<String> = q.names.split(',').map(str::trim).filter(|n| !n.is_empty()).map(String::from).collect();
+    let r = st.routers.get(id).await?;
+    let t = r.ops().list_transceivers(req(ListTransceiversRequest { names })).await?.into_inner();
+    Ok(Json(transceivers_json(&t)))
+}
+
+fn level_name(l: &TransceiverLevel) -> &'static str {
+    transceiver_level::Level::try_from(l.level).unwrap_or_default().as_str_name().trim_start_matches("LEVEL_")
+}
+
+fn transceivers_json(t: &Transceivers) -> Value {
+    let mut v = to_json(t);
+    let named = |v: &mut Value, l: &Option<TransceiverLevel>| {
+        if let Some(l) = l {
+            v["level"] = json!(level_name(l));
+        }
+    };
+    for (i, x) in t.transceivers.iter().enumerate() {
+        let tv = &mut v["transceivers"][i];
+        tv["status"] = json!(transceiver::Status::try_from(x.status).unwrap_or_default().as_str_name().trim_start_matches("STATUS_"));
+        named(&mut tv["temperature_c"], &x.temperature_c);
+        named(&mut tv["voltage_v"], &x.voltage_v);
+        for (j, lane) in x.lanes.iter().enumerate() {
+            let lv = &mut tv["lanes"][j];
+            named(&mut lv["bias_ma"], &lane.bias_ma);
+            named(&mut lv["tx_power_mw"], &lane.tx_power_mw);
+            named(&mut lv["rx_power_mw"], &lane.rx_power_mw);
+        }
+    }
+    v
+}
+
 #[derive(Deserialize)]
 pub struct SnmpQuery {
     kind: String,
@@ -245,6 +287,27 @@ pub async fn probe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_transceiver_reads_by_name() {
+        let rx = TransceiverLevel { known: true, value: 0.0, no_light: true, level: transceiver_level::Level::LowAlarm as i32, ..Default::default() };
+        let t = Transceivers {
+            transceivers: vec![Transceiver {
+                name: "wan0".into(),
+                status: transceiver::Status::Ddm as i32,
+                temperature_c: Some(TransceiverLevel { known: true, value: 41.5, level: transceiver_level::Level::Normal as i32, ..Default::default() }),
+                lanes: vec![TransceiverLane { lane: 1, rx_power_mw: Some(rx), ..Default::default() }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let v = transceivers_json(&t);
+        assert_eq!(v["transceivers"][0]["status"], "DDM");
+        assert_eq!(v["transceivers"][0]["temperature_c"]["level"], "NORMAL");
+        assert_eq!(v["transceivers"][0]["lanes"][0]["rx_power_mw"]["level"], "LOW_ALARM");
+        assert_eq!(v["transceivers"][0]["lanes"][0]["rx_power_mw"]["no_light"], true);
+        assert!(v["transceivers"][0]["voltage_v"].is_null(), "a level the box did not send stays absent");
+    }
 
     #[test]
     fn bfd_reads_by_name() {

@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.14 | `4a495aa2af8217b138a20a364611114576addf3db0cb0f3b272e9b74adb25834` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.151.14 | `2708c4f7941f4992da37fe3b4e85d05131eb0f0690af5277e328c72d7f4d3aa9` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.14 | `eadbbe259f1ca47514e12cf409dfc090f0735464bbb63e89d4d86a337be2cfc1` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.15 | `4e80a06cf449690c7347efa451ae2e43791b7920c5b4aef2e4ae8648a350133e` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.151.15 | `cc236c53d77226134422ad8e6ed3c5eb1625686e59a36b1459cdb6f7346b6af6` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.15 | `ca7ba039c2d76c00da8d22a2f820396bfe4ca3ba12d9373294d39b69b30d3e77` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) all three.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three.
 
-Read up to 0.151.14 in `clients.md` and already handled:
+Read up to 0.151.15 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -603,8 +603,22 @@ Read up to 0.151.14 in `clients.md` and already handled:
   recorded by the box with the certificate's account. The mock keeps such a record (its commits
   and confirms, the reboots, shutdowns and dataplane restarts asked, and the starts with their
   causes; `mock dataplane-start <cause>` for a start), answers the filters and reports the causes
-  from 0.151.14; the main mock reports `0.151.14-mock`, the line-only one has no ListEvents.
-  192.0.2.166 is on 0.151.10.
+  from 0.151.14; the line-only mock has no ListEvents. 192.0.2.166 is on 0.151.10.
+- 0.151.15 (additive, prismarouting #590) gives `show interface transceiver` as
+  `OperationalService.ListTransceivers`, followed in #76: per port (DPDK) or Linux card, the
+  module's `status` (DDM, NO_DDM, COPPER, ABSENT, UNREADABLE, with `why`), its identity, and with
+  DDM its temperature, voltage and per lane bias, TX and RX power, each a `TransceiverLevel`:
+  `known` before `value` and `thresholds_known` before the four thresholds (0 is not absent),
+  `level` against them, and for a power `dbm` with `no_light` for 0 mW (no dBm). `names` narrows
+  it and `missing` lists a name that is no port; `dataplane_answered` false leaves only the Linux
+  cards. The back relays it as `GET /routers/{id}/transceivers?names=` with the status and the
+  levels by name (501 before 0.151.15); the Interfaces tab's **Transceivers** card shows it, read
+  once a minute (each call reads the modules over I2C): a value not known reads "not measured",
+  a level without thresholds is unknown, never an alarm, 0 mW is "no light", and a level past a
+  warning or an alarm stands out, counted in the title. The two new notes of `show interface`
+  (an RX power past its warnings, a CRC error ratio above 0.01%) are in its text only. The mock
+  answers a module of each status (`mock transceiver wan0 rx <mW>` moves wan0's RX power) from
+  0.151.15; the main mock reports `0.151.15-mock`.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

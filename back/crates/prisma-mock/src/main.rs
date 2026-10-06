@@ -18,6 +18,7 @@ mod route_service;
 mod state;
 mod system;
 mod telemetry;
+mod transceivers;
 mod typed;
 
 use std::net::SocketAddr;

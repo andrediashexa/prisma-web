@@ -523,6 +523,8 @@ def line_fallback_checks(admin, args):
         syslog_guard_checks(admin, R)
         st, b = admin.get(f"{R}/events")
         check(st == 501, "a box before 0.151.14 has no ListEvents: 501, the card not shown", b)
+        st, b = admin.get(f"{R}/transceivers")
+        check(st == 501, "a box before 0.151.15 has no ListTransceivers: 501, the card not shown", b)
         s = next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])
         check(s.get("system_service") is None, "a box before 0.149.25 has no SystemService: the clears are not offered", s)
         st, b = admin.post(f"{R}/clear", {"target": "interface_counters"})
@@ -1005,6 +1007,29 @@ def commit_lines(admin, R, edits, comment, **acks):
     return chk, st, b
 
 
+def transceiver_checks(admin, R):
+    """`show interface transceiver` (Prisma 0.151.15, #76), on the mock that reports 0.151.15."""
+    st, b = admin.get(f"{R}/transceivers")
+    by = {t["name"]: t for t in (b or {}).get("transceivers", [])}
+    check(st == 200 and b["dataplane_answered"] and {"DDM", "NO_DDM", "COPPER", "ABSENT"} <= {t["status"] for t in by.values()} and b.get("text"),
+          "ListTransceivers answers each port's module, its status by name, and the screen", {n: t["status"] for n, t in by.items()})
+    w = by.get("wan0", {})
+    rx = (w.get("lanes") or [{}])[0].get("rx_power_mw") or {}
+    check(w.get("vendor") and w.get("wavelength_nm") == 850 and w["temperature_c"]["level"] == "NORMAL" and rx.get("known") and rx.get("thresholds_known")
+          and rx.get("level") == "NORMAL" and rx.get("dbm") < 0, "a module with diagnostics: its identity, and each level by name with its thresholds", rx)
+    check(by["lan0"]["lanes"][0]["rx_power_mw"]["level"] == "LOW_WARNING", "a dirty fibre reads past its low warning", by["lan0"]["lanes"][0]["rx_power_mw"])
+    check(by["lan2"]["why"] and not by["lan2"]["lanes"], "an empty cage says why it has no levels", by["lan2"])
+    st, b = admin.get(f"{R}/transceivers?names=wan0,nope")
+    check(st == 200 and [t["name"] for t in b["transceivers"]] == ["wan0"] and b["missing"] == ["nope"], "names narrows it; a name that is not a port is in missing", b.get("missing"))
+    admin.post(f"{R}/show", {"command": "mock transceiver wan0 rx 0"})
+    try:
+        st, b = admin.get(f"{R}/transceivers?names=wan0")
+        rx = b["transceivers"][0]["lanes"][0]["rx_power_mw"]
+        check(rx["no_light"] and rx["dbm"] == 0 and rx["level"] == "LOW_ALARM", "no light is 0 mW, a low alarm, with no dBm", rx)
+    finally:
+        admin.post(f"{R}/show", {"command": "mock transceiver wan0 rx 0.48"})
+
+
 def box_log_checks(admin, R):
     """`show log` and why each start (Prisma 0.151.14, #75), on the mock that reports 0.151.14."""
     st, b = admin.get(f"{R}/events")
@@ -1035,7 +1060,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.151.14"), "the main mock reports 0.151.14 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.151.15"), "the main mock reports 0.151.15 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:
@@ -1226,6 +1251,13 @@ def lab(admin, args):
         else:
             check(st == 200 and [s["kind"] for s in lg["streams"]] == ["syslog", "ipfix-tcp", "ipfix-udp"],
                   f"GetLogging of the real Prisma ({sum(s['configured'] for s in lg['streams'])} of 3 streams configured, log export {st_lab.get('log_export')})", lg)
+        # Prisma 0.151.15 (#76): read only, the transceivers.
+        st, tr = admin.get(R + "/transceivers")
+        if st == 501:
+            check(True, "ListTransceivers not on this box (before 0.151.15)")
+        else:
+            check(st == 200 and isinstance(tr.get("transceivers"), list),
+                  f"the real Prisma's transceivers: {[(t['name'], t['status']) for t in tr.get('transceivers', [])]}", tr.get("text", "")[:200])
         # Prisma 0.151.14 (#75): read only, the box's log and the start causes.
         st, ev = admin.get(R + "/events?last=20")
         if st == 501:
@@ -1470,6 +1502,7 @@ def main():
         pool_list_checks(admin, R)
         edit_words_checks(admin, R, router_id)
         box_log_checks(admin, R)
+        transceiver_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),
