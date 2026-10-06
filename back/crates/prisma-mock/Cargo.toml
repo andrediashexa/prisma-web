@@ -21,3 +21,4 @@ tonic-health.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 x509-parser = "0.18"
+regex = "1"

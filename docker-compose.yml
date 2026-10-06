@@ -108,6 +108,9 @@ services:
     environment:
       BIND_ADDR: "[::]:50051"
       MOCK_HOSTNAME: prisma-hq
+      # A box with `replace pattern` and `rename` (Prisma 0.151.13, #74): the forms that follow
+      # the release are offered on it; prisma-mock-lines stays the older box (0.149.0-mock).
+      MOCK_RELEASE: "0.151.13-mock"
     networks: [internal]
 
   prisma-mock-2:

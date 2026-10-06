@@ -221,6 +221,19 @@ impl ConfigService for ConfigSvc {
         }
         let mut st = self.0.state.lock().unwrap();
         let cand = cand(&mut st, &req.candidate_id)?;
+        // `replace pattern` and `rename` (0.151.13, #74): the candidate as a whole, one line.
+        if let [line] = req.lines.as_slice() {
+            if let Some(done) = crate::edit_words::apply(&cand.config, &req.path, line) {
+                let done = done.map_err(|m| {
+                    let d = Diagnostic { severity: Severity::Error as i32, message: m.clone(), path: req.path.clone(), line: line.clone(), ..Default::default() };
+                    refused(tonic::Code::InvalidArgument, m, vec![d], Reason::Grammar)
+                })?;
+                if let Some(next) = done.config {
+                    cand.config = next;
+                }
+                return Ok(Response::new(EditResponse { output: done.output, last_activity: Some(timestamp(Utc::now())), expires_at: expiry(), ..Default::default() }));
+            }
+        }
         match cand.config.edit(&req.path, &req.lines) {
             Ok(diagnostics) => {
                 let output = diagnostics.iter().map(|d| format!("note: {}", d.message)).collect::<Vec<_>>().join("\n");

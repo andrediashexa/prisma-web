@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.35.0 - Replace and rename — 2026-10-06
+
+### Added
+- On a router with Prisma 0.151.13 or newer, the configuration editor offers **Replace or rename**: a pattern replaced in each statement at the editor's level, previewed (nothing staged) before it is applied, and a pool, prefix-list, route-map, BGP peer-group or interface renamed with every reference the router can follow. A refusal is shown in the router's words, the candidate unchanged (#74).
+
+### Internal
+- Coverage map from Prisma 0.151.13 (the contract and the built-in grammar do not change). The simulated Prisma takes both lines and reports 0.151.13; the guard for disabling syslog before 0.149.8 is now checked on the line-only one (#74).
+
 ## 0.34.0 - Pool prefix-lists — 2026-10-06
 
 ### Added
