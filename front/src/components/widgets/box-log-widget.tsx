@@ -21,7 +21,32 @@ interface BoxEvent {
   kind: string
   component: string
   cause: string
+  /** Prisma 0.152.0 (#78): what it is about, and why. */
+  subject?: string
+  reason?: string
 }
+
+/** The kinds the box records (0.151.14, and what it sees happen since 0.152.0, #78). */
+const KINDS: [string, string][] = [
+  ["", "All"],
+  ["commit", "Commits"],
+  ["rollback", "Rollbacks"],
+  ["confirm", "Confirms"],
+  ["confirm-expired", "Confirms expired"],
+  ["asked", "Actions asked"],
+  ["start", "Starts"],
+  ["boot", "Boots"],
+  ["upgraded", "Upgrades"],
+  ["link", "Links"],
+  ["transceiver", "Transceivers"],
+  ["bgp", "BGP"],
+  ["bfd", "BFD"],
+  ["pool", "Pools"],
+  ["collector", "Log export"],
+  ["login", "Logins"],
+  ["settings", "Settings"],
+  ["gave-up", "Gave up"],
+]
 
 const SEVERITY_TONE: Record<string, string> = {
   error: "border-destructive/50 text-destructive",
@@ -38,7 +63,8 @@ export function BoxLogWidget({ routerId }: { routerId: string }) {
   const [since, setSince] = useState("")
   const [severity, setSeverity] = useState("")
   const [source, setSource] = useState("")
-  const q = new URLSearchParams({ last: /^\d+$/.test(last.trim()) ? last.trim() : "0", since: since.trim(), severity, source })
+  const [kind, setKind] = useState("")
+  const q = new URLSearchParams({ last: /^\d+$/.test(last.trim()) ? last.trim() : "0", since: since.trim(), severity, source, ...(kind && { kind }) })
   const { data, error } = useSWR<{ events: BoxEvent[]; text: string }>(routerApi(routerId, `/events?${q}`), fetcher, { refreshInterval: 30_000 })
   if (error instanceof ApiError && error.status === 501) return null
 
@@ -49,7 +75,7 @@ export function BoxLogWidget({ routerId }: { routerId: string }) {
         <CardDescription>What happened on the router, as it recorded it: commits, restarts and why, upgrades, boots</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-5">
           <TextField label="Last" value={last} numeric placeholder="50" onChange={setLast} />
           <TextField label="Since" value={since} placeholder="1h, 2d, 2026-10-05" onChange={setSince} />
           <ChoiceField
@@ -77,6 +103,7 @@ export function BoxLogWidget({ routerId }: { routerId: string }) {
               ["routing", "Routing"],
             ]}
           />
+          <ChoiceField label="Kind" value={kind} onChange={setKind} options={KINDS} />
         </div>
         {error && !(error instanceof ApiError && error.status === 501) && (
           <p className="text-destructive text-sm" role="alert">
@@ -94,7 +121,11 @@ export function BoxLogWidget({ routerId }: { routerId: string }) {
                   {e.severity}
                 </Badge>
                 <span className="text-muted-foreground text-xs">{e.source}</span>
-                <span className="min-w-0 flex-1">{e.text}</span>
+                <span className="min-w-0 flex-1">
+                  {e.subject && <span className="mr-1.5 font-mono text-xs" data-subject>{e.subject}</span>}
+                  {e.text}
+                  {e.reason && !e.text.includes(e.reason) && <span className="text-muted-foreground"> — {e.reason}</span>}
+                </span>
                 {(e.account || e.origin) && (
                   <span className="text-muted-foreground text-xs">
                     {e.account}

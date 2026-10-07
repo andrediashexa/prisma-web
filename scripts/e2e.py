@@ -1044,6 +1044,19 @@ def box_log_checks(admin, R):
     check(st == 200 and b["events"] and all(e["source"] == "api" for e in b["events"]), "source and since filter it", len(b.get("events", [])))
     st, b = admin.get(f"{R}/events?since=yesterday")
     check(st == 422 and "is not a time" in errmsg(b), "a since the box does not take is refused, in its words", b)
+    # Phase 2 (0.152.0, #78): what the box sees happen, by kind, with subject and reason.
+    admin.post(f"{R}/show", {"command": "mock bfd down 192.168.10.2"})
+    admin.post(f"{R}/show", {"command": "mock bfd up 192.168.10.2"})
+    st, b = admin.get(f"{R}/events?kind=bfd&last=2")
+    ev = b.get("events", []) if st == 200 else []
+    check(len(ev) == 2 and all(e["kind"] == "bfd" and e["subject"] == "192.168.10.2" for e in ev) and ev[0]["reason"] == "control detection time expired"
+          and ev[0]["severity"] == "warning", "kind=bfd lists a session's down and up, its subject and why it went down", ev)
+    st, b = admin.get(f"{R}/events?kind=login")
+    ev = b.get("events", []) if st == 200 else []
+    check(any(e["account"] == "admin" and e["origin"].startswith("ssh ") for e in ev) and any(e["reason"] == "authentication failed" for e in ev),
+          "kind=login lists a login with its account and origin, and a failed one with why", ev)
+    st, b = admin.get(f"{R}/events?kind=weather")
+    check(st == 422 and "is not a kind" in errmsg(b), "a kind the box does not record is refused, in its words", b)
     st, sy = admin.get(f"{R}/system")
     check(st == 200 and sy.get("control_plane_start_cause") == "boot", "GetSystem says why the routing daemons last started", sy.get("control_plane_start_cause"))
     for cause, restarted in [("unexpected", True), ("operator", True), ("boot", False)]:
@@ -1060,7 +1073,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.151.15"), "the main mock reports 0.151.15 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.152.1"), "the main mock reports 0.152.1 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:
@@ -1264,6 +1277,13 @@ def lab(admin, args):
             check(True, "ListEvents not on this box (before 0.151.14)")
         else:
             check(st == 200 and isinstance(ev.get("events"), list), f"the real Prisma's log: {len(ev.get('events', []))} events", ev.get("text", "")[:200])
+            # Phase 2 (0.152.0, #78): by kind, where the box records it.
+            st, lk = admin.get(R + "/events?kind=link&last=5")
+            if st == 422:
+                check(True, "the real Prisma has no kind filter (before 0.152.0)")
+            else:
+                check(st == 200 and all(e["kind"] == "link" for e in lk.get("events", [])),
+                      f"the real Prisma's link events: {[(e.get('subject'), e.get('reason')) for e in lk.get('events', [])]}", lk.get("text", "")[:200])
             st, sy = admin.get(R + "/system")
             check(st == 200, f"the real Prisma's start causes: dataplane '{sy.get('dataplane_start_cause')}', routing '{sy.get('control_plane_start_cause')}'", None)
         # Prisma 0.151.5 (#70): read only, the health and the screen.

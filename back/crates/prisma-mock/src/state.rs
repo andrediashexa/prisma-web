@@ -223,11 +223,25 @@ impl State {
         if !crate::box_log::recorded() {
             return;
         }
+        self.seed_log();
+        self.box_log.push(crate::box_log::event(Utc::now(), severity, source, kind, text, account, origin, start));
+    }
+
+    /// The record opens with the boot and the starts it brought about.
+    pub fn seed_log(&mut self) {
         if self.box_log.is_empty() {
             let boot = Utc::now() - chrono::Duration::seconds(self.uptime_seconds() as i64);
             self.box_log = crate::box_log::seed(boot);
         }
-        self.box_log.push(crate::box_log::event(Utc::now(), severity, source, kind, text, account, origin, start));
+    }
+
+    /// Records what the box saw happen (0.152.0, #78), on a box that records it.
+    pub fn saw(&mut self, severity: &str, source: &str, kind: &str, subject: &str, reason: &str, text: String) {
+        if !crate::box_log::seen() {
+            return;
+        }
+        self.seed_log();
+        self.box_log.push(crate::box_log::happened(Utc::now(), severity, source, kind, subject, reason, text));
     }
 
     /// The dataplane started now, for `cause` ("" when the start is not recorded).

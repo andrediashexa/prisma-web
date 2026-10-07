@@ -127,6 +127,8 @@ pub struct EventsQuery {
     since: String,
     severity: String,
     source: String,
+    /// Prisma 0.152.0 (#78): one kind, as `show log kind`.
+    kind: String,
 }
 
 /// `show log` (Prisma 0.151.14, #75): the box's record of what happened on it, oldest first, with
@@ -136,7 +138,13 @@ pub async fn events(State(st): State<AppState>, _: CurrentUser, Path(id): Path<U
         return Err(AppError::BadRequest("last is at most 10000".into()));
     }
     let r = st.routers.get(id).await?;
-    let msg = ListEventsRequest { last: q.last, since: q.since.trim().into(), severity: q.severity.trim().into(), source: q.source.trim().into() };
+    let msg = ListEventsRequest {
+        last: q.last,
+        since: q.since.trim().into(),
+        severity: q.severity.trim().into(),
+        source: q.source.trim().into(),
+        kind: q.kind.trim().into(),
+    };
     Ok(Json(to_json(&r.ops().list_events(req(msg)).await?.into_inner())))
 }
 

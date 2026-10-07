@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.38.0 - What the box saw — 2026-10-07
+
+### Added
+- On a router with Prisma 0.152.0 or newer, the Box log also shows what the router saw happen with nobody typing: links up and down, a module past a threshold, BGP and BFD sessions with why they went down, pools out of blocks, the log export, logins and failed logins, settings applied, a dataplane given up on. Each event says what it is about and why, and the log filters by kind (#78).
+
+### Internal
+- Client regenerated from the Prisma 0.152.1 contract; integration notes read up to 0.152.1 (0.151.17 and 0.152.1 change nothing for prisma-web; nothing assumes the old 9000 MTU default). The simulated Prisma records such events and filters by kind (#78).
+
 ## 0.37.1 - Transceivers after an upgrade — 2026-10-06
 
 ### Fixed
