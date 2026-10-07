@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.151.15 | `4e80a06cf449690c7347efa451ae2e43791b7920c5b4aef2e4ae8648a350133e` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.151.15 | `cc236c53d77226134422ad8e6ed3c5eb1625686e59a36b1459cdb6f7346b6af6` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.151.15 | `ca7ba039c2d76c00da8d22a2f820396bfe4ca3ba12d9373294d39b69b30d3e77` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.1 | `eaf45c412fecadb2e7d4abaeeec722f998c5a9cbf3461d217a46447b462ccce5` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.152.1 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.1 | `a54ebfbc229603e334d2dde5098c156dd041574ce03a7121a30e89bf7b2e7136` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md.
 
-Read up to 0.151.16 in `clients.md` and already handled:
+Read up to 0.152.1 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -626,6 +626,27 @@ Read up to 0.151.16 in `clients.md` and already handled:
   note in `text`. Seen on 192.0.2.166 on 2026-10-06 (VTY 0.151.16, plugin 0.151.4), followed in
   #77: with no dataplane port the card says so and shows the box's `text`; the mock answers the
   case on `mock transceivers old-plugin on|off`.
+- 0.151.17 (contract unchanged) lets a box whose `snmp listen-address` names one of its interfaces
+  come up, SNMP applied once the interfaces are; and drops a redundant line under the
+  older-plugin note. On 2026-10-07, with its dataplane restarted, 192.0.2.166's enp1s0 read RX
+  -14.9 dBm, a low warning (read only), which the card shows as such; its two virtual cards read
+  UNREADABLE with the box's `why`.
+- 0.152.0 (additive, prismarouting #588 phase 2) records what the box sees happen, followed in
+  #78: new kinds `link`, `transceiver`, `bgp`, `bfd`, `pool`, `collector`, `login`, `settings`
+  and `gave-up` (sources unchanged), `BoxEvent.subject` (an interface, a port, a peer, a pool, a
+  log stream, an account, `snmp` or `api`) and `BoxEvent.reason` (FRR's last reset, bfdd's
+  diagnostic, the threshold crossed, `authentication failed`, a flapping subject's count), and
+  `ListEventsRequest.kind` (INVALID_ARGUMENT for a kind the box has not got). A subject changing
+  more than 4 times in 5 minutes is one event per 5 minutes, so counting events undercounts a
+  flap. The back relays `kind`; the Box log has a Kind filter and shows each event's subject and,
+  when the text does not already say it, its reason; a kind the page does not know is shown by
+  its `text`. The mock records a BFD session down (with bfdd's reason) and up, a transceiver past
+  a threshold, a login and a failed one, and filters by kind from 0.152.0; the main mock reports
+  `0.152.1-mock`.
+- 0.152.1 (contract unchanged, #592) makes 1500 the default MTU: `mtu` 0 is now 1500, and a box
+  upgraded onto it pins `mtu 9000` where it had none (one `host` event says which). prisma-web
+  assumes no default MTU: the interface form sends the value typed, and GetConfig names the
+  device's MTU. 192.0.2.166 runs 0.152.1.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

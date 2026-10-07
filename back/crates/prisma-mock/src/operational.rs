@@ -502,10 +502,7 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             return Err(Status::unimplemented("ListEvents is not in this release"));
         }
         let mut st = self.shared.state.lock().unwrap();
-        if st.box_log.is_empty() {
-            let boot = chrono::Utc::now() - chrono::Duration::seconds(st.uptime_seconds() as i64);
-            st.box_log = crate::box_log::seed(boot);
-        }
+        st.seed_log();
         crate::box_log::list(&st.box_log, req.get_ref(), chrono::Utc::now()).map(Response::new)
     }
 
@@ -819,7 +816,15 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         // Test hook (#76): wan0's RX power, in mW (0 is no light).
         if let Some(mw) = command.trim().strip_prefix("mock transceiver wan0 rx ") {
             let mw: f64 = mw.parse().map_err(|_| Status::invalid_argument("mock transceiver wan0 rx <mW>"))?;
-            self.shared.state.lock().unwrap().wan0_rx_mw = mw;
+            let mut st = self.shared.state.lock().unwrap();
+            st.wan0_rx_mw = mw;
+            // A module's RX power past a threshold is an event (0.152.0, #78).
+            let rx = crate::transceivers::list(&["wan0".into()], mw).transceivers[0].lanes[0].rx_power_mw.clone().unwrap_or_default();
+            let level = prisma_proto::v1::transceiver_level::Level::try_from(rx.level).unwrap_or_default().as_str_name().trim_start_matches("LEVEL_").to_lowercase().replace('_', "-");
+            if level != "normal" {
+                st.saw("warning", "dataplane", "transceiver", "wan0", &format!("rx power {level}"), format!("wan0's module: rx power {level} ({mw} mW)"));
+            }
+            drop(st);
             return Ok(Response::new(ShowResponse { text: format!("wan0 rx {mw} mW\n"), ..Default::default() }));
         }
         // Test hook (#75): the dataplane starts now for a cause (`none`: a start not recorded).
@@ -864,6 +869,12 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
                 "up" => st.bfd_down.remove(peer),
                 _ => return Err(Status::invalid_argument("mock bfd down|up <peer>")),
             };
+            // What the box sees happen (0.152.0, #78).
+            if state == "down" {
+                st.saw("warning", "routing", "bfd", peer, "control detection time expired", format!("BFD session with {peer} down: control detection time expired"));
+            } else {
+                st.saw("notice", "routing", "bfd", peer, "", format!("BFD session with {peer} up"));
+            }
             return Ok(Response::new(ShowResponse { text: format!("bfd peer {peer} {state}\n"), ..Default::default() }));
         }
         // Test hook: how the next dataplane restart answers: it drops the connection, as on a box

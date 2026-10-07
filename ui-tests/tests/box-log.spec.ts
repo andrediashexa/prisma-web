@@ -19,6 +19,19 @@ test("the box's log is shown with its filters, and a refused filter in the box's
   await expect(card.getByRole("alert")).toContainText("is not a time")
 })
 
+test("the box log filters by kind and says what an event is about and why (#78)", async ({ page }) => {
+  await hook(page, "mock bfd down 192.168.10.2")
+  await hook(page, "mock bfd up 192.168.10.2")
+  await page.goto(`/routers/${routerId()}`)
+  const card = page.locator("[data-box-log]")
+  await card.getByRole("combobox", { name: "Kind" }).click()
+  await page.getByRole("option", { name: "BFD" }).click()
+  await expect(card.locator("[data-event-kind=commit]")).toHaveCount(0)
+  const bfd = card.locator("[data-event-kind=bfd]")
+  await expect(bfd.first().locator("[data-subject]")).toHaveText("192.168.10.2")
+  await expect(bfd.getByText("control detection time expired").first()).toBeVisible()
+})
+
 test("the Uptime card says why the dataplane restarted, and 'by itself' only when nothing asked", async ({ page }) => {
   try {
     await page.goto(`/routers/${routerId()}`)
