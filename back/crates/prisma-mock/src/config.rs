@@ -117,6 +117,8 @@ fn single_key(line: &str) -> Option<String> {
         // `neighbor <peer> remote-as`, a static route's prefix and next hop).
         [k @ ("distance" | "maximum-paths" | "table-map" | "table-policy" | "export"), ..] => Some((*k).into()),
         [a @ ("bgp" | "ospf" | "ospf6"), "router-id", ..] => Some(format!("{a} router-id")),
+        // A remote syslog destination of the box's record, by its address (0.152.2, #79).
+        ["host", a, ..] => Some(format!("host {a}")),
         ["auto-cost", "reference-bandwidth", ..] => Some("auto-cost".into()),
         // One route-map and one prefix-list each way (#46).
         ["neighbor", peer, attr @ ("route-map" | "prefix-list"), _, dir] => Some(format!("neighbor {peer} {attr} {dir}")),
@@ -273,6 +275,29 @@ impl Config {
             .find_map(|l| l.strip_prefix("block-size "))
             .and_then(|v| v.trim().parse().ok())
             .unwrap_or(256)
+    }
+
+    /// The remote syslog destinations of the box's record (`system > logging`, 0.152.2, #79).
+    pub fn log_destinations(&self) -> Vec<prisma_proto::v1::LoggingDestination> {
+        let lines = self.block(&["system", "logging"]).map_or(&[][..], |b| &b.lines[..]);
+        lines
+            .iter()
+            .filter_map(|l| {
+                let w: Vec<&str> = l.split_whitespace().collect();
+                let ["host", address, rest @ ..] = w.as_slice() else { return None };
+                let after = |k: &str| rest.iter().position(|x| *x == k).and_then(|i| rest.get(i + 1)).map(|v| v.to_string());
+                let protocol = after("protocol").unwrap_or_else(|| "udp".into());
+                let port = after("port").and_then(|p| p.parse().ok()).unwrap_or(if protocol == "tcp" { 601 } else { 514 });
+                Some(prisma_proto::v1::LoggingDestination {
+                    address: (*address).into(),
+                    port,
+                    severity: after("severity").unwrap_or_else(|| "info".into()),
+                    source_address: after("source-address").unwrap_or_default(),
+                    vrf: after("vrf").unwrap_or_default(),
+                    protocol,
+                })
+            })
+            .collect()
     }
 
     /// `ip prefix-list` lines (0.151.12, #73): an entry replaces the one with its sequence;
@@ -1096,6 +1121,21 @@ mod tests {
         assert!(l.tcp.is_none() && l.syslog.is_some());
         c.edit(&p(&CGNAT_PATH), &p(&["logging disable"])).ok().unwrap();
         assert_eq!(c.log_collectors(), Collectors::default(), "logging disable turns the whole export off");
+    }
+
+    #[test]
+    fn remote_syslog_destinations() {
+        // `system > logging` (0.152.2, #79): ports by protocol, severity info by default, by address.
+        let mut c = Config::seed("t");
+        let at = p(&["system", "logging"]);
+        c.edit(&at, &p(&["host 192.0.2.60", "host 192.0.2.61 protocol tcp severity warning vrf blue"])).ok().unwrap();
+        c.edit(&at, &p(&["host 192.0.2.60 port 5514"])).ok().unwrap();
+        let d = c.log_destinations();
+        assert_eq!(d.len(), 2, "a host is one line, the new one replacing it");
+        assert_eq!((d[0].port, d[0].protocol.as_str(), d[0].severity.as_str()), (5514, "udp", "info"));
+        assert_eq!((d[1].port, d[1].protocol.as_str(), d[1].severity.as_str(), d[1].vrf.as_str()), (601, "tcp", "warning", "blue"));
+        c.edit(&at, &p(&["no host 192.0.2.61"])).ok().unwrap();
+        assert_eq!(c.log_destinations().len(), 1);
     }
 
     #[test]

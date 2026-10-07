@@ -15,6 +15,11 @@ pub fn seen() -> bool {
     crate::operational::release_at_least((0, 152, 0))
 }
 
+/// What already stands at the first reading of a boot (0.152.2, #588 phase 3, prisma-web #79).
+pub fn standing() -> bool {
+    crate::operational::release_at_least((0, 152, 2))
+}
+
 pub const KINDS: [&str; 17] = [
     "commit", "rollback", "confirm", "confirm-expired", "asked", "start", "boot", "upgraded", "link", "transceiver", "bgp", "bfd", "pool", "collector",
     "login", "settings", "gave-up",
@@ -65,6 +70,12 @@ pub fn seed(boot: DateTime<Utc>) -> Vec<BoxEvent> {
             ..happened(login, "notice", "host", "login", "admin", "", "admin logged in from ssh 192.0.2.10".into())
         });
         log.push(happened(login + chrono::Duration::minutes(1), "warning", "host", "login", "root", "authentication failed", "a login as root from ssh 198.51.100.7 failed: authentication failed".into()));
+    }
+    if standing() {
+        // The dirty fibre on lan0 (#76) was already there at the boot's first reading.
+        let at = boot + chrono::Duration::seconds(70);
+        let e = happened(at, "warning", "dataplane", "transceiver", "lan0", "rx power low-warning", "standing at start: lan0's module: rx power low-warning (-16.02 dBm)".into());
+        log.insert(3, e);
     }
     log
 }

@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.1 | `eaf45c412fecadb2e7d4abaeeec722f998c5a9cbf3461d217a46447b462ccce5` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.152.1 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.1 | `a54ebfbc229603e334d2dde5098c156dd041574ce03a7121a30e89bf7b2e7136` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.2 | `c6816ee42302484e720bc0cf32ade22650f4e2c55d219298928627e96524ecdd` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.152.2 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.2 | `e4342550b4f6fc04902df8481fa8fd7c13d99dd2daae0a0c6d83a7a74e9639bf` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map.
 
-Read up to 0.152.1 in `clients.md` and already handled:
+Read up to 0.152.2 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -647,6 +647,26 @@ Read up to 0.152.1 in `clients.md` and already handled:
   upgraded onto it pins `mtu 9000` where it had none (one `host` event says which). prisma-web
   assumes no default MTU: the interface form sends the value typed, and GetConfig names the
   device's MTU. 192.0.2.166 runs 0.152.1.
+- 0.152.2 (additive, prismarouting #588 phase 3), followed in #79:
+  `OperationalService.WatchEvents(ListEventsRequest)` streams the record as it is written
+  (`monitor log`): `severity`, `source` and `kind` select, `last` and `since` say what is sent
+  first, and with neither nothing is (the stream starts now, unlike ListEvents' last 50); events
+  appended late (a start, a login) can arrive out of time order. The back relays it as
+  `GET /routers/{id}/events/watch` (Server-Sent Events: `open` at once, `event` each, `error`,
+  `end`; cancelled when the page leaves, at most 30 minutes, as the BFD watch), and the Box log's
+  **Follow** switch adds each event as it comes, sorted by time. The first reading of each boot
+  says what already stands wrong, once, as events whose `text` begins "standing at start: " (the
+  same kind, subject, severity and reason as a change): the Box log marks them. The record's
+  remote syslog destinations are `system > logging` (`host <address> [port <n>] [protocol
+  udp|tcp] [severity <level>] [source-address <a>] [vrf <name>]`, lines through Edit at
+  `["system","logging"]`, typed in `SystemConfig.log_destinations`; ports default to 514 udp and
+  601 tcp), and `SystemInfo.logging` says how each goes (`known`, `state` ready, sending or not
+  reached with `error`, `sent`, `last_sent`; `logging_text`): the Box log lists them with their
+  state and links to Settings at `system > logging`, which edits them by the grammar (the built-in
+  grammar has the new mode). SNMP's two new traps are an NMS's concern. The mock streams its
+  record, says a standing-at-start event (lan0's dirty fibre), keeps the destinations and reports
+  UDP ones as sending and TCP ones as not reached; the main mock reports `0.152.2-mock`.
+  192.0.2.166 runs 0.152.2.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

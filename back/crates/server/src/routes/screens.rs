@@ -138,14 +138,61 @@ pub async fn events(State(st): State<AppState>, _: CurrentUser, Path(id): Path<U
         return Err(AppError::BadRequest("last is at most 10000".into()));
     }
     let r = st.routers.get(id).await?;
-    let msg = ListEventsRequest {
-        last: q.last,
-        since: q.since.trim().into(),
-        severity: q.severity.trim().into(),
-        source: q.source.trim().into(),
-        kind: q.kind.trim().into(),
-    };
-    Ok(Json(to_json(&r.ops().list_events(req(msg)).await?.into_inner())))
+    Ok(Json(to_json(&r.ops().list_events(req(events_request(&q))).await?.into_inner())))
+}
+
+fn events_request(q: &EventsQuery) -> ListEventsRequest {
+    ListEventsRequest { last: q.last, since: q.since.trim().into(), severity: q.severity.trim().into(), source: q.source.trim().into(), kind: q.kind.trim().into() }
+}
+
+/// The longest an events watch runs: a forgotten tab does not hold a stream (as the BFD watch, #66).
+const EVENTS_WATCH_MAX: Duration = Duration::from_secs(30 * 60);
+
+/// `monitor log` (Prisma 0.152.2, #79): WatchEvents as Server-Sent Events, `open` at once, then
+/// `event` per BoxEvent, `error` and `end`; leaving the page cancels it. With no `last` or `since`
+/// nothing is sent first: the stream starts now.
+pub async fn watch_events(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>, Query(q): Query<EventsQuery>) -> AppResult<Sse<impl Stream<Item = Result<Event, Infallible>>>> {
+    if q.last > 10_000 {
+        return Err(AppError::BadRequest("last is at most 10000".into()));
+    }
+    let r = st.routers.get(id).await?;
+    let (tx, rx) = tokio::sync::mpsc::channel::<Event>(64);
+    let mut ops = r.ops();
+    let msg = events_request(&q);
+    tokio::spawn(async move {
+        if tx.send(Event::default().event("open").data("watching")).await.is_err() {
+            return;
+        }
+        let call = ops.watch_events(grpc::req_with(msg, EVENTS_WATCH_MAX));
+        let mut stream = tokio::select! {
+            res = call => match res {
+                Ok(s) => s.into_inner(),
+                Err(s) => {
+                    let _ = tx.send(Event::default().event("error").data(grpc::describe(&s))).await;
+                    return;
+                }
+            },
+            _ = tx.closed() => return,
+        };
+        loop {
+            let m = tokio::select! {
+                m = stream.next() => m,
+                _ = tx.closed() => return,
+            };
+            let e = match m {
+                Some(Ok(e)) => Event::default().event("event").json_data(to_json(&e)).unwrap_or_default(),
+                Some(Err(s)) if s.code() == tonic::Code::DeadlineExceeded => break,
+                Some(Err(s)) => Event::default().event("error").data(grpc::describe(&s)),
+                None => break,
+            };
+            if tx.send(e).await.is_err() {
+                return;
+            }
+        }
+        let _ = tx.send(Event::default().event("end").data("done")).await;
+    });
+    let events = tokio_stream::wrappers::ReceiverStream::new(rx).map(Ok);
+    Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
 #[derive(Deserialize, Default)]
