@@ -51,6 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "prisma.v1.BfdEvent.at",
         // Prisma 0.151.14 (#75): `show log`.
         "prisma.v1.BoxEvent.time",
+        // Prisma 0.152.2 (#79): remote syslog's last send.
+        "prisma.v1.LoggingDestinationState.last_sent",
     ] {
         cfg = cfg.field_attribute(ts, "#[serde(serialize_with = \"crate::ser::timestamp\")]");
     }

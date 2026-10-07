@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.39.0 - Following the box — 2026-10-07
+
+### Added
+- On a router with Prisma 0.152.2 or newer, the Box log can **follow** the router: each event appears as the router records it, with the card's filters. Conditions that were already wrong when the router started (a dirty fibre, a session down) are marked "standing at start". Under the log, the remote syslog destinations the router sends its record to, and whether each is reached, with a link to edit them in Settings (#79).
+
+### Internal
+- Client regenerated from the Prisma 0.152.2 contract, and the built-in grammar with its `system > logging` mode. The simulated Prisma streams its record, says what stands at start and keeps remote syslog destinations (#79).
+
 ## 0.38.0 - What the box saw — 2026-10-07
 
 ### Added

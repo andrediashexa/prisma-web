@@ -525,6 +525,8 @@ def line_fallback_checks(admin, args):
         check(st == 501, "a box before 0.151.14 has no ListEvents: 501, the card not shown", b)
         st, b = admin.get(f"{R}/transceivers")
         check(st == 501, "a box before 0.151.15 has no ListTransceivers: 501, the card not shown", b)
+        st, evs = sse_until(admin, f"{R}/events/watch", lambda evs: any(e == "error" for e, _ in evs), timeout=10)
+        check(any(e == "error" for e, _ in (evs if st == 200 else [])) or st == 501, "a box before 0.152.2 has no WatchEvents: the watch ends with the refusal", evs)
         s = next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])
         check(s.get("system_service") is None, "a box before 0.149.25 has no SystemService: the clears are not offered", s)
         st, b = admin.post(f"{R}/clear", {"target": "interface_counters"})
@@ -1057,6 +1059,40 @@ def box_log_checks(admin, R):
           "kind=login lists a login with its account and origin, and a failed one with why", ev)
     st, b = admin.get(f"{R}/events?kind=weather")
     check(st == 422 and "is not a kind" in errmsg(b), "a kind the box does not record is refused, in its words", b)
+    # Phase 3 (0.152.2, #79): what stands at start, the stream, remote syslog.
+    st, b = admin.get(f"{R}/events?kind=transceiver")
+    stand = [e for e in b.get("events", []) if e["text"].startswith("standing at start: ")]
+    check(stand and stand[0]["subject"] == "lan0" and stand[0]["reason"] == "rx power low-warning",
+          "a condition already wrong at the boot is said once, standing at start, with its subject and why", stand[:1])
+    triggered = []
+    def flip(evs):
+        if not triggered and any(e == "open" for e, _ in evs):
+            triggered.append(1)
+            admin.post(f"{R}/show", {"command": "mock bfd down 192.168.10.2"})
+    got = lambda evs: any(e == "event" for e, _ in evs)
+    try:
+        st, evs = sse_until(admin, f"{R}/events/watch?kind=bfd", got, timeout=15, on_open=flip)
+        streamed = [json.loads(d) for e, d in evs if e == "event"] if st == 200 else []
+        check(evs and evs[0][0] == "open" and streamed and streamed[0]["kind"] == "bfd" and streamed[0]["subject"] == "192.168.10.2",
+              "WatchEvents opens at once and streams an event as it is written, nothing sent first", [e for e, _ in evs][:4])
+    finally:
+        admin.post(f"{R}/show", {"command": "mock bfd up 192.168.10.2"})
+    st, evs = sse_until(admin, f"{R}/events/watch?kind=weather", lambda evs: any(e == "error" for e, _ in evs), timeout=10)
+    err = [d for e, d in evs if e == "error"] if st == 200 else []
+    check(err and "is not a kind" in err[0], "a watch with a kind the box does not record ends with its refusal", evs)
+    chk, st, b = commit_lines(admin, R, [(["system", "logging"], ["host 192.0.2.60", "host 192.0.2.61 protocol tcp severity warning"])], "e2e: remote syslog")
+    check(st == 200, "two remote syslog destinations are committed at system > logging", b)
+    try:
+        st, sy = admin.get(f"{R}/system")
+        by = {(d.get("destination") or {}).get("address"): d for d in sy.get("logging", [])}
+        u, t = by.get("192.0.2.60", {}), by.get("192.0.2.61", {})
+        check(u.get("known") and u.get("state") == "sending" and u["destination"]["port"] == 514 and u["sent"] > 0 and u.get("last_sent")
+              and t.get("state") == "not reached" and t.get("error") and t["destination"]["port"] == 601 and t["destination"]["severity"] == "warning"
+              and sy.get("logging_text"), "GetSystem says how each destination goes: sending, or not reached and why; the ports are the protocols'", sy.get("logging"))
+    finally:
+        commit_lines(admin, R, [(["system", "logging"], ["no host 192.0.2.60", "no host 192.0.2.61"])], "e2e: undo remote syslog")
+    st, sy = admin.get(f"{R}/system")
+    check(st == 200 and not sy.get("logging"), "and with none, nothing is sent anywhere", sy.get("logging"))
     st, sy = admin.get(f"{R}/system")
     check(st == 200 and sy.get("control_plane_start_cause") == "boot", "GetSystem says why the routing daemons last started", sy.get("control_plane_start_cause"))
     for cause, restarted in [("unexpected", True), ("operator", True), ("boot", False)]:
@@ -1073,7 +1109,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.152.1"), "the main mock reports 0.152.1 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.152.2"), "the main mock reports 0.152.2 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:
@@ -1264,6 +1300,12 @@ def lab(admin, args):
         else:
             check(st == 200 and [s["kind"] for s in lg["streams"]] == ["syslog", "ipfix-tcp", "ipfix-udp"],
                   f"GetLogging of the real Prisma ({sum(s['configured'] for s in lg['streams'])} of 3 streams configured, log export {st_lab.get('log_export')})", lg)
+        # Prisma 0.152.2 (#79): read only, where the record is sent and a few seconds of its stream.
+        st, sy = admin.get(R + "/system")
+        if "logging" in (sy or {}):
+            check(True, f"the real Prisma's remote syslog: {[((d.get('destination') or {}).get('address'), d.get('state')) for d in sy['logging']]}", sy.get("logging_text", "")[:200])
+            st, evs = sse_until(admin, R + "/events/watch?since=10m", lambda evs: False, timeout=4)
+            check(st == 200 and evs and evs[0][0] == "open", f"the real Prisma's stream opens: {sum(1 for e, _ in evs if e == 'event')} events in 4 s", [e for e, _ in evs][:3])
         # Prisma 0.151.15 (#76): read only, the transceivers.
         st, tr = admin.get(R + "/transceivers")
         if st == 501:

@@ -32,6 +32,38 @@ test("the box log filters by kind and says what an event is about and why (#78)"
   await expect(bfd.getByText("control detection time expired").first()).toBeVisible()
 })
 
+test("the box log follows events as they are written, marks what stood at start, and says where it is sent (#79)", async ({ page }) => {
+  const R = `/api/routers/${routerId()}/config`
+  const commit = async (lines: string[], comment: string) => {
+    const c = await (await page.request.post(`${R}/candidates`)).json()
+    await page.request.post(`${R}/candidates/${c.candidate_id}/edit`, { data: { path: ["system", "logging"], lines } })
+    const res = await page.request.post(`${R}/candidates/${c.candidate_id}/commit`, { data: { comment } })
+    if (!res.ok()) throw new Error(`commit failed: ${res.status()} ${await res.text()}`)
+  }
+  await commit(["host 192.0.2.62 protocol tcp"], "ui tests: remote syslog")
+  try {
+    await page.goto(`/routers/${routerId()}`)
+    const card = page.locator("[data-box-log]")
+    await card.getByRole("combobox", { name: "Kind" }).click()
+    await page.getByRole("option", { name: "Transceivers" }).click()
+    await expect(card.locator("[data-standing]").first()).toBeVisible()
+    await expect(card.locator("[data-destination='192.0.2.62']")).toContainText("not reached")
+    await expect(card.locator("[data-destination='192.0.2.62']")).toContainText("connection refused")
+
+    await card.getByRole("combobox", { name: "Kind" }).click()
+    await page.getByRole("option", { name: "BFD" }).click()
+    const before = await card.locator("[data-event-kind=bfd]").count()
+    await card.getByRole("switch", { name: "Follow" }).click()
+    await expect(card.getByText("live", { exact: true })).toBeVisible()
+    await hook(page, "mock bfd down 192.168.10.3")
+    await expect(card.locator("[data-event-kind=bfd]")).toHaveCount(before + 1, { timeout: 10_000 })
+    await expect(card.locator("[data-event-kind=bfd]").first().locator("[data-subject]")).toHaveText("192.168.10.3")
+  } finally {
+    await hook(page, "mock bfd up 192.168.10.3")
+    await commit(["no host 192.0.2.62"], "ui tests: undo remote syslog")
+  }
+})
+
 test("the Uptime card says why the dataplane restarted, and 'by itself' only when nothing asked", async ({ page }) => {
   try {
     await page.goto(`/routers/${routerId()}`)

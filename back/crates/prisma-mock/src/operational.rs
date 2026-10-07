@@ -24,6 +24,26 @@ const RELEASE: &str = "0.149.0-mock";
 
 /// `MOCK_RELEASE` overrides the release the mock reports (#51: prisma-mock-2 is a 0.149.26
 /// box whose account has no `operator`).
+/// Each remote syslog destination and the watcher's word on it (0.152.2, #79).
+fn log_states(st: &crate::state::State) -> Vec<prisma_proto::v1::LoggingDestinationState> {
+    let sent = st.box_log.len() as u64;
+    st.running
+        .log_destinations()
+        .into_iter()
+        .map(|d| {
+            let tcp = d.protocol == "tcp";
+            prisma_proto::v1::LoggingDestinationState {
+                known: true,
+                state: if tcp { "not reached".into() } else { "sending".into() },
+                error: if tcp { format!("connection refused ({}:{})", d.address, d.port) } else { String::new() },
+                sent: if tcp { 0 } else { sent },
+                last_sent: if tcp { None } else { Some(crate::state::timestamp(chrono::Utc::now())) },
+                destination: Some(d),
+            }
+        })
+        .collect()
+}
+
 /// Whether the release the mock reports is `min` or newer.
 pub fn release_at_least(min: (u32, u32, u32)) -> bool {
     let r = release();
@@ -356,6 +376,10 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             last_boot_reason: "system reboot by admin".into(),
             release_installed_at: ts(boot - chrono::Duration::hours(2)),
             dataplane_restarted: restarted,
+            // Remote syslog of the box's record and how it goes (0.152.2, #79): UDP sends, TCP is
+            // refused (the mock's collectors do not listen).
+            logging: if crate::box_log::standing() { log_states(&st) } else { vec![] },
+            logging_text: if crate::box_log::standing() { log_states(&st).iter().map(|s| format!("{} {} {}", s.destination.as_ref().map(|d| d.address.clone()).unwrap_or_default(), s.state, s.error)).collect::<Vec<_>>().join("\n") } else { String::new() },
             dataplane_start_cause: if recorded { dataplane_cause } else { String::new() },
             control_plane_start_cause: if recorded { "boot".into() } else { String::new() },
             // Memory and worker load in numbers (Prisma 0.149.2). busy_ratio is
@@ -484,6 +508,52 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
     }
 
     // What the boot left out (0.151.5, #70).
+    // `monitor log` (0.152.2, #79): what `last` or `since` asks first, then each event as it is
+    // written, with the same filters, until the call is cancelled.
+    async fn watch_events(&self, req: Request<ListEventsRequest>) -> Result<Response<tonic::codegen::BoxStream<BoxEvent>>, Status> {
+        if !crate::box_log::standing() {
+            return Err(Status::unimplemented("WatchEvents is not in this release"));
+        }
+        let req = req.into_inner();
+        let now = chrono::Utc::now();
+        let (first, mut seen) = {
+            let mut st = self.shared.state.lock().unwrap();
+            st.seed_log();
+            // The filters as `show log` takes them, refused the same way.
+            crate::box_log::list(&st.box_log, &ListEventsRequest { last: u32::MAX, since: String::new(), ..req.clone() }, now)?;
+            let first = if req.last == 0 && req.since.is_empty() { vec![] } else { crate::box_log::list(&st.box_log, &req, now)?.events };
+            (first, st.box_log.len())
+        };
+        let shared = self.shared.clone();
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move {
+            for e in first {
+                if tx.send(Ok(e)).await.is_err() {
+                    return;
+                }
+            }
+            let only = ListEventsRequest { last: u32::MAX, since: String::new(), ..req };
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(300)) => {}
+                    _ = tx.closed() => return,
+                }
+                let new: Vec<BoxEvent> = {
+                    let st = shared.state.lock().unwrap();
+                    let fresh = st.box_log.get(seen..).unwrap_or_default().to_vec();
+                    seen = st.box_log.len();
+                    crate::box_log::list(&fresh, &only, chrono::Utc::now()).map(|r| r.events).unwrap_or_default()
+                };
+                for e in new {
+                    if tx.send(Ok(e)).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))))
+    }
+
     // `show interface transceiver` (0.151.15, #76); a box before it has no such call.
     async fn list_transceivers(&self, req: Request<ListTransceiversRequest>) -> R<Transceivers> {
         if !crate::transceivers::answered() {
