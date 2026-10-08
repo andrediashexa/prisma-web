@@ -277,6 +277,25 @@ impl Config {
             .unwrap_or(256)
     }
 
+    /// The VRF the box's management lives in (`system > management > vrf <name>`, 0.152.4, #82),
+    /// and its table from the box's `vrf <name> table <id>`; ("", 0) for the main table.
+    pub fn management_vrf(&self) -> (String, u32) {
+        let vrf = self
+            .block(&["system", "management"])
+            .and_then(|b| b.lines.iter().find_map(|l| l.strip_prefix("vrf ").map(|v| v.trim().to_string())))
+            .unwrap_or_default();
+        if vrf.is_empty() {
+            return (vrf, 0);
+        }
+        let head = format!("vrf {vrf} table ");
+        let table = self
+            .blocks
+            .iter()
+            .find_map(|b| b.path.first().and_then(|p| p.strip_prefix(&head)).and_then(|t| t.trim().parse().ok()))
+            .unwrap_or(0);
+        (vrf, table)
+    }
+
     /// The remote syslog destinations of the box's record (`system > logging`, 0.152.2, #79).
     pub fn log_destinations(&self) -> Vec<prisma_proto::v1::LoggingDestination> {
         let lines = self.block(&["system", "logging"]).map_or(&[][..], |b| &b.lines[..]);
@@ -358,6 +377,12 @@ impl Config {
     /// list that translates nothing, an outside one that leaves no public address.
     pub fn list_refusals(&self) -> Vec<(Vec<String>, String, String)> {
         let mut out = vec![];
+        // Management's VRF must be one of the box's (0.152.4, #82), as `commit check` says.
+        if let (vrf, 0) = self.management_vrf() {
+            if !vrf.is_empty() {
+                out.push((vec!["system".into(), "management".into()], format!("vrf {vrf}"), format!("system management: vrf {vrf} is not a vrf of this box (vrf {vrf} table <id>)")));
+            }
+        }
         for pool in self.pool_names() {
             let path = vec!["nat".to_string(), "cgnat".to_string(), format!("pool {pool}")];
             for side in ["inside", "outside"] {
@@ -1121,6 +1146,18 @@ mod tests {
         assert!(l.tcp.is_none() && l.syslog.is_some());
         c.edit(&p(&CGNAT_PATH), &p(&["logging disable"])).ok().unwrap();
         assert_eq!(c.log_collectors(), Collectors::default(), "logging disable turns the whole export off");
+    }
+
+    #[test]
+    fn management_in_a_vrf() {
+        // 0.152.4 (#82): the VRF and its table; one the box has not got is refused at commit.
+        let mut c = Config::seed("t");
+        assert_eq!(c.management_vrf(), (String::new(), 0));
+        c.edit(&p(&["system", "management"]), &p(&["vrf MGMT"])).ok().unwrap();
+        assert!(c.list_refusals()[0].2.contains("vrf MGMT is not a vrf of this box"));
+        c.edit(&p(&["vrf MGMT table 100"]), &p(&["description management"])).ok().unwrap();
+        assert_eq!(c.management_vrf(), ("MGMT".to_string(), 100));
+        assert!(c.list_refusals().is_empty());
     }
 
     #[test]

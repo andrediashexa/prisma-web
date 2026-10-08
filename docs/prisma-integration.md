@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.2 | `c6816ee42302484e720bc0cf32ade22650f4e2c55d219298928627e96524ecdd` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.152.2 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.2 | `e4342550b4f6fc04902df8481fa8fd7c13d99dd2daae0a0c6d83a7a74e9639bf` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.4 | `b74cba12f9a5fb0887c465adc56a72dbb90b595d1a7ca72ef0b73b77566ae55b` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.152.4 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.4 | `a81e9679aea238b31980efe3658678d528d058a7d24052a55a0207e84d3407da` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map.
 
-Read up to 0.152.2 in `clients.md` and already handled:
+Read up to 0.152.4 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -667,6 +667,21 @@ Read up to 0.152.2 in `clients.md` and already handled:
   record, says a standing-at-start event (lan0's dirty fibre), keeps the destinations and reports
   UDP ones as sending and TCP ones as not reached; the main mock reports `0.152.2-mock`.
   192.0.2.166 runs 0.152.2.
+- 0.152.3 (contract unchanged) sends BFD-STD-MIB's `bfdSessDown`/`bfdSessUp` traps: an NMS's
+  concern; ListEvents, WatchEvents and WatchBfd are as they were.
+- 0.152.4 (additive, prismarouting #580) puts the box's management in a VRF of its own, followed
+  in #82: `system > management > vrf <name>` (lines through Edit at `["system","management"]`,
+  `no vrf`; the VRF must be a `vrf <name> table <id>` of the box with an interface in it, or
+  `commit check` refuses it), read typed in `SystemConfig.management` (12, KeyValue) and reported
+  in `SystemInfo.management` (29, `ManagementState`: the VRF and its table, the table the box's
+  own traffic goes to per family, the three host settings it needs or `known` false, the
+  interfaces in the VRF, `in_effect`) and `management_text` (30). The API keeps listening where
+  it did; a commit that moves management in or out of the VRF may end the streams and sessions
+  opened over it. The Interfaces tab's **Management** card shows the main table or the VRF with
+  all of that, says when configured and in effect disagree, links to Settings at `system >
+  management` (the built-in grammar has the new mode) and warns that moving it can end the
+  connections made over it, prisma-web's included. The mock keeps the statement, refuses a VRF it
+  has not got at commit, and reports the state; the main mock reports `0.152.4-mock`.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

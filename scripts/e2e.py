@@ -525,6 +525,8 @@ def line_fallback_checks(admin, args):
         check(st == 501, "a box before 0.151.14 has no ListEvents: 501, the card not shown", b)
         st, b = admin.get(f"{R}/transceivers")
         check(st == 501, "a box before 0.151.15 has no ListTransceivers: 501, the card not shown", b)
+        st, sy = admin.get(f"{R}/system")
+        check(st == 200 and not sy.get("management"), "a box before 0.152.4 reports no management state: the card not shown", sy.get("management"))
         st, evs = sse_until(admin, f"{R}/events/watch", lambda evs: any(e == "error" for e, _ in evs), timeout=10)
         check(any(e == "error" for e, _ in (evs if st == 200 else [])) or st == 501, "a box before 0.152.2 has no WatchEvents: the watch ends with the refusal", evs)
         s = next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])
@@ -1032,6 +1034,27 @@ def transceiver_checks(admin, R):
         admin.post(f"{R}/show", {"command": "mock transceiver wan0 rx 0.48"})
 
 
+def management_checks(admin, R):
+    """Management in a VRF of its own (Prisma 0.152.4, #82), on the mock that reports 0.152.4."""
+    st, sy = admin.get(f"{R}/system")
+    m = sy.get("management") or {}
+    check(st == 200 and m.get("vrf") == "" and m.get("table") == 0 and m.get("known") and m.get("in_effect") and sy.get("management_text"),
+          "GetSystem says management lives in the main table, in effect", m)
+    chk, st, b = commit_lines(admin, R, [(["system", "management"], ["vrf E2E-MGMT"])], "e2e: management in a vrf it has not got")
+    check(st == 409 and "is not a vrf of this box" in errmsg(b), "a management VRF the box has not got is refused at commit, in its words", b)
+    chk, st, b = commit_lines(admin, R, [(["vrf E2E-MGMT table 100"], ["description e2e"]), (["system", "management"], ["vrf E2E-MGMT"])], "e2e: management in a vrf")
+    check(st == 200, "management moves into a VRF of the box", b)
+    try:
+        st, sy = admin.get(f"{R}/system")
+        m = sy.get("management") or {}
+        check(m.get("vrf") == "E2E-MGMT" and m.get("table") == 100 and m.get("ipv4_table") == 100 and m.get("interfaces") and m.get("listeners_answer_on_vrf"),
+              "and GetSystem says its VRF, the table, where the box's own traffic goes and the interfaces in it", m)
+    finally:
+        commit_lines(admin, R, [(["system", "management"], ["no vrf"]), ([], ["no vrf E2E-MGMT table 100"])], "e2e: management back to the main table")
+    st, sy = admin.get(f"{R}/system")
+    check((sy.get("management") or {}).get("vrf") == "", "and back in the main table", sy.get("management"))
+
+
 def box_log_checks(admin, R):
     """`show log` and why each start (Prisma 0.151.14, #75), on the mock that reports 0.151.14."""
     st, b = admin.get(f"{R}/events")
@@ -1109,7 +1132,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.152.2"), "the main mock reports 0.152.2 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.152.4"), "the main mock reports 0.152.4 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:
@@ -1300,6 +1323,11 @@ def lab(admin, args):
         else:
             check(st == 200 and [s["kind"] for s in lg["streams"]] == ["syslog", "ipfix-tcp", "ipfix-udp"],
                   f"GetLogging of the real Prisma ({sum(s['configured'] for s in lg['streams'])} of 3 streams configured, log export {st_lab.get('log_export')})", lg)
+        # Prisma 0.152.4 (#82): read only, where management lives.
+        st, sy = admin.get(R + "/system")
+        if (sy or {}).get("management"):
+            mg = sy["management"]
+            check(True, f"the real Prisma's management: vrf '{mg.get('vrf')}' table {mg.get('table')}, in effect {mg.get('in_effect')}, interfaces {mg.get('interfaces')}", sy.get("management_text", "")[:200])
         # Prisma 0.152.2 (#79): read only, where the record is sent and a few seconds of its stream.
         st, sy = admin.get(R + "/system")
         if "logging" in (sy or {}):
@@ -1565,6 +1593,7 @@ def main():
         edit_words_checks(admin, R, router_id)
         box_log_checks(admin, R)
         transceiver_checks(admin, R)
+        management_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

@@ -8,6 +8,7 @@ import { BoxesIcon, Loader2Icon, PencilIcon, PowerIcon, PowerOffIcon } from "luc
 import { AddressList } from "@/components/address-list"
 import { ClearAction, useClears } from "@/components/clear-action"
 import { HardwareCard, SnmpFiles, UnsupportedSfpCard } from "@/components/screens"
+import { ManagementCard } from "@/components/management-card"
 import { TransceiversCard } from "@/components/transceivers-card"
 import { ChangeReview } from "@/components/config/change-review"
 import { StagedChanges } from "@/components/config/staged-changes"
@@ -282,6 +283,8 @@ export default function InterfacesPage() {
       <HardwareCard routerId={id} />
       {/* Prisma 0.151.15 (#76): each port's module and its levels; nothing on a box before it. */}
       <TransceiversCard routerId={id} />
+      {/* Prisma 0.152.4 (#82): where management lives; nothing on a box before it. */}
+      <ManagementCard routerId={id} />
       {/* Prisma 0.151.2 (#69): third-party SFP+ modules, opt-in. */}
       <UnsupportedSfpCard routerId={id} editable={canEdit} onStage={(c) => cc.stage(c)} />
       <SnmpFiles routerId={id} />

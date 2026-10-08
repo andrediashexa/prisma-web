@@ -24,6 +24,32 @@ const RELEASE: &str = "0.149.0-mock";
 
 /// `MOCK_RELEASE` overrides the release the mock reports (#51: prisma-mock-2 is a 0.149.26
 /// box whose account has no `operator`).
+/// Management in a VRF of its own, configured and in effect (0.152.4, #82): the mock applies it
+/// at the commit, so the two agree.
+fn management_state(st: &crate::state::State) -> prisma_proto::v1::ManagementState {
+    let (vrf, table) = st.running.management_vrf();
+    let in_vrf = !vrf.is_empty();
+    prisma_proto::v1::ManagementState {
+        interfaces: if in_vrf { vec!["eno1".into()] } else { vec![] },
+        known: true,
+        listeners_answer_on_vrf: in_vrf,
+        listeners_bind_vrf_address: in_vrf,
+        ipv6_addresses_kept: true,
+        ipv4_table: table,
+        ipv6_table: table,
+        in_effect: true,
+        vrf,
+        table,
+    }
+}
+
+fn management_text(st: &crate::state::State) -> String {
+    match st.running.management_vrf() {
+        (v, _) if v.is_empty() => "management: the main table\n".into(),
+        (v, t) => format!("management: vrf {v} (table {t})\n  interfaces: eno1\n"),
+    }
+}
+
 /// Each remote syslog destination and the watcher's word on it (0.152.2, #79).
 fn log_states(st: &crate::state::State) -> Vec<prisma_proto::v1::LoggingDestinationState> {
     let sent = st.box_log.len() as u64;
@@ -380,6 +406,9 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             // refused (the mock's collectors do not listen).
             logging: if crate::box_log::standing() { log_states(&st) } else { vec![] },
             logging_text: if crate::box_log::standing() { log_states(&st).iter().map(|s| format!("{} {} {}", s.destination.as_ref().map(|d| d.address.clone()).unwrap_or_default(), s.state, s.error)).collect::<Vec<_>>().join("\n") } else { String::new() },
+            // Where the box's management lives (0.152.4, #82).
+            management: crate::operational::release_at_least((0, 152, 4)).then(|| management_state(&st)),
+            management_text: if crate::operational::release_at_least((0, 152, 4)) { management_text(&st) } else { String::new() },
             dataplane_start_cause: if recorded { dataplane_cause } else { String::new() },
             control_plane_start_cause: if recorded { "boot".into() } else { String::new() },
             // Memory and worker load in numbers (Prisma 0.149.2). busy_ratio is
