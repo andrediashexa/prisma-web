@@ -92,6 +92,9 @@ function prefix(v: string, check: (a: string) => boolean, max: number) {
   return extra === undefined && l !== undefined && /^\d+$/.test(l) && Number(l) <= max && check(a)
 }
 
+/** An IPv6 address may come bracketed, as sshd prints it (`[::]`, Prisma 0.152.5, #83). */
+const unbracket = (v: string) => (/^\[[^\]]*:[^\]]*\]$/.test(v) ? v.slice(1, -1) : v)
+
 /** Why a value does not fit its parameter, or null. */
 export function invalid(kind: Kind, v: string): string | null {
   if (!v.trim()) return "required"
@@ -106,9 +109,9 @@ export function invalid(kind: Kind, v: string): string | null {
     case "ipv4":
       return IPV4.test(v) ? null : "an IPv4 address"
     case "ipv6":
-      return isIpv6(v) ? null : "an IPv6 address"
+      return isIpv6(unbracket(v)) ? null : "an IPv6 address"
     case "address":
-      return IPV4.test(v) || isIpv6(v) ? null : "an IPv4 or IPv6 address"
+      return IPV4.test(v) || isIpv6(unbracket(v)) ? null : "an IPv4 or IPv6 address"
     case "ipv4_prefix":
       return prefix(v, (a) => IPV4.test(a), 32) ? null : "an IPv4 prefix (A.B.C.D/M)"
     case "ipv6_prefix":

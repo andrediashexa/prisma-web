@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.4 | `b74cba12f9a5fb0887c465adc56a72dbb90b595d1a7ca72ef0b73b77566ae55b` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.152.4 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.4 | `a81e9679aea238b31980efe3658678d528d058a7d24052a55a0207e84d3407da` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.5 | `b74cba12f9a5fb0887c465adc56a72dbb90b595d1a7ca72ef0b73b77566ae55b` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.152.5 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.5 | `bfe962783e48406829cffd37f9335c0a1e6974c1a2079f2ec3a9a4121ff72d11` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#83) the coverage map only.
 
-Read up to 0.152.4 in `clients.md` and already handled:
+Read up to 0.152.5 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -682,6 +682,16 @@ Read up to 0.152.4 in `clients.md` and already handled:
   management` (the built-in grammar has the new mode) and warns that moving it can end the
   connections made over it, prisma-web's included. The mock keeps the statement, refuses a VRF it
   has not got at commit, and reports the state; the main mock reports `0.152.4-mock`.
+  192.0.2.166 has its management in `vrf mgmt` (table 100, enp6s18), read only on 2026-10-08.
+- 0.152.5 (contract unchanged, prismarouting #593) lets `ssh listen-address` hold several
+  addresses, as `api` and `snmp` since 0.151.8 (#72), and prints IPv6 bracketed as sshd does
+  (`192.0.2.166 [2001:db8:6::166]`; with none, `0.0.0.0 [::]`, where it read `[::]` or
+  `0.0.0.0`); `no ssh listen-address` is a statement now. GetSchema marks the three `many`, and
+  the coverage map writes them `<A.B.C.D|X:X::X:X>...`. Followed in #83: the built-in grammar's
+  parser reads a trailing `...` as a list of that kind (each value checked), a bracketed IPv6
+  address is an address wherever one is (matcher and form), and the mock's schema states `many`
+  for such a list. #72's reading of `api`/`snmp listen-address` as lists on 0.151.8 to 0.152.4,
+  whose schema says one address, stays for those boxes.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds
