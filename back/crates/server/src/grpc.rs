@@ -15,6 +15,11 @@ pub const RUNNING_TIMEOUT: Duration = Duration::from_secs(120);
 /// (docs/prisma-api.md, "The routing table"), then answers what it has.
 pub const ROUTES_TIMEOUT: Duration = Duration::from_secs(65);
 
+/// What applies or stages configuration (Commit, Check, Edit, SetConfig, DeleteConfig, Confirm,
+/// Rollback): since Prisma 0.152.7 a commit that moves interfaces between VRFs waits for FRR's
+/// zebra up to 10 s a move (#84), and a commit the box applied must not read as failed.
+pub const COMMIT_TIMEOUT: Duration = Duration::from_secs(120);
+
 pub fn req<T>(msg: T) -> tonic::Request<T> {
     req_with(msg, CALL_TIMEOUT)
 }

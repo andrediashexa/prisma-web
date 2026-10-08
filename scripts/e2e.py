@@ -1034,6 +1034,19 @@ def transceiver_checks(admin, R):
         admin.post(f"{R}/show", {"command": "mock transceiver wan0 rx 0.48"})
 
 
+def commit_deadline_checks(admin, R):
+    """A commit that takes longer than 10 s (Prisma 0.152.7, a VRF move waiting for zebra, #84)."""
+    st, b = admin.post(f"{R}/show", {"command": "mock commit-delay 12"})
+    check(st == 200, "mock: the next commit takes 12 s", b)
+    t0 = time.time()
+    chk, st, b = commit_lines(admin, R, [(["system", "logging"], ["host 192.0.2.84"])], "e2e: a slow commit")
+    took = time.time() - t0
+    check(st == 200 and took >= 12, f"a commit that takes {took:.0f} s succeeds: prisma-web waits for it", b)
+    commit_lines(admin, R, [(["system", "logging"], ["no host 192.0.2.84"])], "e2e: undo the slow commit")
+    st, b = admin.get(f"{R}/events?kind=vrf-settle")
+    check(st == 200, "vrf-settle is a kind the box's log takes", b)
+
+
 def management_checks(admin, R):
     """Management in a VRF of its own (Prisma 0.152.4, #82), on the mock that reports 0.152.4."""
     st, sy = admin.get(f"{R}/system")
@@ -1594,6 +1607,7 @@ def main():
         box_log_checks(admin, R)
         transceiver_checks(admin, R)
         management_checks(admin, R)
+        commit_deadline_checks(admin, R)
         line_fallback_checks(admin, args)
         st, lg = admin.get(f"{R}/logging")
         check(st == 200 and len(lg["streams"]) == 3 and not any(s["configured"] for s in lg["streams"]),

@@ -902,6 +902,12 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             self.shared.set_health(up).await;
             return Ok(Response::new(ShowResponse { text: format!("stats segment {state}\n"), ..Default::default() }));
         }
+        // Test hook (#84): the next commit takes this many seconds.
+        if let Some(s) = command.trim().strip_prefix("mock commit-delay ") {
+            let s: u64 = s.parse().map_err(|_| Status::invalid_argument("mock commit-delay <seconds>"))?;
+            self.shared.state.lock().unwrap().commit_delay_secs = s;
+            return Ok(Response::new(ShowResponse { text: format!("next commit takes {s} s\n"), ..Default::default() }));
+        }
         // Test hook (#77): the dataplane runs the plugin from before the upgrade, or not.
         if let Some(on) = command.trim().strip_prefix("mock transceivers old-plugin ") {
             let on = match on {
