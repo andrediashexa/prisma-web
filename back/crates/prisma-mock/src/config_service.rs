@@ -290,6 +290,11 @@ impl ConfigService for ConfigSvc {
     }
 
     async fn commit(&self, req: Request<CommitRequest>) -> R<CommitResponse> {
+        // A commit that waits for zebra on each VRF move (0.152.7, #84), on a test hook.
+        let delay = std::mem::take(&mut self.0.state.lock().unwrap().commit_delay_secs);
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        }
         let account = crate::session::account_of(&req);
         let req = req.into_inner();
         let shared = self.0.clone();

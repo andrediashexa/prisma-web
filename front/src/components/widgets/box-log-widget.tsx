@@ -50,6 +50,8 @@ const KINDS: [string, string][] = [
   ["login", "Logins"],
   ["settings", "Settings"],
   ["gave-up", "Gave up"],
+  // 0.152.7 (#84): a VRF move whose wait for FRR ran out.
+  ["vrf-settle", "VRF settle"],
 ]
 
 /** A remote syslog destination of the box's record and how sending to it goes (Prisma 0.152.2, #79). */

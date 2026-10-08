@@ -188,9 +188,9 @@ prisma-web compares it with the release recorded below and follows every entry.
 | `docs/prisma-api.md` | `docs/api.md` at v0.152.5 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
 | `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.5 | `bfe962783e48406829cffd37f9335c0a1e6974c1a2079f2ec3a9a4121ff72d11` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#83) the coverage map only.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#83) the coverage map only; 0.152.6 and 0.152.7 none.
 
-Read up to 0.152.5 in `clients.md` and already handled:
+Read up to 0.152.7 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -692,6 +692,18 @@ Read up to 0.152.5 in `clients.md` and already handled:
   address is an address wherever one is (matcher and form), and the mock's schema states `many`
   for such a list. #72's reading of `api`/`snmp listen-address` as lists on 0.151.8 to 0.152.4,
   whose schema says one address, stays for those boxes.
+- 0.152.6 (contract unchanged, #594): right after a commit moves the management card to another
+  VRF, the API answers on the IPv6 management address at once (it could stay unresolvable for
+  over 20 s). Nothing for prisma-web to change.
+- 0.152.7 (contract unchanged, #595): a commit that moves an interface between VRFs, or removes a
+  VRF, waits for FRR's zebra on each move - milliseconds normally, about a second a move under
+  load, at most 10 s - and a wait that runs out is a `warning` event of kind `vrf-settle`, the
+  commit not failed. Followed in #84: prisma-web called Commit, Edit and SetConfig with its 10 s
+  default, so a commit of two moves could read as failed (`502 router_unavailable: Timeout
+  expired`, measured with the mock delaying its commit 12 s) while the box applied it; Commit,
+  Check, Edit, SetConfig, DeleteConfig, Confirm and Rollback now have 120 s (`COMMIT_TIMEOUT`).
+  The Box log offers `vrf-settle` among its kinds. The mock's `mock commit-delay <s>` makes its
+  next commit that slow.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

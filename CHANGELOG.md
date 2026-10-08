@@ -16,6 +16,12 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.41.2 - Slow commits — 2026-10-08
+
+### Fixed
+- A commit the router takes longer than 10 s to apply - from Prisma 0.152.7 one that moves interfaces between VRFs waits for the routing daemons on each move - no longer reads as failed while the router applied it: prisma-web waits up to 120 s for the calls that apply or stage configuration (#84).
+- The Box log offers the router's new `vrf-settle` events (a VRF move whose wait ran out) among its kinds (#84).
+
 ## 0.41.1 - SSH address lists — 2026-10-08
 
 ### Fixed

@@ -52,6 +52,9 @@ test("the box log follows events as they are written, marks what stood at start,
 
     await card.getByRole("combobox", { name: "Kind" }).click()
     await page.getByRole("option", { name: "BFD" }).click()
+    // Counted once the filtered list is in: the e2e left BFD events behind (#84: a race made it 0).
+    await expect(card.locator("[data-event-kind=commit]")).toHaveCount(0)
+    await expect(card.locator("[data-event-kind=bfd]").first()).toBeVisible()
     const before = await card.locator("[data-event-kind=bfd]").count()
     await card.getByRole("switch", { name: "Follow" }).click()
     await expect(card.getByText("live", { exact: true })).toBeVisible()

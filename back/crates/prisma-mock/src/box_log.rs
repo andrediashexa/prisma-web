@@ -20,9 +20,11 @@ pub fn standing() -> bool {
     crate::operational::release_at_least((0, 152, 2))
 }
 
-pub const KINDS: [&str; 17] = [
+pub const KINDS: [&str; 18] = [
     "commit", "rollback", "confirm", "confirm-expired", "asked", "start", "boot", "upgraded", "link", "transceiver", "bgp", "bfd", "pool", "collector",
     "login", "settings", "gave-up",
+    // 0.152.7 (#84): a VRF move whose wait for zebra ran out.
+    "vrf-settle",
 ];
 
 pub const SEVERITIES: [&str; 4] = ["error", "warning", "notice", "info"];

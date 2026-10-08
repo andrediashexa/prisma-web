@@ -317,7 +317,7 @@ pub async fn edit(
     }
     let r = st.routers.get(id).await?;
     let msg = EditRequest { candidate_id: cid.clone(), path: body.path, lines, ..Default::default() };
-    let resp = r.config().edit(req(msg)).await.map_err(gone(&st, &cid))?.into_inner();
+    let resp = r.config().edit(crate::grpc::req_with(msg, crate::grpc::COMMIT_TIMEOUT)).await.map_err(gone(&st, &cid))?.into_inner();
     st.candidates.set_expiry(&cid, ts(resp.expires_at));
     Ok(Json(resp))
 }
@@ -349,7 +349,7 @@ pub async fn check(
 ) -> AppResult<Json<CheckResponse>> {
     st.candidates.check(id, &cid, &user)?;
     let r = st.routers.get(id).await?;
-    Ok(Json(r.config().check(req(cref(&cid))).await.map_err(gone(&st, &cid))?.into_inner()))
+    Ok(Json(r.config().check(crate::grpc::req_with(cref(&cid), crate::grpc::COMMIT_TIMEOUT)).await.map_err(gone(&st, &cid))?.into_inner()))
 }
 
 #[derive(Deserialize)]
@@ -366,7 +366,7 @@ pub async fn rollback(
     st.candidates.check(id, &cid, &user)?;
     let r = st.routers.get(id).await?;
     let msg = RollbackRequest { candidate_id: cid.clone(), revision: body.revision, ..Default::default() };
-    Ok(Json(r.config().rollback(req(msg)).await.map_err(gone(&st, &cid))?.into_inner()))
+    Ok(Json(r.config().rollback(crate::grpc::req_with(msg, crate::grpc::COMMIT_TIMEOUT)).await.map_err(gone(&st, &cid))?.into_inner()))
 }
 
 pub async fn close(
@@ -452,7 +452,7 @@ pub async fn commit(
         ..Default::default()
     };
     st.routers.telemetry.web_action(id);
-    let res = r.config().commit(req(msg)).await;
+    let res = r.config().commit(crate::grpc::req_with(msg, crate::grpc::COMMIT_TIMEOUT)).await;
 
     let mut details = json!({
         "comment": comment,
@@ -539,7 +539,7 @@ pub async fn confirm(
     }
     require_can_change(&st, &r).await?;
     st.routers.telemetry.web_action(id);
-    let resp = r.config().confirm(req(ConfirmRequest {})).await?.into_inner();
+    let resp = r.config().confirm(crate::grpc::req_with(ConfirmRequest {}, crate::grpc::COMMIT_TIMEOUT)).await?.into_inner();
     st.routers.telemetry.set_pending(id, None);
     audit::record(
         &st.db,
@@ -1003,7 +1003,7 @@ pub async fn typed_set(
     let msg = body.into_request(&cid)?;
     let r = st.routers.get(id).await?;
     require_can_change(&st, &r).await?;
-    let resp = r.config().set_config(req(msg)).await.map_err(gone(&st, &cid))?.into_inner();
+    let resp = r.config().set_config(crate::grpc::req_with(msg, crate::grpc::COMMIT_TIMEOUT)).await.map_err(gone(&st, &cid))?.into_inner();
     st.candidates.set_expiry(&cid, ts(resp.expires_at));
     Ok(Json(scrub_reply(resp)))
 }
@@ -1056,7 +1056,7 @@ pub async fn typed_delete(
         bfd_peer: b.bfd_peer,
         ..Default::default()
     };
-    let resp = r.config().delete_config(req(msg)).await.map_err(gone(&st, &cid))?.into_inner();
+    let resp = r.config().delete_config(crate::grpc::req_with(msg, crate::grpc::COMMIT_TIMEOUT)).await.map_err(gone(&st, &cid))?.into_inner();
     st.candidates.set_expiry(&cid, ts(resp.expires_at));
     Ok(Json(scrub_reply(resp)))
 }

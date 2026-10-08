@@ -93,6 +93,8 @@ pub struct State {
     pub wan0_rx_mw: f64,
     /// The dataplane still runs the plugin from before the upgrade (0.151.16, #77).
     pub old_plugin: bool,
+    /// Test hook (#84): the next commit takes this long, as one waiting for zebra (0.152.7).
+    pub commit_delay_secs: u64,
 }
 
 /// Samples GetHistory keeps: 24 hours at one a minute.
@@ -177,6 +179,7 @@ impl State {
             dataplane_start: None,
             wan0_rx_mw: 0.48,
             old_plugin: false,
+            commit_delay_secs: 0,
         }
     }
 
