@@ -16,6 +16,15 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.39.1 - On a phone — 2026-10-08
+
+### Fixed
+- On a phone, no page scrolls sideways: a card wider than the screen no longer pushes the router page past it (the page's column, its grids and the stat cards are held to the screen's width) (#80).
+- On a phone, every router tab is in sight: they wrap instead of scrolling out of view (#80).
+- A table wider than its card shows it scrolls, with a shadow on the side there is more to see (#80).
+- On a phone, the Interfaces, Routers, Pools, BGP neighbors, Change log and Users tables keep their key columns in sight (an interface's addresses go under its name); the other columns come back on a wider screen (#80).
+- On a phone, the Box log puts each event's text on its own line, a long word breaking (#80).
+
 ## 0.39.0 - Following the box — 2026-10-07
 
 ### Added

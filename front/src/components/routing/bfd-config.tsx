@@ -62,7 +62,7 @@ function timerProblems(t: TimerForm): Record<string, string | null> {
 function Timers({ t, set, why }: { t: TimerForm; set: (patch: Partial<TimerForm>) => void; why: Record<string, string | null> }) {
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {NUMBERS.map(([k, label]) => (
           <TextField key={k} label={label} value={t[k]} onChange={(v) => set({ [k]: v } as Partial<TimerForm>)} placeholder="default" error={why[k]} />
         ))}
@@ -252,7 +252,7 @@ function PeerDialog({
           <DialogTitle>{isNew ? "Add a BFD session" : `BFD session ${editing?.before?.address}`}</DialogTitle>
           <DialogDescription>Empty timers keep FRR&apos;s defaults; a profile&apos;s timers apply where these are empty.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <TextField label="Peer address" value={s.address} onChange={(address) => setS({ ...s, address })} error={isNew ? why.address : null} placeholder="192.0.2.1" />
           <TextField label="Interface" value={s.interface} onChange={(i) => setS({ ...s, interface: i })} placeholder="optional" />
           <TextField label="Local address" value={s.local_address} onChange={(v) => setS({ ...s, local_address: v })} error={why.local_address} placeholder="optional" />

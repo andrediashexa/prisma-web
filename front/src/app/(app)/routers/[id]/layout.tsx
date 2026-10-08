@@ -77,7 +77,11 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
             )}
           </p>
         </div>
-        <nav aria-label="Router sections" className="bg-muted text-muted-foreground inline-flex h-9 max-w-full items-center overflow-x-auto rounded-lg p-1">
+        {/* On a phone the tabs wrap, every one in sight (#80); from md up, one row. */}
+        <nav
+          aria-label="Router sections"
+          className="bg-muted text-muted-foreground flex max-w-full flex-wrap items-center gap-0.5 rounded-lg p-1 md:inline-flex md:h-9 md:flex-nowrap md:overflow-x-auto"
+        >
           {tabs.map((t) => {
             const href = base + t.href
             const active = t.href === "" ? pathname === base : pathname.startsWith(href)
@@ -132,8 +136,10 @@ export default function RouterLayout({ children }: { children: React.ReactNode }
           Could not reach this router: {status.error}
         </div>
       )}
-      {/* Grid, not flex: in flex, cards with overflow-hidden shrink when a widget uses h-full. */}
-      <div className="grid min-w-0 gap-6">{children}</div>
+      {/* Grid, not flex: in flex, cards with overflow-hidden shrink when a widget uses h-full.
+          One column of minmax(0, 1fr): an implicit `auto` column grows to its content's minimum
+          width, and on a phone it pushed the page past the screen (#80). */}
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6">{children}</div>
     </>
   )
 }

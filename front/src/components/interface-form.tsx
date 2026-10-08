@@ -91,7 +91,7 @@ export function InterfaceForm({
 
         <div className="max-h-[62vh] space-y-6 overflow-y-auto pr-1">
           <Section title="General">
-            <div className="grid gap-4 sm:grid-cols-[1fr_10rem_auto]">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_10rem_auto]">
               <Field>
                 <FieldLabel htmlFor="if-description">Description</FieldLabel>
                 <Input id="if-description" value={cur.description} maxLength={64} onChange={(e) => set({ description: e.target.value })} />
@@ -119,7 +119,7 @@ export function InterfaceForm({
           </Section>
 
           <Section title="Addresses" hint="Dual stack: IPv4 and IPv6 side by side. Each address is checked before it is added.">
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {(["ipv4", "ipv6"] as const).map((fam) => (
                 <AddressEditor
                   key={fam}
@@ -159,7 +159,7 @@ export function InterfaceForm({
                   })}
                 </div>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Choice label="LACP mode" value={cur.lacpMode} options={["active", "passive"]} onChange={(v) => set({ lacpMode: v as InterfaceConfig["lacpMode"] })} />
                 <Choice label="LACP rate" value={cur.lacpRate} options={["fast", "slow"]} onChange={(v) => set({ lacpRate: v as InterfaceConfig["lacpRate"] })} />
                 <Choice
@@ -173,7 +173,7 @@ export function InterfaceForm({
           )}
 
           <Section title="Forwarding">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field data-invalid={!!problems.vrf}>
                 <FieldLabel htmlFor="if-vrf">VRF</FieldLabel>
                 <Input id="if-vrf" inputMode="numeric" value={cur.vrf} placeholder="default" onChange={(e) => set({ vrf: e.target.value.trim() })} />
@@ -228,7 +228,7 @@ export function InterfaceForm({
           </Section>
 
           <Section title="Link">
-            <div className="grid gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
               <Field data-invalid={!!problems.vlan}>
                 <FieldLabel htmlFor="if-vlan">VLAN</FieldLabel>
                 <Input id="if-vlan" inputMode="numeric" value={cur.vlan} placeholder="none" onChange={(e) => set({ vlan: e.target.value.trim() })} />

@@ -129,7 +129,7 @@ export function BoxLogWidget({ routerId }: { routerId: string }) {
         <CardDescription>What happened on the router, as it recorded it: commits, restarts and why, upgrades, boots</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-5">
           <TextField label="Last" value={last} numeric placeholder="50" onChange={setLast} />
           <TextField label="Since" value={since} placeholder="1h, 2d, 2026-10-05" onChange={setSince} />
           <ChoiceField
@@ -192,7 +192,8 @@ export function BoxLogWidget({ routerId }: { routerId: string }) {
                   {e.severity}
                 </Badge>
                 <span className="text-muted-foreground text-xs">{e.source}</span>
-                <span className="min-w-0 flex-1">
+                {/* On a phone the text has its own line, and a long word breaks (#80). */}
+                <span className="min-w-0 basis-full [overflow-wrap:anywhere] sm:flex-1 sm:basis-0">
                   {e.text.startsWith(STANDING) && (
                     <Badge variant="secondary" className="mr-1.5" title="Already so when the router's watcher first read it after its boot" data-standing>
                       standing at start

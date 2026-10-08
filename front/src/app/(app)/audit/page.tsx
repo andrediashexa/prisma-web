@@ -71,8 +71,8 @@ export default function AuditPageView() {
                 <TableHead>When</TableHead>
                 <TableHead>User</TableHead>
                 <TableHead>Action</TableHead>
-                <TableHead>Target</TableHead>
-                <TableHead>Source</TableHead>
+                <TableHead className="hidden sm:table-cell">Target</TableHead>
+                <TableHead className="hidden sm:table-cell">Source</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -101,8 +101,8 @@ export default function AuditPageView() {
                     <TableCell>
                       <AuditActionBadge action={e.action} success={e.success} />
                     </TableCell>
-                    <TableCell className="font-mono text-sm">{e.target ?? "—"}</TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">{e.ip ?? "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell font-mono text-sm">{e.target ?? "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-muted-foreground font-mono text-xs">{e.ip ?? "—"}</TableCell>
                   </TableRow>
                   {open === e.id && (
                     <TableRow className="hover:bg-transparent">

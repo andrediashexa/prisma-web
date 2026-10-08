@@ -97,7 +97,7 @@ export default function CgnatPage() {
         <Skeleton className="h-32 w-full rounded-xl" />
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <LogExportCard routerId={id} />
         {config ? (
           <CollectorsCard config={config} canChange={canChange} staged={staged("cgnat-logging")} onEdit={() => setEditing("logging")} />
@@ -123,12 +123,12 @@ export default function CgnatPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-6">Pool</TableHead>
-                <TableHead>Prefixes</TableHead>
-                <TableHead>Block</TableHead>
-                <TableHead className="w-56">Subscribers</TableHead>
-                <TableHead className="text-right">Ports in use</TableHead>
-                <TableHead className="text-right">Sessions</TableHead>
-                <TableHead className="text-right">Refusals</TableHead>
+                <TableHead className="hidden sm:table-cell">Prefixes</TableHead>
+                <TableHead className="hidden sm:table-cell">Block</TableHead>
+                <TableHead className="sm:w-56">Subscribers</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Ports in use</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Sessions</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Refusals</TableHead>
                 {canChange && <TableHead className="pr-6 text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
@@ -155,7 +155,7 @@ export default function CgnatPage() {
                         {staged(`pool:${name}`) && <Badge variant="secondary">change staged</Badge>}
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="hidden sm:table-cell font-mono text-xs">
                       {/* A side given by a list shows it and what it resolved to (#73). */}
                       {(p?.prefix_list_inside || pc?.lists.inside) && (
                         <div>
@@ -194,14 +194,16 @@ export default function CgnatPage() {
                         </div>
                       ))}
                     </TableCell>
-                    <TableCell className="font-mono tabular-nums">{p ? `${p.block_size} ports` : pc?.scalars["block-size"] ? `${pc.scalars["block-size"]} ports` : "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell font-mono tabular-nums">{p ? `${p.block_size} ports` : pc?.scalars["block-size"] ? `${pc.scalars["block-size"]} ports` : "—"}</TableCell>
                     {p ? (
                       <>
                         <TableCell>
-                          <div className="flex justify-between text-xs tabular-nums">
+                          <div className="flex justify-between gap-2 text-xs tabular-nums">
                             <span>{formatNumber(p.subscribers)}</span>
                             <span className="text-muted-foreground">
-                              of {formatNumber(p.capacity)} ({formatNumber(p.guaranteed)} guaranteed)
+                              of {formatNumber(p.capacity)}
+                              {/* On a phone the guaranteed share goes, so the actions stay in sight (#80). */}
+                              <span className="hidden sm:inline"> ({formatNumber(p.guaranteed)} guaranteed)</span>
                             </span>
                           </div>
                           <div className="bg-muted mt-1.5 h-1.5 overflow-hidden rounded-full">
@@ -211,9 +213,9 @@ export default function CgnatPage() {
                             />
                           </div>
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{formatNumber(p.ports_in_use)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{formatNumber(p.sessions)}</TableCell>
-                        <TableCell className={cn("text-right tabular-nums", p.refusals > 0 && "text-destructive")}>{formatNumber(p.refusals)}</TableCell>
+                        <TableCell className="hidden sm:table-cell text-right tabular-nums">{formatNumber(p.ports_in_use)}</TableCell>
+                        <TableCell className="hidden sm:table-cell text-right tabular-nums">{formatNumber(p.sessions)}</TableCell>
+                        <TableCell className={cn("hidden sm:table-cell text-right tabular-nums", p.refusals > 0 && "text-destructive")}>{formatNumber(p.refusals)}</TableCell>
                       </>
                     ) : (
                       <TableCell colSpan={4} className="text-muted-foreground text-sm">
@@ -430,7 +432,7 @@ function SubscriberLookup({ routerId }: { routerId: string }) {
         </form>
         {error && <p className="text-destructive text-sm">{error}</p>}
         {result && (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="space-y-3 text-sm">
               <div className="flex flex-wrap gap-x-6 gap-y-1">
                 <span>

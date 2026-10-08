@@ -327,7 +327,7 @@ function AddWidgetDialog({
             }}
           />
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {(Object.keys(WIDGETS) as WidgetType[]).map((type) => {
               const def = WIDGETS[type]
               const blocked = def.perRouter && routers.length === 0
@@ -447,7 +447,7 @@ function WidgetConfigForm({
           </Select>
         </Field>
         {def.traffic && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel>Initial interface</FieldLabel>
               <Select value={iface ?? ""} onValueChange={setIface} disabled={!ifaces}>

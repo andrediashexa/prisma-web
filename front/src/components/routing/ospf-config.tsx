@@ -73,7 +73,7 @@ function OspfVersionPanel({ c, editable, stage }: { c: OspfConfig; editable: boo
   const v2 = c.version === "ospf"
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2" data-ospf={c.version}>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2" data-ospf={c.version}>
       <section className="space-y-2">
         <h3 className="text-sm font-medium">Router</h3>
         {!c.configured && <p className="text-muted-foreground text-sm">Not configured: setting a router ID starts it.</p>}
