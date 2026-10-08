@@ -103,7 +103,7 @@ export function EditWords({
             options={RENAME_KINDS.map((k) => [k.value, k.label] as [RenameKind, string])}
           />
           {rename.kind === "peer-group" && <TextField label="BGP AS" value={rename.asn} numeric placeholder="65000" onChange={(asn) => setRename((f) => ({ ...f, asn }))} />}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <TextField label="Current name" value={rename.name} onChange={(name) => setRename((f) => ({ ...f, name }))} />
             <TextField label="New name" value={rename.to} onChange={(to) => setRename((f) => ({ ...f, to }))} />
           </div>

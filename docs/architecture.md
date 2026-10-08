@@ -406,5 +406,6 @@ cited:
   calling the box. A box older than 0.149.2 answers `UNIMPLEMENTED`: the role is unknown and
   nothing is disabled (#28).
 - The front has browser tests (`scripts/ui-tests.sh`, #5) for the screen rules the API cannot
-  see, and unit tests of its libraries (`npm test`: `node:test` with the types stripped, no
+  see - at desktop width, and at a phone's (`mobile.spec.ts`, 390 px, #80: no page scrolls
+  sideways, every tab and the tables' key columns in sight) - and unit tests of its libraries (`npm test`: `node:test` with the types stripped, no
   dependency; `src/lib/*.test.ts`, since #72); `scripts/e2e.py` covers the behaviour through the API.

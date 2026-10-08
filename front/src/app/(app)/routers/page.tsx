@@ -75,9 +75,9 @@ export default function RoutersPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Name</TableHead>
-                <TableHead>gRPC address</TableHead>
+                <TableHead className="hidden sm:table-cell">gRPC address</TableHead>
                 <TableHead>State</TableHead>
-                <TableHead>Version</TableHead>
+                <TableHead className="hidden sm:table-cell">Version</TableHead>
                 <TableHead>Uptime</TableHead>
                 {isAdmin && <TableHead className="w-10" />}
               </TableRow>
@@ -107,7 +107,7 @@ export default function RoutersPage() {
                       </Link>
                       {r.description && <div className="text-muted-foreground text-xs">{r.description}</div>}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <div className="flex items-center gap-1.5">
                         {r.tls_profile ? (
                           <LockIcon className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-label="mTLS" />
@@ -145,7 +145,7 @@ export default function RoutersPage() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{s?.version?.release ?? "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">{s?.version?.release ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground text-sm tabular-nums">
                       {s?.system ? formatUptime(s.system.uptime_seconds) : "—"}
                     </TableCell>
@@ -343,7 +343,7 @@ function RouterForm({
           )}
         </Field>
         {https && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel>TLS profile</FieldLabel>
               <Select

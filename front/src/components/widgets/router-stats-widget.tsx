@@ -33,7 +33,8 @@ export function RouterStatsWidget({ routerId }: { routerId: string }) {
   const memPct = hasMemoryNumbers(sys) ? ((sys.memory_used_bytes ?? 0) / sys.memory_total_bytes) * 100 : undefined
 
   return (
-    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(13rem,1fr))]">
+    // A track is never wider than the screen, and a card never wider than its track (#80).
+    <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(13rem,100%),1fr))] *:min-w-0">
       <StatCard
         label="Uptime"
         icon={ClockIcon}

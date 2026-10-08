@@ -54,7 +54,7 @@ export function UptimeWidget({ routerId, title = "Uptime" }: { routerId: string;
           <p className="text-muted-foreground text-sm">This Prisma does not report the uptime breakdown (needs 0.148.7 or newer).</p>
         )}
         {sys && supported && (
-          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+          <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
             {PARTS.map((p) => {
               const at = sys[p.key] as string | null | undefined
               return (

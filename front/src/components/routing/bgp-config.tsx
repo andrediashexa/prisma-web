@@ -121,11 +121,11 @@ export function BgpPanel({
               <TableRow>
                 <TableHead className="pl-6">Neighbor</TableHead>
                 <TableHead>Remote AS</TableHead>
-                <TableHead>Families</TableHead>
-                <TableHead>Settings</TableHead>
+                <TableHead className="hidden sm:table-cell">Families</TableHead>
+                <TableHead className="hidden sm:table-cell">Settings</TableHead>
                 <TableHead>State</TableHead>
-                <TableHead className="text-right">Uptime</TableHead>
-                <TableHead className="text-right">Prefixes</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Uptime</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Prefixes</TableHead>
                 <TableHead className="pr-6" />
               </TableRow>
             </TableHeader>
@@ -149,7 +149,7 @@ export function BgpPanel({
                       )}
                     </TableCell>
                     <TableCell className="font-mono">{n.attrs["remote-as"] ?? (n.attrs["peer-group"] ? `group ${n.attrs["peer-group"]}` : "—")}</TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <div className="flex gap-1">
                         {AFIS.filter((f) => n.families[f].attrs.activate !== undefined).map((f) => (
                           <Badge key={f} variant="outline" className="text-[10px]">
@@ -158,7 +158,7 @@ export function BgpPanel({
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <div className="flex flex-wrap gap-1">
                         {down && <Badge variant="destructive">shutdown</Badge>}
                         {(["bfd", "next-hop-self", "ebgp-multihop", "password", "update-source"] as const)
@@ -171,8 +171,8 @@ export function BgpPanel({
                       </div>
                     </TableCell>
                     <TableCell>{l ? <BgpStateBadge state={l.state} /> : <span className="text-muted-foreground text-xs">not reported</span>}</TableCell>
-                    <TableCell className="text-right tabular-nums">{l?.uptime_seconds ? formatUptime(l.uptime_seconds) : "—"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{l ? formatNumber(l.prefixes_received) : "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-right tabular-nums">{l?.uptime_seconds ? formatUptime(l.uptime_seconds) : "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-right tabular-nums">{l ? formatNumber(l.prefixes_received) : "—"}</TableCell>
                     <TableCell className="pr-6">
                       <span className="flex justify-end gap-1">
                       {l && clearOf?.(n.address)}
@@ -214,13 +214,13 @@ export function BgpPanel({
                     {n.description && <div className="text-muted-foreground text-xs">{n.description}</div>}
                   </TableCell>
                   <TableCell className="font-mono">{n.remote_as}</TableCell>
-                  <TableCell />
-                  <TableCell className="text-muted-foreground text-xs">VRF {n.vrf}</TableCell>
+                  <TableCell className="hidden sm:table-cell" />
+                  <TableCell className="hidden sm:table-cell text-muted-foreground text-xs">VRF {n.vrf}</TableCell>
                   <TableCell>
                     <BgpStateBadge state={n.state} />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{n.uptime_seconds ? formatUptime(n.uptime_seconds) : "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatNumber(n.prefixes_received)}</TableCell>
+                  <TableCell className="hidden sm:table-cell text-right tabular-nums">{n.uptime_seconds ? formatUptime(n.uptime_seconds) : "—"}</TableCell>
+                  <TableCell className="hidden sm:table-cell text-right tabular-nums">{formatNumber(n.prefixes_received)}</TableCell>
                   <TableCell className="pr-6 text-right">{clearOf?.(n.peer)}</TableCell>
                 </TableRow>
               ))}
@@ -511,7 +511,7 @@ function NeighborDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <TextField
             label="Address"
             value={s.address}
@@ -545,7 +545,7 @@ function NeighborDialog({
           <SwitchField label="BFD" checked={s.bfd} onChange={(bfd) => set({ bfd })} />
           <SwitchField label="Shut down" checked={s.shutdown} onChange={(shutdown) => set({ shutdown })} />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {AFIS.map((f) => (
             <div key={f} className="space-y-3 rounded-lg border p-3" data-family={f}>
               <div className="text-sm font-medium">{AFI_TITLE[f]}</div>
@@ -657,7 +657,7 @@ function TypedNeighborDialog({
             )}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <TextField
             label="Address"
             value={s.address}
@@ -701,7 +701,7 @@ function TypedNeighborDialog({
           <SwitchField label="BFD" checked={s.bfd} onChange={(bfd) => set({ bfd })} />
           <SwitchField label="Shut down" checked={s.shutdown} onChange={(shutdown) => set({ shutdown })} />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {AFIS.map((f) => (
             <div key={f} className="space-y-3 rounded-lg border p-3" data-family={f}>
               <div className="text-sm font-medium">{AFI_TITLE[f]}</div>
@@ -770,7 +770,7 @@ function FamilyPanel({
   const active = bgp.neighbors.filter((n) => Object.keys(n.families[f.afi].attrs).length > 0)
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2" data-family-panel={f.afi}>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2" data-family-panel={f.afi}>
       <section className="space-y-2">
         <h3 className="text-sm font-medium">Neighbors</h3>
         {active.length === 0 && <p className="text-muted-foreground text-sm">No neighbor is set up in this family.</p>}

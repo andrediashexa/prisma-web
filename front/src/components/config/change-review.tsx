@@ -239,7 +239,7 @@ export function ChangeReview({
           )}
 
           {check?.passed && compare?.changed && (
-            <section className="grid gap-4 sm:grid-cols-2">
+            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="commit-comment">Comment</FieldLabel>
                 <Input id="commit-comment" value={comment} onChange={(e) => setComment(e.target.value)} maxLength={200} placeholder="What and why" />

@@ -60,7 +60,7 @@ export default function SystemPage() {
   if (!roleAtLeast(myRole, "admin")) return <p className="text-muted-foreground text-sm">The system actions are available to administrators.</p>
   if (!has) return <p className="text-muted-foreground text-sm">This router&apos;s Prisma has no system actions (they came with 0.149.25).</p>
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
       <UpgradeCard routerId={id} />
       <PowerCard routerId={id} />
     </div>

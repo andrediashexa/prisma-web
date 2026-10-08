@@ -18,17 +18,17 @@ export default function RouterOverviewPage() {
     <>
       <RouterStatsWidget routerId={id} />
       <TrafficChart routerId={id} />
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <UptimeWidget routerId={id} />
         <BgpWidget routerId={id} />
       </div>
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <CgnatWidget routerId={id} />
         <LoadWidget routerId={id} />
       </div>
       {/* Prisma 0.151.14 (#75): `show log`; nothing on a box before it. */}
       <BoxLogWidget routerId={id} />
-      <div className="grid gap-4 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <div className="xl:col-span-3">
           <InterfacesWidget routerId={id} />
         </div>

@@ -178,7 +178,7 @@ function RouteDialog({
           <DialogTitle>{editing?.route ? "Change a static route" : "Add a static route"}</DialogTitle>
           <DialogDescription>IPv4 or IPv6; the next hop is an address of the same family or an interface.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <TextField label="Prefix" value={s.prefix} onChange={(prefix) => setS({ ...s, prefix })} placeholder="192.0.2.0/24 or 2001:db8::/32" error={why.prefix} />
           <TextField label="Next hop" value={s.nextHop} onChange={(nextHop) => setS({ ...s, nextHop })} placeholder="203.0.113.1 or wan0" error={why.nextHop} list={listId} />
           <datalist id={listId}>

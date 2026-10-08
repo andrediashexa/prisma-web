@@ -37,7 +37,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar user={user} />
-      <SidebarInset>
+      {/* min-w-0: a flex child grows to its content's minimum width otherwise, and on a phone a
+          wide card pushed the whole page past the screen (#80). */}
+      <SidebarInset className="min-w-0">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
@@ -54,7 +56,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </Button>
           </div>
         )}
-        <main className="flex flex-1 flex-col gap-6 p-4 md:p-6">{children}</main>
+        <main className="flex min-w-0 flex-1 flex-col gap-6 p-4 md:p-6">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   )

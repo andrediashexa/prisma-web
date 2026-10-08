@@ -167,7 +167,7 @@ export function PoolDialog({
           <TextField label="Name" value={form.name} error={form.name ? errors.name : undefined} placeholder="BUSINESS" onChange={(name) => setForm((f) => ({ ...f, name }))} />
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {side("inside", "Inside prefixes", "100.64.0.0/10 or 2001:db8:1200::/40")}
           {side("outside", "Outside prefixes", "203.0.113.0/26")}
         </div>
@@ -179,7 +179,7 @@ export function PoolDialog({
         )}
 
         {nat64 && (
-          <section className="grid gap-3 sm:grid-cols-2" data-nat64>
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2" data-nat64>
             <TextField
               label="Subscriber prefix length"
               value={scalar("subscriber-length")}
@@ -198,7 +198,7 @@ export function PoolDialog({
           </section>
         )}
 
-        <section className="grid gap-3 sm:grid-cols-3">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <TextField
             label="Block size (ports)"
             value={scalar("block-size")}

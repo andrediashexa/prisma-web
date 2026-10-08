@@ -141,4 +141,16 @@
     background-clip: text;
     color: transparent;
   }
+  /*
+   * Scroll shadows (#80): a shadow on the side a box can still scroll to, so a table wider
+   * than the screen shows it scrolls. The covers move with the content (`local`) and hide the
+   * shadows (`scroll`) when there is nothing more on that side. No script.
+   */
+  .scroll-shadow-x {
+    background:
+      linear-gradient(to right, var(--card) 30%, transparent) left center / 2rem 100% no-repeat local,
+      linear-gradient(to left, var(--card) 30%, transparent) right center / 2rem 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, color-mix(in oklch, var(--foreground) 22%, transparent), transparent) left center / 0.75rem 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, color-mix(in oklch, var(--foreground) 22%, transparent), transparent) right center / 0.75rem 100% no-repeat scroll;
+  }
 }

@@ -60,7 +60,7 @@ export function GlobalDialog({
 
         <section className="space-y-3">
           <h3 className="text-sm font-medium">Timeouts (seconds)</h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {GLOBAL_TIMEOUTS.map((t) => (
               <TextField
                 key={t}
@@ -139,7 +139,7 @@ export function GlobalDialog({
 
         <section className="space-y-3">
           <h3 className="text-sm font-medium">Subscriber identity</h3>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <ChoiceField<IdentityKind>
               label="Identified by"
               value={id.kind}
@@ -166,7 +166,7 @@ export function GlobalDialog({
 
         <section className="space-y-3">
           <h3 className="text-sm font-medium">Memory</h3>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <TextField
               label="Session table buckets"
               value={form.sessionTable.buckets}

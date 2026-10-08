@@ -93,8 +93,8 @@ export default function UsersPage() {
                 <TableHead className="pl-4">User</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Last login</TableHead>
-                <TableHead className="text-right">Sessions</TableHead>
+                <TableHead className="hidden sm:table-cell">Last login</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Sessions</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
@@ -123,10 +123,10 @@ export default function UsersPage() {
                         {u.must_change_password && <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-300">temporary password</Badge>}
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="hidden sm:table-cell text-muted-foreground">
                       {u.last_login_at ? formatRelative(u.last_login_at) : "never"}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{u.active_sessions}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-right tabular-nums">{u.active_sessions}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

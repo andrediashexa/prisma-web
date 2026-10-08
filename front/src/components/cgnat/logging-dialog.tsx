@@ -65,7 +65,7 @@ export function LoggingDialog({
           const was = current.targets[k].state
           return (
             <section key={k} className="space-y-3 rounded-lg border p-3" aria-label={LOG_KIND_LABEL[k]}>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <ChoiceField<LogTarget["state"] & string>
                   label={LOG_KIND_LABEL[k]}
                   value={t.state}

@@ -129,12 +129,12 @@ export default function InterfacesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="pl-4">Interface</TableHead>
-                <TableHead>Addresses</TableHead>
-                <TableHead className="text-right">MTU</TableHead>
-                <TableHead className="text-right">Received</TableHead>
-                <TableHead className="text-right">Sent</TableHead>
-                <TableHead className="text-right">Errors / drops</TableHead>
-                <TableHead title="Link speed, and the busier direction over it">Speed / usage</TableHead>
+                <TableHead className="hidden sm:table-cell">Addresses</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">MTU</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Received</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Sent</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Errors / drops</TableHead>
+                <TableHead className="hidden sm:table-cell" title="Link speed, and the busier direction over it">Speed / usage</TableHead>
                 <TableHead>State</TableHead>
                 {canEdit && <TableHead className="w-24" />}
               </TableRow>
@@ -153,7 +153,8 @@ export default function InterfacesPage() {
                 const loopback = i.name === "lo"
                 return (
                   <TableRow key={i.name} className="align-top">
-                    <TableCell className="pl-4">
+                    {/* On a phone the name's lines wrap, so the state stays in sight (#80). */}
+                    <TableCell className="pl-4 whitespace-normal sm:whitespace-nowrap">
                       <div className="flex items-start gap-3">
                         <span className="bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg">
                           <InterfaceIcon name={i.name} className="size-4" />
@@ -167,14 +168,18 @@ export default function InterfacesPage() {
                           <div className="text-muted-foreground font-mono text-[11px]">
                             {[i.mac_address, i.linux_name && `linux: ${i.linux_name}`].filter(Boolean).join(" · ")}
                           </div>
+                          {/* On a phone the addresses column is hidden: they go under the name (#80). */}
+                          <div className="mt-1 sm:hidden">
+                            <AddressList addresses={i.addresses} />
+                          </div>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <AddressList addresses={i.addresses} />
                     </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">{i.mtu}</TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="hidden sm:table-cell text-right font-mono tabular-nums">{i.mtu}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-right tabular-nums">
                       {c && (
                         <>
                           <div>{formatBytes(c.rx_bytes)}</div>
@@ -182,7 +187,7 @@ export default function InterfacesPage() {
                         </>
                       )}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="hidden sm:table-cell text-right tabular-nums">
                       {c && (
                         <>
                           <div>{formatBytes(c.tx_bytes)}</div>
@@ -190,14 +195,14 @@ export default function InterfacesPage() {
                         </>
                       )}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="hidden sm:table-cell text-right tabular-nums">
                       {c && (
                         <span className={c.rx_errors + c.tx_errors + c.drops > 0 ? "text-destructive" : "text-muted-foreground"}>
                           {formatNumber(c.rx_errors + c.tx_errors)} / {formatNumber(c.drops)}
                         </span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       {!loopback && <LinkUsage iface={i} rate={rates?.[i.name]} />}
                     </TableCell>
                     <TableCell>

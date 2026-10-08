@@ -31,7 +31,7 @@ export function FleetWidget() {
             No routers registered. <Link href="/routers" className="text-primary underline-offset-4 hover:underline">Add one</Link>
           </p>
         )}
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))]">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(15rem,100%),1fr))] *:min-w-0">
           {data?.map((r) => {
             const s = r.system
             const ses = r.sessions

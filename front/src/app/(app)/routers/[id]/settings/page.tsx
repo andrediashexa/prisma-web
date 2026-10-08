@@ -100,7 +100,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[18rem_1fr]">
       <Card className="h-fit">
         <CardHeader>
           <CardTitle>Settings</CardTitle>

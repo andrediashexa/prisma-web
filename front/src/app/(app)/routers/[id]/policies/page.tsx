@@ -240,7 +240,7 @@ function TestCard({ routerId, policies }: { routerId: string; policies: Policy[]
         {policies.length === 0 ? (
           <p className="text-muted-foreground text-sm">There is no policy to test on this router.</p>
         ) : (
-          <form onSubmit={run} className="grid gap-4 md:grid-cols-2">
+          <form onSubmit={run} className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Field>
               <FieldLabel>Policy</FieldLabel>
               <Select value={policy} onValueChange={setPolicy}>
