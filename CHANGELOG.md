@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.40.0 - Resources by plane — 2026-10-08
+
+### Added
+- The router page has a **Resources** card: the logical CPUs and the RAM, and what each plane has of them this boot - the control plane (Linux, FRR, the management), the dataplane's main thread and its workers, each with how many CPUs, which ones and their share; the RAM's dataplane hugepages, the rest used by the control plane and the system, and what is free. The router's own CPU and memory screens are one click away. Physical processors (sockets), physical cores and the CPU model are not reported by the router yet: the card says so rather than guess (#81).
+
 ## 0.39.1 - On a phone — 2026-10-08
 
 ### Fixed
