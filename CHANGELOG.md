@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.41.1 - SSH address lists — 2026-10-08
+
+### Fixed
+- On a router with Prisma 0.152.5 or newer, `ssh listen-address` with several addresses, and an IPv6 address written in brackets as the router prints it (`0.0.0.0 [::]`), match their statement on the configuration screen and are taken by its form (#83).
+
+### Internal
+- Coverage map from Prisma 0.152.5 and the built-in grammar regenerated: a trailing `...` is read as a list of values (#83).
+
 ## 0.41.0 - Management VRF — 2026-10-08
 
 ### Added
