@@ -167,7 +167,12 @@ impl Config {
             extra: vec![],
         };
         let mut c = Self {
-            lists: vec![],
+            // FRR's own lists, top level (#89): a prefix-list and a community-list.
+            lists: strs(&[
+                "ip prefix-list FRR-DEFAULT seq 5 permit 0.0.0.0/0",
+                "ipv6 prefix-list FRR-DEFAULT6 seq 5 permit ::/0",
+                "bgp community-list standard FRR-BLACKHOLE seq 5 permit 65535:666",
+            ]),
             hostname: hostname.into(),
             interfaces: vec![
                 iface("wan0", "Carrier uplink", 1500, &["203.0.113.10/29"], &["2001:db8:100::2/64"]),
@@ -217,6 +222,21 @@ impl Config {
                     path: strs(&["router static"]),
                     lines: strs(&["0.0.0.0/0 next-hop 203.0.113.9", "::/0 next-hop 2001:db8:100::1"]),
                 },
+                // The lists the seeded policies name (policy.rs), and one no policy uses (#89).
+                Block {
+                    path: strs(&["policy-options"]),
+                    lines: strs(&[
+                        "community CUSTOMERS members 65000:100 65000:110",
+                        "community NO-EXPORT-CUST members 65000:666",
+                        "large-community BIG-CUST members 65000:1:100",
+                        "extended-community RT-CUST members rt:65000:100",
+                    ]),
+                },
+                Block {
+                    path: strs(&["policy-options", "prefix-list BOGONS"]),
+                    lines: strs(&["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10"]),
+                },
+                Block { path: strs(&["policy-options", "prefix-list OWN-PREFIXES"]), lines: strs(&["198.51.100.0/24", "2001:db8:100::/48"]) },
             ],
         };
         if let Some(lan) = c.interfaces.iter_mut().find(|i| i.name == "lan0") {
@@ -327,6 +347,24 @@ impl Config {
             None => (false, line.trim()),
         };
         let w: Vec<&str> = body.split_whitespace().collect();
+        // FRR's community lists (#89): kept as written; `no` with the name removes the list.
+        if let ["bgp", kind @ ("community-list" | "large-community-list"), rest @ ..] = w.as_slice() {
+            let rest = match rest {
+                [s @ ("standard" | "expanded"), r @ ..] if !r.is_empty() => (Some(*s), r),
+                r => (None, r),
+            };
+            let Some(name) = rest.1.first() else { return Err(refuse(format!("% a {kind} needs a name"), &[], line)) };
+            if no {
+                let named = |l: &String| {
+                    let lw: Vec<&str> = l.split_whitespace().collect();
+                    lw.get(1) == Some(kind) && (lw.get(2) == Some(name) || lw.get(3) == Some(name))
+                };
+                if rest.1.len() == 1 { self.lists.retain(|l| !named(l)) } else { self.lists.retain(|l| l != body) }
+            } else if !self.lists.iter().any(|l| l == body) {
+                self.lists.push(body.to_string());
+            }
+            return Ok(true);
+        }
         let (fam, rest) = match w.as_slice() {
             [f @ ("ip" | "ipv6"), "prefix-list", rest @ ..] => (*f, rest),
             _ => return Ok(false),

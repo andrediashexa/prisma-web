@@ -37,7 +37,7 @@ test("no page scrolls sideways on a phone", async ({ page }) => {
   test.setTimeout(180_000)
   const id = routerId()
   for (const url of ["/", "/routers", "/audit", "/users", `/routers/${id}`, `/routers/${id}/interfaces`, `/routers/${id}/config`, `/routers/${id}/settings`,
-    `/routers/${id}/cgnat`, `/routers/${id}/routing`, ...["static", "bgp", "ospf", "isis", "bfd", "vrrp", "logging"].map((p) => `/routers/${id}/routing/${p}`), `/routers/${id}/policies`, `/routers/${id}/console`, `/routers/${id}/system`]) {
+    `/routers/${id}/cgnat`, `/routers/${id}/routing`, ...["static", "bgp", "ospf", "isis", "bfd", "vrrp", "logging"].map((p) => `/routers/${id}/routing/${p}`), `/routers/${id}/policies`, `/routers/${id}/policies/prefix-lists`, `/routers/${id}/policies/communities`, `/routers/${id}/console`, `/routers/${id}/system`]) {
     await noSidewaysScroll(page, url)
   }
 })

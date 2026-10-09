@@ -859,8 +859,10 @@ pub async fn validate(
 
 // --- The configuration as fields (Prisma 0.149.20 and 0.149.22, #46) -----------
 
-/// The areas GetConfig answers since 0.149.22; anything else is refused here.
-const TYPED_AREAS: [&str; 11] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd", "nat64"];
+/// The areas GetConfig answers since 0.149.22 (`policy` and `frr_lists` since 0.149.24, #89);
+/// anything else is refused here.
+const TYPED_AREAS: [&str; 13] =
+    ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd", "nat64", "policy", "frr_lists"];
 
 #[derive(Deserialize)]
 pub struct TypedQuery {

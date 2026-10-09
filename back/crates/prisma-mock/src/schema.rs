@@ -98,6 +98,8 @@ fn args(toks: &[Tok], optional: bool) -> Vec<SchemaArgument> {
                     Kind::Ipv6Prefix => ("ipv6_prefix", 0, 0),
                     Kind::Address | Kind::NextHop => ("address", 0, 0),
                     Kind::Prefix => ("prefix", 0, 0),
+                    // As the box states `rt|soo:<asn>:<value>...`: a word, many (#89).
+                    Kind::Text if label.contains('<') => ("word", 0, 0),
                     _ if *rest => ("text", 0, 0),
                     _ => ("word", 0, 0),
                 };

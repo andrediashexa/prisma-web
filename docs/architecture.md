@@ -154,6 +154,22 @@ the routes X accepts, and the routes X rejects continue to the next term, as in 
 still refused when X itself holds a `from policy` term that is not `accept` (the VTY says why), and
 a policy literally named `X-SUB` or `X-NOT` may collide (Prisma #543, open).
 
+Since #89 the tab is a menu - **Policy** (all of the above), **Prefix-list** and **BGP community** -
+each a page under `routers/[id]/policies/`, in the sidebar as a sub-menu and in a row above the page
+(`components/sub-nav.tsx`, shared with Routing). `policies/layout.tsx` holds
+`components/policies/policies-context.tsx`: GetConfig's `policy` and `frr_lists` areas (Prisma
+0.149.24) read once, the staged changes and their review. policy-options' `prefix-list`,
+`community`, `large-community` and `extended-community` are shown with their members and the
+policies that name them - read from ListPolicies' text (`from <kind> <name>`, `set <kind> add|set|delete
+<name>`), so it holds on any box - and an administrator of the box adds and removes members and
+lists. They are written as lines, as the contract writes policy-options: a prefix-list's networks in
+its own mode (`policy-options > prefix-list <name>`), a community as one `members` line, rewritten
+whole (`no community X`, then the line), since the contract does not say whether a second line adds
+or replaces. A list a policy names asks before it is removed. FRR's own `ip`/`ipv6 prefix-list` and
+`bgp community-list`/`large-community-list` are shown read only; a box before 0.149.24 answers 501
+for the areas and the pages say it does not report the lists. `front/src/lib/policy-lists.ts` holds
+the checks of a member by kind and the lines.
+
 ## Routing table
 
 From Prisma 0.149.2 the back end passes `RouteService` through (#27): `ListRoutes`

@@ -53,7 +53,7 @@ pub fn mask(line: &str) -> String {
 // --- Reading ------------------------------------------------------------------
 
 pub fn read(c: &Config, areas: &[String]) -> Result<TypedConfig, Usage> {
-    const KNOWN: [&str; 11] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd", "nat64"];
+    const KNOWN: [&str; 13] = ["interfaces", "pools", "logging", "static", "bgp", "ospf", "ospf6", "isis", "interface_routing", "bfd", "nat64", "policy", "frr_lists"];
     if let Some(a) = areas.iter().find(|a| !KNOWN.contains(&a.as_str())) {
         return usage(format!("unknown area {a}"));
     }
@@ -93,7 +93,87 @@ pub fn read(c: &Config, areas: &[String]) -> Result<TypedConfig, Usage> {
         t.bfd_peers = bfd_peers(c);
         t.bfd_profiles = bfd_profiles(c);
     }
+    // policy-options' lists and FRR's (0.149.24; #89).
+    if want("policy") {
+        t.policy = Some(policy(c));
+    }
+    if want("frr_lists") {
+        t.frr_lists = Some(frr_lists(c));
+    }
     Ok(t)
+}
+
+/// policy-options' named lists (#89). Its policy-statements are policy.rs's, served by ListPolicies.
+fn policy(c: &Config) -> PolicyConfig {
+    let mut p = PolicyConfig::default();
+    let top = ["policy-options".to_string()];
+    for l in c.blocks.iter().find(|b| b.path == top).map_or(&[][..], |b| &b.lines[..]) {
+        let w: Vec<&str> = l.split_whitespace().collect();
+        match w.as_slice() {
+            [kind, name, "members", members @ ..] => {
+                let list = NamedList { name: (*name).into(), members: members.iter().map(|m| m.to_string()).collect() };
+                match *kind {
+                    "community" => p.communities.push(list),
+                    "large-community" => p.large_communities.push(list),
+                    "extended-community" => p.extended_communities.push(list),
+                    _ => p.unread.push(PolicyUnreadLine { line: l.clone(), why: "not a list".into() }),
+                }
+            }
+            ["as-path", name, regex @ ..] => p.as_paths.push(AsPathRegex { name: (*name).into(), regex: regex.join(" ").trim_matches('"').into() }),
+            _ => p.unread.push(PolicyUnreadLine { line: l.clone(), why: "not read by the mock".into() }),
+        }
+    }
+    for b in c.blocks.iter().filter(|b| b.path.len() == 2 && b.path[0] == "policy-options") {
+        if let Some(name) = b.path[1].strip_prefix("prefix-list ") {
+            p.prefix_lists.push(NamedList { name: name.trim().into(), members: b.lines.clone() });
+        }
+    }
+    p
+}
+
+/// FRR's prefix-lists and community lists at the top level (#89), each entry as written.
+fn frr_lists(c: &Config) -> FrrListsConfig {
+    let mut out = FrrListsConfig::default();
+    for l in &c.lists {
+        let w: Vec<&str> = l.split_whitespace().collect();
+        match w.as_slice() {
+            [fam @ ("ip" | "ipv6"), "prefix-list", name, rest @ ..] => {
+                let family = if *fam == "ip" { "ipv4" } else { "ipv6" };
+                let (seq, rest) = match rest {
+                    ["seq", n, r @ ..] => (n.parse().unwrap_or(0), r),
+                    r => (0, r),
+                };
+                let [action @ ("permit" | "deny"), prefix, rest @ ..] = rest else { continue };
+                let num = |k: &str| rest.iter().position(|x| *x == k).and_then(|i| rest.get(i + 1)).and_then(|n| n.parse().ok()).unwrap_or(0);
+                let description = rest.iter().position(|x| *x == "description").map(|i| rest[i + 1..].join(" ").trim_matches('"').to_string()).unwrap_or_default();
+                let entry = PrefixListEntry { sequence: seq, action: (*action).into(), prefix: (*prefix).into(), ge: num("ge"), le: num("le"), description };
+                match out.prefix_lists.iter_mut().find(|p| p.name == *name && p.family == family) {
+                    Some(p) => p.entries.push(entry),
+                    None => out.prefix_lists.push(FrrPrefixList { family: family.into(), name: (*name).into(), entries: vec![entry] }),
+                }
+            }
+            ["bgp", kind @ ("community-list" | "large-community-list"), rest @ ..] => {
+                let (style, rest) = match rest {
+                    [s @ ("standard" | "expanded"), r @ ..] => (*s, r),
+                    r => ("standard", r),
+                };
+                let [name, rest @ ..] = rest else { continue };
+                let (seq, rest) = match rest {
+                    ["seq", n, r @ ..] => (n.parse().unwrap_or(0), r),
+                    r => (0, r),
+                };
+                let [action, values @ ..] = rest else { continue };
+                let kind = kind.trim_end_matches("-list");
+                let entry = BgpListEntry { sequence: seq, action: (*action).into(), value: values.join(" ") };
+                match out.bgp_lists.iter_mut().find(|b| b.name == *name && b.kind == kind) {
+                    Some(b) => b.entries.push(entry),
+                    None => out.bgp_lists.push(BgpList { kind: kind.into(), style: style.into(), name: (*name).into(), entries: vec![entry] }),
+                }
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 fn extra_value<'a>(i: &'a crate::config::Iface, key: &str) -> Option<&'a str> {
@@ -1025,6 +1105,33 @@ mod tests {
         for (path, lines) in &p.steps {
             c.edit(path, lines).ok().expect("the mock takes its own lines");
         }
+    }
+
+    #[test]
+    fn policy_and_frr_lists_are_read_from_the_configuration() {
+        let mut c = Config::seed("t");
+        let t = read(&c, &s(&["policy", "frr_lists"])).ok().unwrap();
+        let p = t.policy.unwrap();
+        assert_eq!(p.prefix_lists.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["BOGONS", "OWN-PREFIXES"]);
+        assert_eq!(p.prefix_lists[1].members, ["198.51.100.0/24", "2001:db8:100::/48"]);
+        assert_eq!(p.communities[0].members, ["65000:100", "65000:110"]);
+        assert_eq!(p.large_communities[0].name, "BIG-CUST");
+        assert_eq!(p.extended_communities[0].members, ["rt:65000:100"]);
+        let f = t.frr_lists.unwrap();
+        assert_eq!((f.prefix_lists[0].family.as_str(), f.prefix_lists[0].entries[0].sequence), ("ipv4", 5));
+        assert_eq!(f.prefix_lists[1].family, "ipv6");
+        assert_eq!((f.bgp_lists[0].kind.as_str(), f.bgp_lists[0].entries[0].value.as_str()), ("community", "65535:666"));
+
+        // Written as lines: a member, a new list, a list removed.
+        c.edit(&s(&["policy-options", "prefix-list OWN-PREFIXES"]), &s(&["no 2001:db8:100::/48", "203.0.113.0/24"])).ok().unwrap();
+        c.edit(&s(&["policy-options"]), &s(&["community UI members 65000:1", "no community NO-EXPORT-CUST", "no prefix-list BOGONS"])).ok().unwrap();
+        c.edit(&[], &s(&["no bgp community-list standard FRR-BLACKHOLE"])).ok().unwrap();
+        let t = read(&c, &s(&["policy", "frr_lists"])).ok().unwrap();
+        let p = t.policy.unwrap();
+        assert_eq!(p.prefix_lists.len(), 1);
+        assert_eq!(p.prefix_lists[0].members, ["198.51.100.0/24", "203.0.113.0/24"]);
+        assert_eq!(p.communities.iter().map(|l| l.name.as_str()).collect::<Vec<_>>(), ["CUSTOMERS", "UI"]);
+        assert!(t.frr_lists.unwrap().bgp_lists.is_empty());
     }
 
     #[test]
