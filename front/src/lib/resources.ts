@@ -65,3 +65,36 @@ export function memorySplit(sys: { memory_total_bytes?: number; memory_used_byte
   const dataplane = Math.min(sys.memory_hugepages_bytes ?? 0, used)
   return { total, dataplane, control: used - dataplane, free: total - used }
 }
+
+/** The ways the split can be shown (#85). */
+export const RESOURCE_VIEWS = [
+  { value: "bars", label: "Bars" },
+  { value: "map", label: "Map" },
+  { value: "donut", label: "Donut" },
+  { value: "table", label: "Table" },
+] as const
+export type ResourceView = (typeof RESOURCE_VIEWS)[number]["value"]
+export const isResourceView = (v: unknown): v is ResourceView => RESOURCE_VIEWS.some((x) => x.value === v)
+
+export interface CpuTile {
+  cpu: number
+  /** The plane the layout gives it; null for a CPU no plane names. */
+  plane: Plane["key"] | null
+  /** A worker's load, 0 to 1 of saturation; null when not a worker or not reported. */
+  load: number | null
+}
+
+/**
+ * One tile per logical CPU from 0 to the highest the layout names (#85), with its plane and, for a
+ * worker's CPU, its load: `busy_ratio` over `saturated` (the dataplane saturates near 0.5).
+ */
+export function cpuMap(planes: Plane[], workers: { cpu: number; busy_ratio?: number }[], saturated: number): CpuTile[] {
+  const all = layoutCpus(planes)
+  if (all.length === 0) return []
+  const max = all[all.length - 1]
+  const load = new Map(workers.map((w) => [w.cpu, Math.min(1, Math.max(0, (w.busy_ratio ?? 0) / saturated))]))
+  return Array.from({ length: max + 1 }, (_, cpu) => {
+    const plane = planes.find((p) => p.cpus.includes(cpu))?.key ?? null
+    return { cpu, plane, load: plane === "workers" ? (load.get(cpu) ?? null) : null }
+  })
+}

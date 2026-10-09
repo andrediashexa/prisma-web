@@ -16,6 +16,12 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.42.0 - Views of the core split — 2026-10-08
+
+### Added
+- The Resources card shows the split of a router's cores and RAM among its planes four ways, switched in the card: **Bars**; a **Map**, one tile per logical CPU in its plane's colour, each worker's tile filled to its load; **Donut** charts of CPUs and RAM by plane; and a **Table** of the numbers. The router page remembers the last view in the browser (#85).
+- The home dashboard offers a **CPUs and RAM by plane** widget for any router; its view is chosen when it is added or configured, and can be switched in place (#85).
+
 ## 0.41.2 - Slow commits — 2026-10-08
 
 ### Fixed
