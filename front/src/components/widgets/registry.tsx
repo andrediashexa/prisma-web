@@ -12,9 +12,12 @@ import { CgnatWidget } from "./cgnat-widget"
 import { FleetWidget } from "./fleet-widget"
 import { InterfacesWidget } from "./interfaces-widget"
 import { LoadWidget } from "./load-widget"
+import { PlaneResourcesWidget } from "./plane-resources-widget"
 import { ResourcesWidget } from "./resources-widget"
 import { RouterStatsWidget } from "./router-stats-widget"
 import { UptimeWidget } from "./uptime-widget"
+import { isResourceView } from "@/lib/resources"
+
 import type { DashboardLayout, Widget, WidgetConfig, WidgetSize, WidgetType } from "./types"
 
 interface WidgetDef {
@@ -28,6 +31,8 @@ interface WidgetDef {
   traffic?: boolean
   /** Optional filter by router (activity). */
   optionalRouter?: boolean
+  /** Lets the user pick how it is shown (#85). */
+  views?: boolean
 }
 
 export const WIDGETS: Record<WidgetType, WidgetDef> = {
@@ -94,6 +99,14 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
     icon: CpuIcon,
     defaultSize: 2,
     perRouter: true,
+  },
+  "cpu-planes": {
+    title: "CPUs and RAM by plane",
+    description: "How a router's cores and memory are split among its planes: bars, a CPU map, donuts or a table",
+    icon: CpuIcon,
+    defaultSize: 2,
+    perRouter: true,
+    views: true,
   },
   activity: {
     title: "Recent activity",
@@ -186,6 +199,15 @@ export function WidgetView({ widget, routers }: { widget: Widget; routers: Route
       return routerId ? <BgpWidget routerId={routerId} title={router ? `BGP · ${router.name}` : undefined} /> : null
     case "uptime":
       return routerId ? <UptimeWidget routerId={routerId} title={router ? `Uptime · ${router.name}` : undefined} /> : null
+    case "cpu-planes":
+      return routerId ? (
+        <PlaneResourcesWidget
+          key={`${routerId}-${widget.config.view}`}
+          routerId={routerId}
+          title={router ? `CPUs and RAM · ${router.name}` : undefined}
+          view={isResourceView(widget.config.view) ? widget.config.view : "bars"}
+        />
+      ) : null
     case "load":
       return routerId ? <LoadWidget routerId={routerId} title={router ? `Dataplane load · ${router.name}` : undefined} /> : null
     case "activity":
