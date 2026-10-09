@@ -136,6 +136,14 @@ impl Parser {
                 out.extend(one);
                 continue;
             }
+            // `rt|soo:<asn>:<value>...`: values of a shape the map spells out, to the end. The box
+            // states it as one word argument, many (seen on 0.152.9, #89): any words here.
+            if let Some(base) = part.strip_suffix("...").filter(|b| b.contains('<') && !b.starts_with('<')) {
+                let id = self.next_id;
+                self.next_id += 1;
+                out.push(Tok::Param { id, label: base.to_string(), kind: Kind::Text, prefix: String::new(), rest: true });
+                continue;
+            }
             if let Some(inner) = part.strip_prefix('[').and_then(|p| p.strip_suffix(']')) {
                 // `[options]` stands for free-form options, not the word "options".
                 if !inner.contains(' ') && !inner.contains('<') && !inner.contains('|') && inner == "options" {
@@ -200,6 +208,8 @@ pub fn describe(tokens: &[Tok]) -> String {
         .iter()
         .map(|t| match t {
             Tok::Word { w } => w.clone(),
+            // A shape spelled out (`rt|soo:<asn>:<value>...`, #89) is written back as it came.
+            Tok::Param { label, prefix, .. } if label.contains('<') => format!("{prefix}{label}..."),
             Tok::Param { label, prefix, .. } => format!("{prefix}<{label}>"),
             Tok::Opt { items } => format!("[{}]", describe(items)),
             Tok::Alt { options } => options.iter().map(|o| describe(o)).collect::<Vec<_>>().join("|"),
@@ -318,5 +328,13 @@ mod tests {
         assert!(match_line(&t, &w("ssh listen-address 192.0.2.166")).is_some());
         assert!(match_line(&t, &w("ssh listen-address 192.0.2.166 nope")).is_none());
         assert!(match_line(&t, &w("ssh listen-address [10.0.0.1]")).is_none(), "brackets are IPv6's");
+    }
+
+    #[test]
+    fn a_spelled_out_shape_with_dots_is_one_list_to_the_end() {
+        let t = parse_syntax("extended-community <name> members rt|soo:<asn>:<value>...");
+        assert_eq!(describe(&t), "extended-community <name> members rt|soo:<asn>:<value>...");
+        let v = match_line(&t, &["extended-community", "RT", "members", "rt:65000:100", "soo:65000:7"]).expect("matches");
+        assert_eq!(v.values().last().map(String::as_str), Some("rt:65000:100 soo:65000:7"));
     }
 }

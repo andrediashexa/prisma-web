@@ -528,6 +528,8 @@ def line_fallback_checks(admin, args):
         st, sy = admin.get(f"{R}/system")
         check(st == 200 and not sy.get("management"), "a box before 0.152.4 reports no management state: the card not shown", sy.get("management"))
         check(not sy.get("cpu_topology") and not sy.get("cpu_usage"), "a box before 0.152.9 reports no CPU topology or usage", sy)
+        st, b = admin.get(f"{R}/config/typed?areas=policy,frr_lists")
+        check(st == 501, "it does not type the lists either: the policy pages say so", b)
         st, h = admin.get(f"{R}/cpu-history?minutes=60")
         rows = (h or {}).get("samples", [])
         check(st == 200 and rows and all(not x.get("cpus") and x.get("workers") for x in rows),
@@ -1506,6 +1508,14 @@ def lab(admin, args):
                   f"{sum(1 for x in rows if x.get('cpus'))} with CPUs)", h)
         else:
             print("  -- the real Prisma reports no CPU topology (before 0.152.9)")
+        # policy-options' lists and FRR's as fields (0.149.24, #89).
+        st, t = admin.get(R + "/config/typed?areas=policy,frr_lists")
+        if st == 501:
+            print("  -- the real Prisma does not type the lists (before 0.149.24)")
+        else:
+            pol, frr = (t or {}).get("policy") or {}, (t or {}).get("frr_lists") or {}
+            check(st == 200, f"the lists of the real Prisma: {len(pol.get('prefix_lists', []))} prefix-lists, {len(pol.get('communities', []))} communities "
+                  f"in policy-options; {len(frr.get('prefix_lists', []))} FRR prefix-lists, {len(frr.get('bgp_lists', []))} BGP lists", t)
         st, b = admin.get(R + "/interfaces")
         check(all("speed_bps" in i for i in b["interfaces"]),
               "interfaces of the real Prisma carry speed_bps (" + ", ".join(f"{i['name']}={i.get('speed_bps')}" for i in b["interfaces"]) + ")", b)
@@ -1830,6 +1840,27 @@ def main():
         for q, code in (("minutes=0", 422), ("minutes=1441", 422)):
             st, h = admin.get(R + "/cpu-history?" + q)
             check(st == code, f"cpu-history refuses {q} ({code})", h)
+        # policy-options' lists and FRR's, as fields (Prisma 0.149.24, #89).
+        st, t = admin.get(R + "/config/typed?areas=policy,frr_lists")
+        pol = (t or {}).get("policy") or {}
+        check(st == 200 and [l["name"] for l in pol.get("prefix_lists", [])] == ["BOGONS", "OWN-PREFIXES"]
+              and pol["communities"][0] == {"name": "CUSTOMERS", "members": ["65000:100", "65000:110"]}
+              and pol["large_communities"] and pol["extended_communities"],
+              "GetConfig area policy: policy-options' prefix-lists and communities with their members", t)
+        frr = (t or {}).get("frr_lists") or {}
+        check([(l["family"], l["name"]) for l in frr.get("prefix_lists", [])] == [("ipv4", "FRR-DEFAULT"), ("ipv6", "FRR-DEFAULT6")]
+              and frr["bgp_lists"][0]["kind"] == "community" and frr["bgp_lists"][0]["entries"][0]["value"] == "65535:666",
+              "GetConfig area frr_lists: FRR's prefix-lists and community lists", frr)
+        st, c = admin.post(f"{R}/config/candidates")
+        C = f"{R}/config/candidates/{c['candidate_id']}"
+        st1, _ = admin.post(f"{C}/edit", {"path": ["policy-options", "prefix-list E2E-LIST"], "lines": ["192.0.2.0/24"]})
+        st2, _ = admin.post(f"{C}/edit", {"path": ["policy-options"], "lines": ["no community NO-EXPORT-CUST", "community E2E-C members 65000:7"]})
+        st, t = admin.get(f"{R}/config/typed?areas=policy&candidate={c['candidate_id']}")
+        pol = (t or {}).get("policy") or {}
+        check(st1 == st2 == 200 and any(l["name"] == "E2E-LIST" and l["members"] == ["192.0.2.0/24"] for l in pol.get("prefix_lists", []))
+              and [l["name"] for l in pol.get("communities", [])] == ["CUSTOMERS", "E2E-C"],
+              "the lists are written as lines and read back as fields from the candidate", t)
+        admin.delete(C)
         st, b = admin.get(R + "/interfaces")
         speeds = {i["name"]: i.get("speed_bps") for i in b["interfaces"]}
         check(st == 200 and speeds.get("wan0") == 10_000_000_000 and speeds.get("lan0.20") == 4_294_967_295_000 and speeds.get("wg0") == 0,

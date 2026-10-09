@@ -14,6 +14,7 @@
 import useSWR from "swr"
 
 import { ApiError, fetcher } from "@/lib/api"
+import type { FrrLists, PolicyLists } from "@/lib/policy-lists"
 import { routerApi } from "@/lib/types"
 
 export interface TypedInterface {
@@ -210,6 +211,9 @@ export interface TypedConfig {
   /** BFD (Prisma 0.150.12, #67). */
   bfd_peers?: TypedBfdPeer[]
   bfd_profiles?: TypedBfdProfile[]
+  /** policy-options' lists and FRR's (Prisma 0.149.24, #89). */
+  policy?: PolicyLists | null
+  frr_lists?: FrrLists | null
 }
 
 /** BFD's timers (Prisma 0.150.12, #67): 0 / false is not stated, FRR's default applies. */
@@ -244,7 +248,7 @@ export interface TypedBfdProfile {
   other: string[]
 }
 
-export type TypedArea = "interfaces" | "pools" | "logging" | "static" | "bgp" | "ospf" | "ospf6" | "isis" | "interface_routing" | "bfd" | "nat64"
+export type TypedArea = "interfaces" | "pools" | "logging" | "static" | "bgp" | "ospf" | "ospf6" | "isis" | "interface_routing" | "bfd" | "nat64" | "policy" | "frr_lists"
 
 /** What SetConfig sets: one object, and the fields of it that change. */
 export type TypedObject =

@@ -16,6 +16,19 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.45.0 - Policy lists — 2026-10-09
+
+### Added
+- The router's **Policies** opens a menu, in the sidebar and above the page: **Policy** (the policies, their counters and the test, as before), **Prefix-list** and **BGP community** (#89).
+- **Prefix-list** shows policy-options' prefix-lists with their networks and the policies that use each; **BGP community** the communities, large and extended communities with their members and users. An administrator of the router adds a list, adds and removes members (each checked: a network; `asn:value`; `asn:value1:value2`; `rt:` or `soo:`), and removes a list, through the review; removing a list a policy uses asks first (#89).
+- Both pages show FRR's own `ip`/`ipv6 prefix-list` and `bgp community-list`/`large-community-list` read only. A router before Prisma 0.149.24 does not report the lists, which the pages say (#89).
+
+### Fixed
+- The built-in grammar reads `extended-community <name> members rt|soo:<asn>:<value>...` as a list of values to the end of the line, as the router's own schema states it; such a line matched no statement before (#89).
+
+### Internal
+- `GET /api/routers/{id}/config/typed` takes the `policy` and `frr_lists` areas; the mock answers them from its configuration, seeded with the lists its policies name (#89).
+
 ## 0.44.0 - Routing menu — 2026-10-09
 
 ### Changed

@@ -40,6 +40,7 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { POLICY_PAGES } from "@/components/policies/policies-pages"
 import { ROUTING_PAGES } from "@/components/routing/routing-pages"
 import { useFleetStatus, useRouters } from "@/hooks/use-routers"
 import { cn } from "@/lib/utils"
@@ -55,7 +56,8 @@ const ROUTER_PAGES: { href: string; label: string; children?: readonly { href: s
   { href: "/cgnat", label: "CGNAT" },
   // One page per protocol and the routing table (#88).
   { href: "/routing", label: "Routing", children: ROUTING_PAGES },
-  { href: "/policies", label: "Policies" },
+  // The policies, and the lists they match on (#89).
+  { href: "/policies", label: "Policies", children: POLICY_PAGES },
   { href: "/console", label: "Console" },
 ]
 
