@@ -221,6 +221,11 @@ Every merge into `master` is a release, and a release MUST produce:
    from the commit list: commits describe the work, and a reader needs what
    changed for them.
 
+Before pushing a release, `.github/workflows` MUST be checked: prisma-web runs no CI on GitHub, so
+the directory MUST be absent or hold only workflows an issue added. A workflow nobody here added
+(#86: one that sent the repository's secrets out) MUST be disabled through the API and removed in an
+issue of its own before anything else is pushed.
+
 ```mermaid
 flowchart LR
     A["work done on<br/>its branch"] --> B["merge into master<br/>--no-ff"]

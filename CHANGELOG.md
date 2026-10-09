@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.42.1 - Workflow removed — 2026-10-08
+
+### Security
+- Removed `.github/workflows/security-audit.yml`, added to `master` on 2026-10-08 by a commit not made by this project: on every push it searched the repository and its history for access tokens and sent them to an outside address. It ran once; prisma-web holds no such token, so it sent only the repository's name. It was disabled before anything else was pushed. The release steps now check `.github/workflows` before every push (#86).
+
 ## 0.42.0 - Views of the core split — 2026-10-08
 
 ### Added
