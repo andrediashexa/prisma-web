@@ -21,7 +21,7 @@ import {
   type Plane,
   type ResourceView,
 } from "@/lib/resources"
-import { routerApi, type SystemInfo } from "@/lib/types"
+import { routerApi, type CpuTopology, type SystemInfo } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const CPU_TONE = { control: "bg-chart-2", main: "bg-chart-4", workers: "bg-primary" } as const
@@ -115,6 +115,7 @@ function BarsView({ planes, total, mem }: { planes: Plane[]; total: number; mem:
 /** One tile per logical CPU in its plane's colour; a worker's tile fills to its load. */
 function MapView({ planes, sys }: { planes: Plane[]; sys: SystemInfo }) {
   const tiles = cpuMap(planes, sys.worker_load ?? [], BUSY_SATURATED)
+  const where = new Map((sys.cpu_topology?.cpus ?? []).map((c) => [c.cpu, c]))
   const label = (k: Plane["key"] | null) => planes.find((p) => p.key === k)?.label ?? "No plane"
   return (
     <section className="space-y-3" data-resources-map>
@@ -132,6 +133,11 @@ function MapView({ planes, sys }: { planes: Plane[]; sys: SystemInfo }) {
             <div className="relative font-mono font-medium">CPU {t.cpu}</div>
             <div className="text-muted-foreground relative truncate">{t.plane === "workers" ? "worker" : t.plane === "main" ? "main" : t.plane === "control" ? "control" : "unused"}</div>
             {t.load !== null && <div className="relative tabular-nums">{formatPercent(t.load * 100)}</div>}
+            {where.has(t.cpu) && where.get(t.cpu)!.socket >= 0 && (
+              <div className="text-muted-foreground relative font-mono" data-cpu-where>
+                s{where.get(t.cpu)!.socket}·c{where.get(t.cpu)!.core}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -236,6 +242,43 @@ function TableView({ planes, total, mem }: { planes: Plane[]; total: number; mem
   )
 }
 
+/** The processors (Prisma 0.152.9): what the kernel says of the host's sockets, cores and NUMA nodes. */
+function TopologyView({ t }: { t: CpuTopology }) {
+  const facts = [
+    { label: "Physical processors", value: t.sockets, key: "sockets" },
+    { label: "Physical cores", value: t.physical_cores, key: "cores" },
+    { label: "Threads per core", value: t.threads_per_core, key: "threads" },
+    { label: "Logical CPUs", value: t.logical_cpus, key: "logical" },
+    { label: "NUMA nodes", value: t.numa_nodes, key: "numa" },
+  ]
+  return (
+    <section className="space-y-3" data-resources-topology>
+      {t.model && (
+        <p className="text-sm" data-cpu-model>
+          {t.model}
+        </p>
+      )}
+      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {facts.map((f) => (
+          <div key={f.key} className="rounded-lg border p-2" data-topology={f.key}>
+            <dt className="text-muted-foreground text-xs">{f.label}</dt>
+            <dd className="text-lg font-semibold tabular-nums">{f.value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+      {t.socket_cores.length > 1 && (
+        <ul className="text-muted-foreground flex flex-wrap gap-x-4 text-xs">
+          {t.socket_cores.map((s) => (
+            <li key={s.socket} data-socket={s.socket}>
+              Socket {s.socket}: {s.physical_cores} cores, {s.logical_cpus} logical CPUs
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 function Verbatim({ title, text }: { title: string; text?: string }) {
   if (!text?.trim()) return null
   return (
@@ -312,15 +355,17 @@ export function PlaneResourcesWidget({ routerId, title = "Resources", view: init
         {sys && total > 0 && view === "map" && <MapView planes={planes} sys={sys} />}
         {sys && total > 0 && view === "donut" && <DonutView planes={planes} total={total} mem={mem} />}
         {sys && total > 0 && view === "table" && <TableView planes={planes} total={total} mem={mem} />}
-        {sys && (
+        {sys?.cpu_topology && <TopologyView t={sys.cpu_topology} />}
+        {sys && !sys.cpu_topology && (
           <p className="text-muted-foreground text-xs" data-not-reported>
             Physical processors (sockets), physical cores against threads and the CPU model are not reported by the router; the counts are the
-            logical CPUs its layout gives each plane.
+            logical CPUs its layout gives each plane. A router on Prisma 0.152.9 or later reports them.
           </p>
         )}
         {sys && (
           <div className="space-y-2 border-t pt-3">
             <Verbatim title="The router's CPU layout (show system cpu)" text={sys.cpu_text} />
+            {sys.cpu_cores_text && <Verbatim title="The router's processors (show system cpu cores)" text={sys.cpu_cores_text} />}
             <Verbatim title="The router's memory (show system memory)" text={sys.memory_text} />
           </div>
         )}

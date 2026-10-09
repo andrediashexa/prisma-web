@@ -527,6 +527,11 @@ def line_fallback_checks(admin, args):
         check(st == 501, "a box before 0.151.15 has no ListTransceivers: 501, the card not shown", b)
         st, sy = admin.get(f"{R}/system")
         check(st == 200 and not sy.get("management"), "a box before 0.152.4 reports no management state: the card not shown", sy.get("management"))
+        check(not sy.get("cpu_topology") and not sy.get("cpu_usage"), "a box before 0.152.9 reports no CPU topology or usage", sy)
+        st, h = admin.get(f"{R}/cpu-history?minutes=60")
+        rows = (h or {}).get("samples", [])
+        check(st == 200 and rows and all(not x.get("cpus") and x.get("workers") for x in rows),
+              "its cpu-history has the workers only: the card falls back to them", h)
         st, evs = sse_until(admin, f"{R}/events/watch", lambda evs: any(e == "error" for e, _ in evs), timeout=10)
         check(any(e == "error" for e, _ in (evs if st == 200 else [])) or st == 501, "a box before 0.152.2 has no WatchEvents: the watch ends with the refusal", evs)
         s = next(x for x in admin.get("/routers/status")[1] if x["id"] == r["id"])
@@ -1145,7 +1150,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.152.4"), "the main mock reports 0.152.4 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.152.9"), "the main mock reports 0.152.9 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:
@@ -1486,6 +1491,21 @@ def lab(admin, args):
         check(b.get("memory_total_bytes", 0) > 0 and len(b.get("worker_load") or []) == b.get("workers"),
               f"memory and worker load of the real Prisma ({b.get('memory_used_bytes', 0) >> 20} / {b.get('memory_total_bytes', 0) >> 20} MiB, "
               f"busy {', '.join(str(w['busy_ratio']) for w in b.get('worker_load') or [])})", b)
+        # CPU topology and per-CPU usage (Prisma 0.152.9, #87).
+        if b.get("cpu_topology"):
+            t = b["cpu_topology"]
+            check(t["logical_cpus"] == len(t["cpus"]) > 0 and t["sockets"] > 0 and t["physical_cores"] > 0,
+                  f"CPU topology of the real Prisma ({t['model']}: {t['sockets']} sockets, {t['physical_cores']} cores, "
+                  f"{t['threads_per_core']} threads per core, {t['numa_nodes']} NUMA nodes)", t)
+            usage = b.get("cpu_usage") or []
+            check(len(usage) == t["logical_cpus"] and b.get("cpu_usage_at"),
+                  "and each CPU's usage (" + ", ".join(f"{u['cpu']}:{round(u['busy_percent'])}%{'p' if u['polling'] else ''}" for u in usage) + ")", b)
+            st, h = admin.get(R + "/cpu-history?minutes=60")
+            rows = (h or {}).get("samples", [])
+            check(st == 200 and rows, f"an hour of per-CPU history from the real Prisma ({len(rows)} samples, "
+                  f"{sum(1 for x in rows if x.get('cpus'))} with CPUs)", h)
+        else:
+            print("  -- the real Prisma reports no CPU topology (before 0.152.9)")
         st, b = admin.get(R + "/interfaces")
         check(all("speed_bps" in i for i in b["interfaces"]),
               "interfaces of the real Prisma carry speed_bps (" + ", ".join(f"{i['name']}={i.get('speed_bps')}" for i in b["interfaces"]) + ")", b)
@@ -1789,6 +1809,27 @@ def main():
               "GetSystem carries memory in numbers, hugepages within the used", b)
         check(len(loads) == b["workers"] and all(0 <= w["busy_ratio"] <= 1 and "vectors_per_call" in w and "loops_per_second" in w for w in loads),
               f"GetSystem carries a WorkerLoad per worker ({', '.join(str(w['busy_ratio']) for w in loads)} busy)", b)
+        # CPU topology and per-CPU usage (Prisma 0.152.9, #87).
+        st, b = admin.get(R + "/system")
+        t = b.get("cpu_topology") or {}
+        check(t.get("sockets") == 2 and t.get("physical_cores") == 8 and t.get("threads_per_core") == 1 and t.get("numa_nodes") == 2
+              and len(t.get("cpus") or []) == t.get("logical_cpus") == 8 and "Xeon" in t.get("model", ""),
+              f"GetSystem carries the CPU topology ({t.get('sockets')} sockets, {t.get('physical_cores')} cores, {t.get('model')})", t)
+        planes = {c["cpu"]: c["plane"] for c in t.get("cpus") or []}
+        check(planes.get(0) == "control-plane" and planes.get(2) == "main" and planes.get(3) == "worker",
+              "each logical CPU carries its plane", planes)
+        usage = b.get("cpu_usage") or []
+        check(len(usage) == 8 and all(0 <= u["busy_percent"] <= 100 for u in usage)
+              and all(u["polling"] == (planes.get(u["cpu"]) == "worker") for u in usage) and b.get("cpu_usage_at"),
+              f"and each CPU's usage over the last minute, the workers polling ({', '.join(str(round(u['busy_percent'])) for u in usage)}%)", b)
+        check("Xeon" in b.get("cpu_cores_text", ""), "and the show system cpu cores screen", b.get("cpu_cores_text"))
+        st, h = admin.get(R + "/cpu-history?minutes=60")
+        rows = (h or {}).get("samples", [])
+        check(st == 200 and rows and all(len(x.get("cpus") or []) == 8 and x.get("workers") and x.get("at") for x in rows),
+              f"cpu-history gives each sample's CPUs and workers ({len(rows)} samples)", h)
+        for q, code in (("minutes=0", 422), ("minutes=1441", 422)):
+            st, h = admin.get(R + "/cpu-history?" + q)
+            check(st == code, f"cpu-history refuses {q} ({code})", h)
         st, b = admin.get(R + "/interfaces")
         speeds = {i["name"]: i.get("speed_bps") for i in b["interfaces"]}
         check(st == 200 and speeds.get("wan0") == 10_000_000_000 and speeds.get("lan0.20") == 4_294_967_295_000 and speeds.get("wg0") == 0,

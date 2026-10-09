@@ -195,6 +195,35 @@ pub async fn watch_events(State(st): State<AppState>, _: CurrentUser, Path(id): 
     Ok(Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
 }
 
+#[derive(Deserialize)]
+pub struct CpuHistoryQuery {
+    /// How far back, 1 to 1440 minutes (the box keeps a day).
+    minutes: u32,
+}
+
+/// Each CPU's load over time (Prisma 0.152.9, #87): GetHistory with `cpus`, and `workers` so a box
+/// before it (which ignores `cpus`) still answers its workers' load. One sample a minute.
+pub async fn cpu_history(State(st): State<AppState>, _: CurrentUser, Path(id): Path<Uuid>, Query(q): Query<CpuHistoryQuery>) -> AppResult<Json<Value>> {
+    if !(1..=1440).contains(&q.minutes) {
+        return Err(AppError::BadRequest("minutes is 1 to 1440".into()));
+    }
+    let r = st.routers.get(id).await?;
+    let since = chrono::Utc::now() - chrono::Duration::minutes(i64::from(q.minutes));
+    let msg = GetHistoryRequest {
+        since: Some(prost_types::Timestamp { seconds: since.timestamp(), nanos: 0 }),
+        cpus: true,
+        workers: true,
+        ..Default::default()
+    };
+    let mut stream = r.telemetry().get_history(grpc::req_with(msg, grpc::RUNNING_TIMEOUT)).await?.into_inner();
+    let mut samples = vec![];
+    while let Some(s) = stream.next().await {
+        let s = s?;
+        samples.push(json!({ "at": to_json(&s)["at"], "cpus": to_json(&s.cpus), "workers": to_json(&s.workers) }));
+    }
+    Ok(Json(json!({ "samples": samples })))
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct TransceiversQuery {

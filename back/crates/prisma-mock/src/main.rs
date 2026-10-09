@@ -7,6 +7,7 @@ mod config;
 mod lists;
 mod cgnat_screens;
 mod config_service;
+mod cpus;
 mod edit_words;
 mod log_export;
 mod operational;

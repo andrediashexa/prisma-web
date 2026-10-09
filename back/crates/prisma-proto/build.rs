@@ -53,6 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "prisma.v1.BoxEvent.time",
         // Prisma 0.152.2 (#79): remote syslog's last send.
         "prisma.v1.LoggingDestinationState.last_sent",
+        // Prisma 0.152.9 (#87): when the per-CPU usage's window ended.
+        "prisma.v1.SystemInfo.cpu_usage_at",
     ] {
         cfg = cfg.field_attribute(ts, "#[serde(serialize_with = \"crate::ser::timestamp\")]");
     }

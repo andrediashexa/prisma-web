@@ -1,4 +1,4 @@
-export type WidgetType = "fleet" | "router-stats" | "traffic" | "interfaces" | "activity" | "resources" | "cgnat" | "bgp" | "uptime" | "load" | "cpu-planes"
+export type WidgetType = "fleet" | "router-stats" | "traffic" | "interfaces" | "activity" | "resources" | "cgnat" | "bgp" | "uptime" | "load" | "cpu-planes" | "cpu-usage"
 
 /** Width in columns of a 4-column grid. */
 export type WidgetSize = 1 | 2 | 3 | 4
@@ -7,7 +7,7 @@ export interface WidgetConfig {
   routerId?: string
   interface?: string
   minutes?: number
-  /** "cpu-planes" (#85): bars, map, donut or table. */
+  /** "cpu-planes" (#85): bars, map, donut or table; "cpu-usage" (#87): lines or heatmap. */
   view?: string
 }
 

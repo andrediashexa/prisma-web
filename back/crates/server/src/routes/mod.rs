@@ -60,6 +60,8 @@ pub fn router(state: AppState) -> Router {
         .route("/routers/{id}/events/watch", get(screens::watch_events))
         // Prisma 0.151.15 (#76): `show interface transceiver`.
         .route("/routers/{id}/transceivers", get(screens::transceivers))
+        // Prisma 0.152.9 (#87): each CPU's load over time.
+        .route("/routers/{id}/cpu-history", get(screens::cpu_history))
         .route("/routers/{id}/probe/{tool}", post(screens::probe))
         .route("/routers/{id}/bfd/watch", get(screens::watch_bfd))
         .route("/routers/{id}/system/upgrade", get(system::upgrade_status).post(system::upgrade))

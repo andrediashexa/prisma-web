@@ -7,6 +7,7 @@ import { ActivityWidget } from "@/components/widgets/activity-widget"
 import { BgpWidget } from "@/components/widgets/bgp-widget"
 import { BoxLogWidget } from "@/components/widgets/box-log-widget"
 import { CgnatWidget } from "@/components/widgets/cgnat-widget"
+import { CpuUsageWidget } from "@/components/widgets/cpu-usage-widget"
 import { InterfacesWidget } from "@/components/widgets/interfaces-widget"
 import { LoadWidget } from "@/components/widgets/load-widget"
 import { PlaneResourcesWidget } from "@/components/widgets/plane-resources-widget"
@@ -29,6 +30,8 @@ export default function RouterOverviewPage() {
       </div>
       {/* CPUs and RAM by plane (#81). */}
       <PlaneResourcesWidget routerId={id} />
+      {/* Each core's load now and over time (#87). */}
+      <CpuUsageWidget routerId={id} />
       {/* Prisma 0.151.14 (#75): `show log`; nothing on a box before it. */}
       <BoxLogWidget routerId={id} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">

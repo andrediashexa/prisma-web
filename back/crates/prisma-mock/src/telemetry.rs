@@ -178,7 +178,7 @@ impl TelemetryService for TelemetrySvc {
     }
 }
 
-/// Keeps only what the request asked for. The mock records no worker load.
+/// Keeps only what the request asked for.
 fn filter_sample(s: &HistorySample, req: &GetHistoryRequest) -> HistorySample {
     HistorySample {
         at: s.at,
@@ -189,6 +189,9 @@ fn filter_sample(s: &HistorySample, req: &GetHistoryRequest) -> HistorySample {
         },
         cgnat: if req.cgnat_totals { s.cgnat } else { None },
         memory_used_bytes: if req.memory { s.memory_used_bytes } else { 0 },
+        workers: if req.workers { s.workers.clone() } else { vec![] },
+        // Every CPU's usage (0.152.9, #87), asked for; a box before it has none.
+        cpus: if req.cpus && crate::cpus::reported() { s.cpus.clone() } else { vec![] },
         ..Default::default()
     }
 }
