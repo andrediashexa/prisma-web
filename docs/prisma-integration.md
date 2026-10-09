@@ -184,13 +184,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Vendored | From prismarouting | sha256 |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.5 | `b74cba12f9a5fb0887c465adc56a72dbb90b595d1a7ca72ef0b73b77566ae55b` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.152.5 | `9e88e94385dd597b73d583d0d88bc0493c682b26d9f2188fbae19855ba39d851` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.5 | `bfe962783e48406829cffd37f9335c0a1e6974c1a2079f2ec3a9a4121ff72d11` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.9 | `066493334a290520b93dce0e1ceb9aeafac7466067a1c601dfe6309d75df63ad` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.152.9 | `af3f01814fe79f35543f5ac7640795f3021a541dbf889cbb3a6b0ad87b603662` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.9 | `995cc5b0916cd1b3874f0bc858bb704aa31c47b20c7f6f56eac4aa812d0a3879` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#83) the coverage map only; 0.152.6 and 0.152.7 none.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#83) the coverage map only; 0.152.6 and 0.152.7 none; 0.152.8 and 0.152.9 (#87) all three.
 
-Read up to 0.152.7 in `clients.md` and already handled:
+Read up to 0.152.9 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -704,6 +704,21 @@ Read up to 0.152.7 in `clients.md` and already handled:
   Check, Edit, SetConfig, DeleteConfig, Confirm and Rollback now have 120 s (`COMMIT_TIMEOUT`).
   The Box log offers `vrf-settle` among its kinds. The mock's `mock commit-delay <s>` makes its
   next commit that slow.
+- 0.152.8 (additive, #596): `GetTuningAdvice` (`show system tuning advice` typed) answers after
+  its measuring window, 1 to 60 s. Vendored with 0.152.9; prisma-web does not call it yet (a
+  later issue).
+- 0.152.9 (additive, #598, asked for by prisma-web): `SystemInfo.cpu_topology`, `cpu_usage`,
+  `cpu_cores_text` and `cpu_usage_at`; `GetHistoryRequest.cpus` and `HistorySample.cpus`.
+  Followed in #87: the Resources card shows the model, sockets, physical cores, threads per core,
+  logical CPUs and NUMA nodes, and each map tile its socket and core; a new **CPU usage** card
+  (router page and home dashboard, lines or heatmap, 15 min to 24 h) shows each CPU now and over
+  time from `GET /api/routers/{id}/cpu-history?minutes=1..1440` (GetHistory with `cpus` and
+  `workers`, nothing else). A CPU's load is `busy_ratio` over the saturation figure (0.5) when
+  `polling` - its `busy_percent` reads ~100 whatever it forwards - and `busy_percent` otherwise;
+  a polling main thread (a box with no workers) has no busy ratio and shows *polls*. The usage is
+  the box's last minute: empty for a minute after its API starts, which the card says. On a box
+  before 0.152.9 the history falls back to the workers' `busy_ratio`. `cpu_usage_at` is a
+  timestamp field (`build.rs`).
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #71) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

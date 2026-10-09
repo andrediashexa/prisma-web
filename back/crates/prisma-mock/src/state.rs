@@ -204,6 +204,9 @@ impl State {
                 .collect(),
             cgnat: Some(self.cgnat_totals()),
             memory_used_bytes: self.mem_used,
+            // Each worker's and each CPU's load at the time (#87).
+            workers: crate::cpus::worker_load(at),
+            cpus: crate::cpus::usage(at),
             ..Default::default()
         });
         while self.history.len() > HISTORY_LEN {

@@ -16,6 +16,16 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.43.0 - Each core's load — 2026-10-09
+
+### Added
+- A **CPU usage** card on the router page shows each logical CPU's load over the router's last minute, with its plane and any steal time, and its history over 15 minutes, 1, 6 or 24 hours as **Lines** or a **Heatmap**. A CPU a dataplane worker polls on is shown by the dataplane's busy ratio, since it reads about 100% busy to the system whatever it forwards. It needs Prisma 0.152.9; on an older router the history shows the workers only (#87).
+- The home dashboard offers a **CPU usage per core** widget for any router; its view and initial range are chosen when it is added (#87).
+- The Resources card shows the processors a router on Prisma 0.152.9 reports: the CPU model, physical processors, physical cores, threads per core, logical CPUs and NUMA nodes, and the map shows each CPU's socket and core (#87).
+
+### Internal
+- The Prisma contract, `api.md` and the coverage map are vendored at 0.152.9; `GET /api/routers/{id}/cpu-history` reads GetHistory's per-CPU rows; the mock reports a topology of 2 sockets × 4 cores and a varying per-CPU usage from 0.152.9 (#87).
+
 ## 0.42.1 - Workflow removed — 2026-10-08
 
 ### Security

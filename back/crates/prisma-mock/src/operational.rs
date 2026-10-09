@@ -409,6 +409,11 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
             // Where the box's management lives (0.152.4, #82).
             management: crate::operational::release_at_least((0, 152, 4)).then(|| management_state(&st)),
             management_text: if crate::operational::release_at_least((0, 152, 4)) { management_text(&st) } else { String::new() },
+            // Each CPU's place and load (0.152.9, #87); none before it.
+            cpu_topology: crate::cpus::reported().then(crate::cpus::topology),
+            cpu_usage: if crate::cpus::reported() { crate::cpus::usage(now) } else { vec![] },
+            cpu_cores_text: if crate::cpus::reported() { crate::cpus::text() } else { String::new() },
+            cpu_usage_at: crate::cpus::reported().then(|| prost_types::Timestamp { seconds: now.timestamp() / 60 * 60, nanos: 0 }),
             dataplane_start_cause: if recorded { dataplane_cause } else { String::new() },
             control_plane_start_cause: if recorded { "boot".into() } else { String::new() },
             // Memory and worker load in numbers (Prisma 0.149.2). busy_ratio is

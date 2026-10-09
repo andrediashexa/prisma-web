@@ -52,7 +52,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { useRouters } from "@/hooks/use-routers"
 import { api, errorMessage, fetcher } from "@/lib/api"
-import { isResourceView, RESOURCE_VIEWS, type ResourceView } from "@/lib/resources"
 import { routerApi, type RouterInterface, type RouterView } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -412,7 +411,7 @@ function WidgetConfigForm({
   const [routerId, setRouterId] = useState(initial.routerId ?? (def.perRouter ? routers[0]?.id : undefined))
   const [iface, setIface] = useState(initial.interface)
   const [minutes, setMinutes] = useState(String(initial.minutes ?? 60))
-  const [view, setView] = useState<ResourceView>(isResourceView(initial.view) ? initial.view : "bars")
+  const [view, setView] = useState(def.views?.some((v) => v.value === initial.view) ? initial.view! : (def.views?.[0].value ?? ""))
   const { data: ifaces } = useSWR<{ interfaces: RouterInterface[] }>(
     def.traffic && routerId ? routerApi(routerId, "/interfaces") : null,
     fetcher,
@@ -422,7 +421,7 @@ function WidgetConfigForm({
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        onSubmit(def.traffic ? { routerId, interface: iface, minutes: Number(minutes) } : def.views ? { routerId, view } : { routerId })
+        onSubmit(def.traffic ? { routerId, interface: iface, minutes: Number(minutes) } : { routerId, ...(def.views && { view }), ...(def.range && { minutes: Number(minutes) }) })
       }}
     >
       <FieldGroup className="py-2">
@@ -451,16 +450,32 @@ function WidgetConfigForm({
         {def.views && (
           <Field>
             <FieldLabel>View</FieldLabel>
-            <Select value={view} onValueChange={(v) => isResourceView(v) && setView(v)}>
+            <Select value={view} onValueChange={setView}>
               <SelectTrigger aria-label="View">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {RESOURCE_VIEWS.map((v) => (
+                {def.views.map((v) => (
                   <SelectItem key={v.value} value={v.value}>
                     {v.label}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
+        {def.range && (
+          <Field>
+            <FieldLabel>Initial range</FieldLabel>
+            <Select value={minutes} onValueChange={setMinutes}>
+              <SelectTrigger aria-label="Initial range">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="15">15 minutes</SelectItem>
+                <SelectItem value="60">1 hour</SelectItem>
+                <SelectItem value="360">6 hours</SelectItem>
+                <SelectItem value="1440">24 hours</SelectItem>
               </SelectContent>
             </Select>
           </Field>

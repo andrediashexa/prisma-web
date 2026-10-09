@@ -1,3 +1,7 @@
+import type { CpuUsage } from "./cpu-usage"
+
+export type { CpuUsage }
+
 // Mirrors the types from back/crates/prisma-api and the back-end routes.
 
 export type Role = "admin" | "operator" | "viewer"
@@ -81,7 +85,41 @@ export interface SystemInfo {
   /** Of the used, the 1G hugepages reserved for the dataplane. */
   memory_hugepages_bytes?: number
   worker_load?: WorkerLoad[]
+  // CPU topology and per-CPU usage, Prisma 0.152.9 (#87). Absent / empty on older boxes.
+  cpu_topology?: CpuTopology | null
+  /** Each logical CPU over the box's last minute; empty for a minute after its API starts. */
+  cpu_usage?: CpuUsage[]
+  /** Verbatim `show system cpu cores`. */
+  cpu_cores_text?: string
+  /** When `cpu_usage` was measured. */
+  cpu_usage_at?: string | null
 }
+
+/** The host's processors, as the kernel reports them (Prisma 0.152.9). */
+export interface CpuTopology {
+  model: string
+  sockets: number
+  physical_cores: number
+  threads_per_core: number
+  numa_nodes: number
+  logical_cpus: number
+  socket_cores: { socket: number; physical_cores: number; logical_cpus: number }[]
+  cpus: LogicalCpu[]
+}
+
+export interface LogicalCpu {
+  cpu: number
+  /** -1 when the kernel does not say. */
+  socket: number
+  core: number
+  numa_node: number
+  siblings: number[]
+  /** "control-plane", "main", "worker" or "" (none). */
+  plane: string
+  /** The dataplane worker on it, -1 for none. */
+  worker: number
+}
+
 
 /** One dataplane worker's load, as the dataplane counts it (Prisma 0.149.2). */
 export interface WorkerLoad {

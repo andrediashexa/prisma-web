@@ -13,10 +13,12 @@ import { FleetWidget } from "./fleet-widget"
 import { InterfacesWidget } from "./interfaces-widget"
 import { LoadWidget } from "./load-widget"
 import { PlaneResourcesWidget } from "./plane-resources-widget"
+import { CpuUsageWidget } from "./cpu-usage-widget"
 import { ResourcesWidget } from "./resources-widget"
 import { RouterStatsWidget } from "./router-stats-widget"
 import { UptimeWidget } from "./uptime-widget"
-import { isResourceView } from "@/lib/resources"
+import { isUsageView, USAGE_VIEWS } from "@/lib/cpu-usage"
+import { isResourceView, RESOURCE_VIEWS } from "@/lib/resources"
 
 import type { DashboardLayout, Widget, WidgetConfig, WidgetSize, WidgetType } from "./types"
 
@@ -31,8 +33,10 @@ interface WidgetDef {
   traffic?: boolean
   /** Optional filter by router (activity). */
   optionalRouter?: boolean
-  /** Lets the user pick how it is shown (#85). */
-  views?: boolean
+  /** Lets the user pick how it is shown (#85): the choices, the first the default. */
+  views?: readonly { value: string; label: string }[]
+  /** Lets the user pick its initial time range, without an interface (#87). */
+  range?: boolean
 }
 
 export const WIDGETS: Record<WidgetType, WidgetDef> = {
@@ -106,7 +110,16 @@ export const WIDGETS: Record<WidgetType, WidgetDef> = {
     icon: CpuIcon,
     defaultSize: 2,
     perRouter: true,
-    views: true,
+    views: RESOURCE_VIEWS,
+  },
+  "cpu-usage": {
+    title: "CPU usage per core",
+    description: "Each core's load now and over time, as lines or a heatmap",
+    icon: GaugeIcon,
+    defaultSize: 2,
+    perRouter: true,
+    views: USAGE_VIEWS,
+    range: true,
   },
   activity: {
     title: "Recent activity",
@@ -206,6 +219,16 @@ export function WidgetView({ widget, routers }: { widget: Widget; routers: Route
           routerId={routerId}
           title={router ? `CPUs and RAM · ${router.name}` : undefined}
           view={isResourceView(widget.config.view) ? widget.config.view : "bars"}
+        />
+      ) : null
+    case "cpu-usage":
+      return routerId ? (
+        <CpuUsageWidget
+          key={`${routerId}-${widget.config.view}-${widget.config.minutes}`}
+          routerId={routerId}
+          title={router ? `CPU usage · ${router.name}` : undefined}
+          view={isUsageView(widget.config.view) ? widget.config.view : "lines"}
+          minutes={widget.config.minutes}
         />
       ) : null
     case "load":
