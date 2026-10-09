@@ -37,7 +37,7 @@ test("no page scrolls sideways on a phone", async ({ page }) => {
   test.setTimeout(180_000)
   const id = routerId()
   for (const url of ["/", "/routers", "/audit", "/users", `/routers/${id}`, `/routers/${id}/interfaces`, `/routers/${id}/config`, `/routers/${id}/settings`,
-    `/routers/${id}/cgnat`, `/routers/${id}/routing`, `/routers/${id}/policies`, `/routers/${id}/console`, `/routers/${id}/system`]) {
+    `/routers/${id}/cgnat`, `/routers/${id}/routing`, ...["static", "bgp", "ospf", "isis", "bfd", "vrrp", "logging"].map((p) => `/routers/${id}/routing/${p}`), `/routers/${id}/policies`, `/routers/${id}/console`, `/routers/${id}/system`]) {
     await noSidewaysScroll(page, url)
   }
 })
@@ -68,7 +68,7 @@ test("the widest tables keep their key columns in sight, and a wide table shows 
   await page.goto(`/routers/${id}/cgnat`)
   await inSight(page, "main", "Actions")
   await inSight(page, "main", "Subscribers")
-  await page.goto(`/routers/${id}/routing`)
+  await page.goto(`/routers/${id}/routing/bgp`)
   await inSight(page, "main", "State")
 })
 

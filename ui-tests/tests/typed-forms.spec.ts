@@ -90,7 +90,7 @@ test("a BGP neighbor is added with a write-only password, edited and removed sta
     await page.request.post(`${R()}/config/candidates/${c.candidate_id}/edit`, { data: { path: ["router bgp 65000"], lines: ["timers bgp 10 30"] } })
     expect((await page.request.post(`${R()}/config/candidates/${c.candidate_id}/commit`, { data: { comment: "ui tests: other" } })).ok()).toBeTruthy()
 
-    await page.goto(`/routers/${routerId()}/routing`)
+    await page.goto(`/routers/${routerId()}/routing/bgp`)
     const other = page.getByRole("region", { name: "Other statements of router bgp 65000" })
     await expect(other).toContainText("timers bgp 10 30")
     await expect(other.getByRole("button")).toHaveCount(0)
@@ -151,7 +151,7 @@ test("removing a peer-group its members still name is refused, and the refusal n
     })
     expect((await page.request.post(`${R()}/config/candidates/${c.candidate_id}/commit`, { data: { comment: "ui tests: peer group" } })).ok()).toBeTruthy()
 
-    await page.goto(`/routers/${routerId()}/routing`)
+    await page.goto(`/routers/${routerId()}/routing/bgp`)
     const group = page.locator('tr[data-neighbor="UI-GROUP"]')
     await expect(group).toContainText("peer group")
     await group.getByRole("button", { name: "Remove UI-GROUP" }).click()

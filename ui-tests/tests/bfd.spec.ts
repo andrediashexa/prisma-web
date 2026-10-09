@@ -6,7 +6,7 @@ import { linesRouterId, routerId } from "./helpers"
 
 test("a BFD session going down shows on the routing tab as it happens", async ({ page }) => {
   const R = `/api/routers/${routerId()}`
-  await page.goto(`/routers/${routerId()}/routing`)
+  await page.goto(`/routers/${routerId()}/routing/bfd`)
   const card = page.locator('[data-screen="bfd-sessions"]')
   const row = card.locator('tr[data-peer="192.168.10.2"]')
   await expect(row).toContainText("up")
@@ -21,7 +21,7 @@ test("a BFD session going down shows on the routing tab as it happens", async ({
 })
 
 test("a router before 0.150.10 has no BFD card", async ({ page }) => {
-  await page.goto(`/routers/${linesRouterId()}/routing`)
-  await expect(page.getByText("OSPF / OSPFv3 neighbors")).toBeVisible()
+  await page.goto(`/routers/${linesRouterId()}/routing/bfd`)
+  await expect(page.getByRole("navigation", { name: "Routing" })).toBeVisible()
   await expect(page.locator('[data-screen="bfd-sessions"]')).toHaveCount(0)
 })

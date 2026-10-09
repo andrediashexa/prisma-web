@@ -6,6 +6,7 @@ import useSWR from "swr"
 import { BoxesIcon, Loader2Icon, PencilIcon, PowerIcon, PowerOffIcon } from "lucide-react"
 
 import { AddressList } from "@/components/address-list"
+import { BundlesCard } from "@/components/bundles-card"
 import { ClearAction, useClears } from "@/components/clear-action"
 import { HardwareCard, SnmpFiles, UnsupportedSfpCard } from "@/components/screens"
 import { ManagementCard } from "@/components/management-card"
@@ -279,6 +280,7 @@ export default function InterfacesPage() {
         staged={cc.staged}
       />
 
+      <BundlesCard routerId={id} />
       {/* Prisma 0.150.6 (#64): the cards the host has. */}
       <HardwareCard routerId={id} />
       {/* Prisma 0.151.15 (#76): each port's module and its levels; nothing on a box before it. */}
