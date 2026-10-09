@@ -6,7 +6,7 @@ import { linesRouterId, routerId } from "./helpers"
 // each after a confirmation that says what it disrupts.
 
 test("a BGP session is cleared softly after a confirmation, and the box says the command", async ({ page }) => {
-  await page.goto(`/routers/${routerId()}/routing`)
+  await page.goto(`/routers/${routerId()}/routing/bgp`)
   const button = page.getByRole("button", { name: /^Clear the BGP session with / }).first()
   await expect(button).toBeVisible()
   const peer = ((await button.getAttribute("aria-label")) ?? "").replace("Clear the BGP session with ", "")
@@ -36,10 +36,12 @@ test("a subscriber's sessions and the interface counters are cleared after their
 })
 
 test("a router before 0.149.25 is offered no clear", async ({ page }) => {
-  await page.goto(`/routers/${linesRouterId()}/routing`)
+  await page.goto(`/routers/${linesRouterId()}/routing/ospf`)
   await expect(page.getByText("OSPF / OSPFv3 neighbors")).toBeVisible()
-  await expect(page.getByRole("button", { name: /^Clear the BGP session/ })).toHaveCount(0)
   await expect(page.getByRole("button", { name: /Restart OSPF/ })).toHaveCount(0)
+  await page.goto(`/routers/${linesRouterId()}/routing/bgp`)
+  await expect(page.getByText("BGP", { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole("button", { name: /^Clear the BGP session/ })).toHaveCount(0)
   await page.goto(`/routers/${linesRouterId()}/interfaces`)
   await expect(page.getByRole("button", { name: /Clear counters/ })).toHaveCount(0)
 })

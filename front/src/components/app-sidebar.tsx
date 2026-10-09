@@ -4,6 +4,7 @@ import Link from "next/link"
 import { Fragment } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
+  ChevronRightIcon,
   ChevronsUpDownIcon,
   HistoryIcon,
   KeyRoundIcon,
@@ -39,6 +40,7 @@ import {
   SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { ROUTING_PAGES } from "@/components/routing/routing-pages"
 import { useFleetStatus, useRouters } from "@/hooks/use-routers"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -46,12 +48,13 @@ import { hasRole, ROLE_LABEL, type CurrentUser, type Role } from "@/lib/types"
 
 type NavItem = { href: string; label: string; icon: React.ComponentType; role?: Role }
 
-const ROUTER_PAGES = [
+const ROUTER_PAGES: { href: string; label: string; children?: readonly { href: string; label: string }[] }[] = [
   { href: "", label: "Dashboard" },
   { href: "/interfaces", label: "Interfaces" },
   { href: "/config", label: "Configuration" },
   { href: "/cgnat", label: "CGNAT" },
-  { href: "/routing", label: "Routing" },
+  // One page per protocol and the routing table (#88).
+  { href: "/routing", label: "Routing", children: ROUTING_PAGES },
   { href: "/policies", label: "Policies" },
   { href: "/console", label: "Console" },
 ]
@@ -154,13 +157,32 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
                           </SidebarMenuButton>
                           {open && (
                             <SidebarMenuSub>
-                              {ROUTER_PAGES.map((p) => (
-                                <SidebarMenuSubItem key={p.label}>
-                                  <SidebarMenuSubButton asChild isActive={pathname === base + p.href}>
-                                    <Link href={base + p.href}>{p.label}</Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              ))}
+                              {ROUTER_PAGES.map((p) => {
+                                const href = base + p.href
+                                // A section with pages opens while one of them is shown.
+                                const inside = !!p.children && (pathname === href || pathname.startsWith(href + "/"))
+                                return (
+                                  <SidebarMenuSubItem key={p.label}>
+                                    <SidebarMenuSubButton asChild isActive={pathname === href && !p.children}>
+                                      <Link href={href} aria-expanded={p.children ? inside : undefined}>
+                                        {p.label}
+                                        {p.children && <ChevronRightIcon className={cn("ml-auto transition-transform", inside && "rotate-90")} />}
+                                      </Link>
+                                    </SidebarMenuSubButton>
+                                    {inside && (
+                                      <SidebarMenuSub aria-label={p.label} className="mr-0 pr-0">
+                                        {p.children!.map((c) => (
+                                          <SidebarMenuSubItem key={c.label}>
+                                            <SidebarMenuSubButton asChild size="sm" isActive={pathname === href + c.href}>
+                                              <Link href={href + c.href}>{c.label}</Link>
+                                            </SidebarMenuSubButton>
+                                          </SidebarMenuSubItem>
+                                        ))}
+                                      </SidebarMenuSub>
+                                    )}
+                                  </SidebarMenuSubItem>
+                                )
+                              })}
                             </SidebarMenuSub>
                           )}
                         </SidebarMenuItem>

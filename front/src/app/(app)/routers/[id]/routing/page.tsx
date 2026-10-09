@@ -5,14 +5,6 @@ import { useMemo, useState } from "react"
 import useSWR from "swr"
 import { ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react"
 
-import { ChangeReview } from "@/components/config/change-review"
-import { StagedChanges } from "@/components/config/staged-changes"
-import { ClearAction, useClears } from "@/components/clear-action"
-import { BfdSessionsCard, IsisInterfacesCard, OspfInterfacesCard, RoutingLoggingCard } from "@/components/screens"
-import { BfdConfig } from "@/components/routing/bfd-config"
-import { BgpPanel } from "@/components/routing/bgp-config"
-import { OspfPanel } from "@/components/routing/ospf-config"
-import { StaticRoutesPanel } from "@/components/routing/static-routes"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,25 +15,14 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useConfigChanges } from "@/hooks/use-config-changes"
-import { useFleetStatus, useRouterAccess, useRouterRole } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
-import { boxAllows, type Grammar, type Instance } from "@/lib/config-model"
 import { formatDateTime, formatNumber, formatUptime } from "@/lib/format"
-import { readRouting, readRoutingTyped, toChange, type StagedEdit } from "@/lib/routing-config"
-import { useTypedConfig } from "@/lib/typed-config"
 import {
-  roleAtLeast,
   routerApi,
-  type BgpNeighbor,
-  type Bundle,
-  type IsisAdjacency,
   type ListRoutesResponse,
-  type OspfNeighbor,
   type Route,
   type RouteNextHop,
   type RouteSummary,
-  type VrrpRouter,
 } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -54,279 +35,10 @@ function useShow(routerId: string, command: string) {
   )
 }
 
-export default function RoutingPage() {
+/** The routing table and its summary (#27); the protocols each have their own page (#88). */
+export default function RoutingTablePage() {
   const { id } = useParams<{ id: string }>()
-  const opts = { refreshInterval: 15_000 }
-  const { data: bgp, mutate: mutateBgp } = useSWR<{ neighbors: BgpNeighbor[] }>(routerApi(id, "/bgp"), fetcher, opts)
-  const { data: ospf } = useSWR<{ neighbors: OspfNeighbor[] }>(routerApi(id, "/ospf"), fetcher, opts)
-  const { data: isis } = useSWR<{ adjacencies: IsisAdjacency[] }>(routerApi(id, "/isis"), fetcher, opts)
-  const { data: vrrp } = useSWR<{ routers: VrrpRouter[] }>(routerApi(id, "/vrrp"), fetcher, opts)
-  const { data: bundles } = useSWR<{ bundles: Bundle[] }>(routerApi(id, "/bundles"), fetcher, opts)
-
-  // The routing configuration (#42, #43), read from the running configuration's tree.
-  const { data: tree, mutate: mutateTree } = useSWR<{ revision: string; instances: Instance[] }>(routerApi(id, "/config/tree"), fetcher)
-  const { data: grammar } = useSWR<Grammar>(routerApi(id, "/config/grammar"), fetcher, { revalidateOnFocus: false })
-  // Typed on a box that answers GetConfig's routing areas (Prisma 0.149.22, #46); the tree otherwise.
-  const typed = useTypedConfig(id, ["static", "bgp", "ospf", "ospf6", "interface_routing", "interfaces"])
-  const routing = useMemo(
-    () => (typed.config ? readRoutingTyped(typed.config) : typed.typed === false && tree ? readRouting(tree.instances) : undefined),
-    [tree, typed.config, typed.typed],
-  )
-  const cc = useConfigChanges(id)
-  const stage = (...edits: StagedEdit[]) => edits.forEach((e) => cc.stage(toChange(e)))
-  const myRole = useRouterRole(id)
-  const { access, readOnly } = useRouterAccess(id)
-  const release = useFleetStatus().data?.find((r) => r.id === id)?.version?.release
-  // The routing modes' roles come from the grammar (administrator today).
-  const roles = grammar?.modes.find((m) => m.key === "router bgp <asn>")?.roles ?? ["administrator"]
-  const editable = !!routing && roleAtLeast(myRole, "operator") && !readOnly && boxAllows(access, { roles })
-  const clears = useClears(id)
-
-  return (
-    <>
-      {typed.error && <p className="text-destructive text-sm">Could not read the typed configuration: {typed.error.message}</p>}
-      <BgpPanel
-        bgp={routing ? routing.bgp : undefined}
-        live={bgp?.neighbors}
-        editable={editable}
-        stage={stage}
-        release={release}
-        clearOf={
-          clears
-            ? (peer) => (
-                <ClearAction
-                  routerId={id}
-                  target="bgp"
-                  name={peer}
-                  title={`the BGP session with ${peer}`}
-                  disrupts="A soft clear asks for or resends the routes and keeps the session up; a hard clear drops the session and its routes until it comes back."
-                  onDone={() => mutateBgp()}
-                />
-              )
-            : undefined
-        }
-      />
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Section
-          title="OSPF / OSPFv3 neighbors"
-          loading={!ospf}
-          empty={ospf?.neighbors.length === 0}
-          action={
-            clears && (
-              <ClearAction
-                routerId={id}
-                target="ospf_process"
-                title="the OSPF process"
-                label="Restart OSPF"
-                disrupts="Every OSPF adjacency is torn down and the process starts again; OSPF routes are withdrawn until the adjacencies are full again."
-              />
-            )
-          }
-        >
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-6">Router ID</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Interface</TableHead>
-                <TableHead className={clears ? undefined : "pr-6"}>State</TableHead>
-                {clears && <TableHead className="pr-6" />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ospf?.neighbors.map((n) => (
-                <TableRow key={`${n.protocol}-${n.router_id}-${n.interface}`}>
-                  <TableCell className="pl-6 font-mono text-sm">
-                    {n.router_id}
-                    <Badge variant="outline" className="ml-2 text-[10px]">
-                      {n.protocol === "ospf6" ? "v3" : "v2"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{n.address}</TableCell>
-                  <TableCell className="font-mono text-sm">{n.interface}</TableCell>
-                  <TableCell className={clears ? undefined : "pr-6"}>{n.state}</TableCell>
-                  {clears && (
-                    <TableCell className="pr-6 text-right">
-                      {n.protocol === "ospf" && (
-                        <ClearAction
-                          routerId={id}
-                          target="ospf_neighbor"
-                          name={n.router_id}
-                          title={`the OSPF neighbor ${n.router_id}`}
-                          disrupts="The adjacency is torn down and formed again; the routes through it are withdrawn meanwhile."
-                        />
-                      )}
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Section>
-
-        <Section title="IS-IS" loading={!isis} empty={isis?.adjacencies.length === 0}>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-6">System ID</TableHead>
-                <TableHead>Interface</TableHead>
-                <TableHead>Level</TableHead>
-                <TableHead className={clears ? undefined : "pr-6"}>State</TableHead>
-                {clears && <TableHead className="pr-6" />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isis?.adjacencies.map((a) => (
-                <TableRow key={`${a.system_id}-${a.interface}`}>
-                  <TableCell className="pl-6 font-mono text-sm">{a.system_id}</TableCell>
-                  <TableCell className="font-mono text-sm">{a.interface}</TableCell>
-                  <TableCell>{a.level}</TableCell>
-                  <TableCell className={clears ? undefined : "pr-6"}>{a.state}</TableCell>
-                  {clears && (
-                    <TableCell className="pr-6 text-right">
-                      <ClearAction
-                        routerId={id}
-                        target="isis_adjacency"
-                        name={a.system_id}
-                        title={`the IS-IS adjacency with ${a.system_id}`}
-                        disrupts="The adjacency is torn down and formed again; the routes through it are withdrawn meanwhile."
-                      />
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Section>
-
-        <Section title="VRRP" loading={!vrrp} empty={vrrp?.routers.length === 0}>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-6">Interface</TableHead>
-                <TableHead>VR</TableHead>
-                <TableHead>State</TableHead>
-                <TableHead className="pr-6">Addresses</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {vrrp?.routers.map((v) => (
-                <TableRow key={`${v.interface}-${v.vr_id}-${v.family}`}>
-                  <TableCell className="pl-6 font-mono text-sm">{v.interface}</TableCell>
-                  <TableCell className="tabular-nums">
-                    {v.vr_id} <Badge variant="outline" className="ml-1 text-[10px]">IPv{v.family}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={v.state === "master" ? "default" : "secondary"}>{v.state}</Badge>
-                    <span className="text-muted-foreground ml-2 text-xs">prio {v.priority}</span>
-                  </TableCell>
-                  <TableCell className="pr-6 font-mono text-xs">{v.addresses.join(", ")}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Section>
-
-        <Section title="Bundles" loading={!bundles} empty={bundles?.bundles.length === 0}>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-6">Bundle</TableHead>
-                <TableHead>Mode</TableHead>
-                <TableHead className="pr-6">Members</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {bundles?.bundles.map((b) => (
-                <TableRow key={b.name}>
-                  <TableCell className="pl-6 font-mono text-sm">{b.name}</TableCell>
-                  <TableCell>{b.mode}</TableCell>
-                  <TableCell className="pr-6">
-                    <div className="flex flex-wrap gap-1">
-                      {b.members.map((m) => (
-                        <Badge key={m} variant={b.active_members.includes(m) ? "secondary" : "destructive"} className="font-mono">
-                          {m}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Section>
-      </div>
-
-      {routing && <OspfPanel ospf={routing.ospf} ospf6={routing.ospf6} editable={editable} stage={stage} />}
-      {routing && <StaticRoutesPanel routes={routing.statics} interfaces={routing.interfaces} editable={editable} stage={stage} typed={!!routing.typed} />}
-
-      <Routes routerId={id} />
-
-      {/* Kept in sight while scrolling: the forms above and below stage into it. */}
-      <div className="sticky bottom-4 z-20 shadow-lg empty:hidden">
-        <StagedChanges cc={cc} />
-      </div>
-      <ChangeReview
-        routerId={id}
-        candidateId={cc.candidateId}
-        title="Apply routing changes"
-        defaultComment={cc.reviewed.map((c) => c.label).join("; ")}
-        onClose={cc.closeReview}
-        onStale={cc.reopen}
-        staged={cc.staged}
-        onCommitted={() => {
-          cc.committed()
-          void mutateTree()
-          void typed.mutate()
-          void mutateBgp()
-        }}
-      />
-
-      {/* Prisma 0.150.6 (#64): OSPF and IS-IS interfaces, FRR's logging. */}
-      <BfdSessionsCard routerId={id} />
-      {/* Prisma 0.150.12 (#67): BFD's configuration as fields. */}
-      <BfdConfig routerId={id} editable={editable} onStage={(c) => cc.stage(c)} />
-      <OspfInterfacesCard routerId={id} />
-      <IsisInterfacesCard routerId={id} />
-      <RoutingLoggingCard routerId={id} />
-    </>
-  )
-}
-
-function Section({
-  title,
-  description,
-  loading,
-  empty,
-  action,
-  children,
-}: {
-  title: string
-  description?: string
-  loading: boolean
-  empty?: boolean
-  action?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <Card className="py-0">
-      <CardHeader className="pt-6">
-        <CardTitle>{title}</CardTitle>
-        {description && <CardDescription>{description}</CardDescription>}
-        {action && <CardAction>{action}</CardAction>}
-      </CardHeader>
-      {loading ? (
-        <CardContent className="pb-6">
-          <Skeleton className="h-16 w-full" />
-        </CardContent>
-      ) : empty ? (
-        <CardContent className="text-muted-foreground pb-6 text-sm">Nothing configured.</CardContent>
-      ) : (
-        <div className="overflow-x-auto pb-2">{children}</div>
-      )}
-    </Card>
-  )
+  return <Routes routerId={id} />
 }
 
 function RouteTables({ routerId }: { routerId: string }) {

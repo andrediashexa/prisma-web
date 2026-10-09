@@ -298,7 +298,12 @@ sequenceDiagram
   `/config/tree`) and builds their lines, with the syntax of `config_grammar.json`, and the typed
   reads and edits of Prisma 0.149.22 beside them (#46). Changes are staged with
   `front/src/hooks/use-config-changes.ts`, shared with the other configuration tabs, and go through the same
-  candidate and review. A changed `remote-as` is sent as the new line alone, because FRR's
+  candidate and review. Since #88 the tab is a menu - Routing table, Static, BGP, OSPF, IS-IS, BFD,
+  VRRP and Logging, each a page under `routers/[id]/routing/`, in the sidebar as a sub-menu and in
+  a row above the page - and `routing/layout.tsx` holds what they share
+  (`components/routing/routing-context.tsx`: the configuration read once, the staged changes and
+  the review), so a change staged on one page is still staged on another and they are applied
+  together. Bundles are on the Interfaces page. A changed `remote-as` is sent as the new line alone, because FRR's
   `no neighbor … remote-as` removes the whole neighbor; `no neighbor <address>` is how a neighbor
   is removed as a line before Prisma 0.149.20 and from 0.149.23, and statement by statement in
   between (#46). OSPF6 has no `network` statement: an interface joins an area with

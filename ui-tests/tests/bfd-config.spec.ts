@@ -5,7 +5,7 @@ import { linesRouterId, routerId } from "./helpers"
 // BFD's configuration as fields (Prisma 0.150.12, #67).
 
 test("a BFD profile and a session naming it are staged as fields and reach the review", async ({ page }) => {
-  await page.goto(`/routers/${routerId()}/routing`)
+  await page.goto(`/routers/${routerId()}/routing/bfd`)
   const card = page.locator("[data-bfd-config]")
   await card.getByRole("button", { name: "Add a profile" }).click()
   let dialog = page.getByRole("dialog")
@@ -21,13 +21,13 @@ test("a BFD profile and a session naming it are staged as fields and reach the r
   await dialog.getByRole("button", { name: "Add to the changes" }).click()
   await page.getByRole("button", { name: /Review and apply \(2\)/ }).click()
   const review = page.getByRole("dialog")
-  await expect(review.getByText("receive-interval 200")).toBeVisible()
+  await expect(review.getByText("receive-interval 200").first()).toBeVisible()
   await expect(review.getByText("peer 192.0.2.99 interface lan0").first()).toBeVisible()
   await review.getByRole("button", { name: "Discard" }).click()
 })
 
 test("a router before 0.150.12 has no BFD form", async ({ page }) => {
-  await page.goto(`/routers/${linesRouterId()}/routing`)
-  await expect(page.getByText("OSPF / OSPFv3 neighbors")).toBeVisible()
+  await page.goto(`/routers/${linesRouterId()}/routing/bfd`)
+  await expect(page.getByRole("navigation", { name: "Routing" })).toBeVisible()
   await expect(page.locator("[data-bfd-config]")).toHaveCount(0)
 })

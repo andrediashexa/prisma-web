@@ -44,7 +44,7 @@ async function dropNeighbor(api: APIRequestContext, peer: string) {
 test("a BGP neighbor is added, shut down, edited from a prefilled form and removed", async ({ page }) => {
   const peer = "192.0.2.88"
   try {
-    await page.goto(`/routers/${routerId()}/routing`)
+    await page.goto(`/routers/${routerId()}/routing/bgp`)
     await page.getByRole("button", { name: "Add neighbor" }).click()
     const dialog = page.getByRole("dialog")
     await dialog.getByLabel("Address", { exact: true }).fill(peer)
@@ -95,7 +95,7 @@ test("a BGP neighbor is added, shut down, edited from a prefilled form and remov
 
 test("networks, aggregates and redistribution are staged per address family, nothing committed", async ({ page }) => {
   const before = await revisions(page.request)
-  await page.goto(`/routers/${routerId()}/routing`)
+  await page.goto(`/routers/${routerId()}/routing/bgp`)
   await page.getByRole("tab", { name: "IPv6 unicast" }).click()
   const v6 = page.locator('[data-family-panel="ipv6"]')
   // The seeded IPv6 neighbor is active in this family.
@@ -125,7 +125,7 @@ test("networks, aggregates and redistribution are staged per address family, not
 })
 
 test("OSPF and OSPF6 networks, areas, passive interfaces and redistribution reach the router", async ({ page }) => {
-  await page.goto(`/routers/${routerId()}/routing`)
+  await page.goto(`/routers/${routerId()}/routing/ospf`)
   const v2 = page.locator('[data-ospf="ospf"]')
   await expect(v2.getByText("network 192.168.10.0/24 area 0")).toBeVisible()
   await v2.getByLabel("Network", { exact: true }).fill("10.88.0.0/16")
@@ -169,7 +169,7 @@ test("OSPF and OSPF6 networks, areas, passive interfaces and redistribution reac
 })
 
 test("static routes are added and removed, IPv4 and IPv6, through an address or an interface", async ({ page }) => {
-  await page.goto(`/routers/${routerId()}/routing`)
+  await page.goto(`/routers/${routerId()}/routing/static`)
   await page.getByRole("button", { name: "Add route" }).click()
   const dialog = page.getByRole("dialog")
   await dialog.getByLabel("Prefix", { exact: true }).fill("198.51.100.0/24")
@@ -215,10 +215,13 @@ test("a viewer sees the routing configuration but is offered no form", async ({ 
   try {
     expect((await ctx.request.post("/api/auth/login", { data: { username: name, password } })).ok()).toBeTruthy()
     const p = await ctx.newPage()
-    await p.goto(`/routers/${routerId()}/routing`)
+    await p.goto(`/routers/${routerId()}/routing/bgp`)
     await expect(p.locator('tr[data-neighbor="203.0.113.9"]')).toContainText("Established")
-    await expect(p.locator('tr[data-route="0.0.0.0/0"]')).toBeVisible()
     await expect(p.getByRole("button", { name: "Add neighbor" })).toHaveCount(0)
+    await expect(p.getByRole("button", { name: /^Edit / })).toHaveCount(0)
+    await expect(p.getByRole("button", { name: /^Remove / })).toHaveCount(0)
+    await p.goto(`/routers/${routerId()}/routing/static`)
+    await expect(p.locator('tr[data-route="0.0.0.0/0"]')).toBeVisible()
     await expect(p.getByRole("button", { name: "Add route" })).toHaveCount(0)
     await expect(p.getByRole("button", { name: /^Edit / })).toHaveCount(0)
     await expect(p.getByRole("button", { name: /^Remove / })).toHaveCount(0)

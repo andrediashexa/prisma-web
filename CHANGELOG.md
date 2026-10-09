@@ -16,6 +16,12 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.44.0 - Routing menu — 2026-10-09
+
+### Changed
+- The router's **Routing** opens a menu, in the sidebar and above the page: **Routing table**, **Static**, **BGP**, **OSPF**, **IS-IS**, **BFD**, **VRRP** and **Logging**, each its own page with its own address, instead of one long page. A change staged on one of them stays staged on the others, and the review applies them together (#88).
+- The bundles and their members are shown on the **Interfaces** page, where bundles are created (#88).
+
 ## 0.43.0 - Each core's load — 2026-10-09
 
 ### Added

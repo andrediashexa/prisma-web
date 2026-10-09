@@ -5,10 +5,12 @@ import { linesRouterId, routerId } from "./helpers"
 // The rest of the screens and the probes (Prisma 0.150.6, #64).
 
 test("the routing tab shows OSPF interfaces with the MTU mismatch, IS-IS circuits and FRR logging", async ({ page }) => {
-  await page.goto(`/routers/${routerId()}/routing`)
+  await page.goto(`/routers/${routerId()}/routing/ospf`)
   const ospf = page.locator('[data-screen="ospf-interfaces"]')
   await expect(ospf.locator('tr[data-interface="wan0"]')).toContainText("MTU mismatch")
+  await page.goto(`/routers/${routerId()}/routing/isis`)
   await expect(page.locator('[data-screen="isis-interfaces"]')).toContainText("lan0")
+  await page.goto(`/routers/${routerId()}/routing/logging`)
   await expect(page.locator('[data-screen="routing-logging"]')).toContainText("bgpd")
 })
 
@@ -31,7 +33,7 @@ test("a ping from the console streams its replies and its summary", async ({ pag
 })
 
 test("a router before 0.150.6 has none of them", async ({ page }) => {
-  await page.goto(`/routers/${linesRouterId()}/routing`)
+  await page.goto(`/routers/${linesRouterId()}/routing/ospf`)
   await expect(page.getByText("OSPF / OSPFv3 neighbors")).toBeVisible()
   await expect(page.locator('[data-screen="ospf-interfaces"]')).toHaveCount(0)
   await page.goto(`/routers/${linesRouterId()}/console`)
