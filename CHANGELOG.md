@@ -16,6 +16,11 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.45.1 - Sub-menus that close — 2026-10-09
+
+### Fixed
+- The sidebar's sub-menus can be collapsed: a router's pages, and Routing's and Policies' pages, open and close from the chevron beside them without leaving the page; following the link opens its sub-menu again (#90).
+
 ## 0.45.0 - Policy lists — 2026-10-09
 
 ### Added

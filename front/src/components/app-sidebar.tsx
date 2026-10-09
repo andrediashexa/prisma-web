@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Fragment } from "react"
+import { Fragment, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   ChevronRightIcon,
@@ -33,6 +33,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -83,6 +84,17 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
   const router = useRouter()
   const { data: routers } = useRouters()
   const { data: fleet } = useFleetStatus()
+  // A sub-menu the user opened or closed stays so; otherwise it is open while one of its pages is shown (#90).
+  const [chosen, setChosen] = useState<Record<string, boolean>>({})
+  const isOpen = (key: string, inside: boolean) => chosen[key] ?? inside
+  const choose = (key: string, open: boolean) => setChosen((c) => ({ ...c, [key]: open }))
+  // Following the link drops the choice: the sub-menu is open while inside, closed when left.
+  const follow = (key: string) =>
+    setChosen((c) => {
+      const rest = { ...c }
+      delete rest[key]
+      return rest
+    })
 
   async function logout() {
     await api.post("/auth/logout").catch(() => {})
@@ -140,12 +152,12 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
                   <SidebarMenu>
                     {routers.map((r) => {
                       const base = `/routers/${r.id}`
-                      const open = pathname === base || pathname.startsWith(base + "/")
+                      const open = isOpen(base, pathname === base || pathname.startsWith(base + "/"))
                       const status = fleet?.find((f) => f.id === r.id)
                       return (
                         <SidebarMenuItem key={r.id}>
-                          <SidebarMenuButton asChild isActive={open && pathname === base} tooltip={r.name}>
-                            <Link href={base}>
+                          <SidebarMenuButton asChild isActive={pathname === base} tooltip={r.name}>
+                            <Link href={base} onClick={() => follow(base)}>
                               <span className="flex size-4 shrink-0 items-center justify-center">
                                 <span
                                   className={cn(
@@ -157,20 +169,33 @@ export function AppSidebar({ user }: { user: CurrentUser }) {
                               <span className="truncate">{r.name}</span>
                             </Link>
                           </SidebarMenuButton>
+                          <SidebarMenuAction aria-label={`${r.name} pages`} aria-expanded={open} onClick={() => choose(base, !open)}>
+                            <ChevronRightIcon className={cn("transition-transform", open && "rotate-90")} />
+                          </SidebarMenuAction>
                           {open && (
                             <SidebarMenuSub>
                               {ROUTER_PAGES.map((p) => {
                                 const href = base + p.href
-                                // A section with pages opens while one of them is shown.
-                                const inside = !!p.children && (pathname === href || pathname.startsWith(href + "/"))
+                                // A section with pages opens while one of them is shown, until closed (#90).
+                                const inside = !!p.children && isOpen(href, pathname === href || pathname.startsWith(href + "/"))
                                 return (
-                                  <SidebarMenuSubItem key={p.label}>
-                                    <SidebarMenuSubButton asChild isActive={pathname === href && !p.children}>
-                                      <Link href={href} aria-expanded={p.children ? inside : undefined}>
+                                  <SidebarMenuSubItem key={p.label} className="relative">
+                                    <SidebarMenuSubButton asChild isActive={pathname === href && !p.children} className={p.children ? "pr-8" : undefined}>
+                                      <Link href={href} onClick={() => p.children && follow(href)}>
                                         {p.label}
-                                        {p.children && <ChevronRightIcon className={cn("ml-auto transition-transform", inside && "rotate-90")} />}
                                       </Link>
                                     </SidebarMenuSubButton>
+                                    {p.children && (
+                                      <button
+                                        type="button"
+                                        aria-label={`${p.label} pages`}
+                                        aria-expanded={inside}
+                                        onClick={() => choose(href, !inside)}
+                                        className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-sidebar-ring absolute top-1 right-1 flex size-5 items-center justify-center rounded-md outline-hidden focus-visible:ring-2"
+                                      >
+                                        <ChevronRightIcon className={cn("size-4 transition-transform", inside && "rotate-90")} />
+                                      </button>
+                                    )}
                                     {inside && (
                                       <SidebarMenuSub aria-label={p.label} className="mr-0 pr-0">
                                         {p.children!.map((c) => (

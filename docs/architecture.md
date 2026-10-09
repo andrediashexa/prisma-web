@@ -316,7 +316,8 @@ sequenceDiagram
   `front/src/hooks/use-config-changes.ts`, shared with the other configuration tabs, and go through the same
   candidate and review. Since #88 the tab is a menu - Routing table, Static, BGP, OSPF, IS-IS, BFD,
   VRRP and Logging, each a page under `routers/[id]/routing/`, in the sidebar as a sub-menu and in
-  a row above the page - and `routing/layout.tsx` holds what they share
+  a row above the page; a sub-menu opens while one of its pages is shown, and its chevron opens or
+  closes it without leaving the page (#90) - and `routing/layout.tsx` holds what they share
   (`components/routing/routing-context.tsx`: the configuration read once, the staged changes and
   the review), so a change staged on one page is still staged on another and they are applied
   together. Bundles are on the Interfaces page. A changed `remote-as` is sent as the new line alone, because FRR's
