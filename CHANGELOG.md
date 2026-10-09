@@ -16,6 +16,15 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.46.0 - Public repository — 2026-10-09
+
+### Changed
+- The repository is public. Its history was rewritten: the commit that added the secret-exfiltrating workflow of #86 is gone, and every commit, tag and release now holds only the maintainer's work. The lab routers' addresses in tests, notes and this changelog are replaced by documentation addresses (RFC 5737, RFC 3849) and a documentation AS number (#91).
+- The Prisma contract (its proto, API guide and coverage map) is no longer committed: it belongs to the private Prisma project. `scripts/fetch-contract.sh` fetches the release `prisma-contract.lock` pins, checks each file's sha256 and generates the configuration grammar from it; run it once before building (#91).
+
+### Added
+- Continuous integration on GitHub Actions for every push and pull request: the front end's unit tests, type check and lint, and, with the contract, the back end's tests and the documentation checks. Read-only permissions, actions pinned to a commit, no secret for a fork's pull request (#91).
+
 ## 0.45.1 - Sub-menus that close — 2026-10-09
 
 ### Fixed

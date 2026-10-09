@@ -40,7 +40,13 @@ flowchart LR
 
 ## Starting up
 
+The Prisma contract (its proto and API guide) lives in the private repository
+`andrediashexa/prismarouting` and is not committed here: fetch it first, with a token that can
+read that repository (`PRISMAROUTING_TOKEN`, or the GitHub CLI's login). Each file is checked
+against the sha256 in `prisma-contract.lock`.
+
 ```bash
+scripts/fetch-contract.sh       # the contract, into git-ignored paths
 cp .env.example .env            # set POSTGRES_PASSWORD
 docker compose up -d --build
 docker compose logs back | grep -i "initial admin"   # generated admin password
@@ -59,7 +65,7 @@ is shown offline with the reason and is never dialled (#35).
 
 ## Registering a real Prisma
 
-The Prisma only accepts **mTLS** ([`docs/prisma-api.md`](docs/prisma-api.md), the official guide).
+The Prisma only accepts **mTLS** (`docs/prisma-api.md`, the official guide, fetched with the contract).
 The API exists from **0.148.4** onwards and MUST be enabled on the device (`api enabled yes`).
 
 1. **Put the certificates on the host**, never in the repository or the image. Each subdirectory of

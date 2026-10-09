@@ -1,0 +1,7 @@
+# The Prisma contract prisma-web builds against (#91): fetched from the private
+# repository andrediashexa/prismarouting by scripts/fetch-contract.sh, never committed.
+# <path in prismarouting> <path here> <sha256>
+release v0.152.9
+api/prisma/v1/prisma.proto back/proto/prisma/v1/prisma.proto 066493334a290520b93dce0e1ceb9aeafac7466067a1c601dfe6309d75df63ad
+docs/api.md docs/prisma-api.md af3f01814fe79f35543f5ac7640795f3021a541dbf889cbb3a6b0ad87b603662
+docs/api-coverage.md docs/prisma-api-coverage.md 995cc5b0916cd1b3874f0bc858bb704aa31c47b20c7f6f56eac4aa812d0a3879

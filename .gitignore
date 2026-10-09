@@ -8,3 +8,9 @@ front/next-env.d.ts
 .DS_Store
 dev-certs/
 .claude/
+# The Prisma contract, fetched by scripts/fetch-contract.sh (#91), and what is generated from it.
+back/proto/prisma/
+docs/prisma-api.md
+docs/prisma-api-coverage.md
+back/crates/server/src/config_grammar.json
+__pycache__/

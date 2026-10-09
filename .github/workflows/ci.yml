@@ -1,0 +1,84 @@
+# Builds and tests every push and pull request (#91).
+#
+# Hardened after #86: read-only token, actions pinned to a commit SHA, no
+# pull_request_target, no credentials left in the checkout. The Prisma contract
+# comes from the private prismarouting with the PRISMAROUTING_TOKEN secret (read
+# access to its contents only); a pull request from a fork never gets it, and
+# the back-end job is skipped there.
+name: CI
+
+on:
+  push:
+    branches: [master, "issue/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  front:
+    name: Front end (unit tests, tsc, eslint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: front
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      # The route types (LayoutProps, PageProps) are generated, not committed.
+      - run: npx next typegen
+      - run: npx tsc --noEmit
+      - run: npx eslint src
+
+  back:
+    name: Back end and docs (cargo test, check-docs)
+    # Not for a fork's pull request: it has no access to the contract.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          # check-docs reads the tags.
+          fetch-depth: 0
+      - name: Fetch the Prisma contract
+        id: contract
+        env:
+          PRISMAROUTING_TOKEN: ${{ secrets.PRISMAROUTING_TOKEN }}
+        run: |
+          if [ -z "$PRISMAROUTING_TOKEN" ]; then
+            echo "::warning title=No contract::The PRISMAROUTING_TOKEN secret is not set: the back end and the docs are not checked."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          scripts/fetch-contract.sh
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        if: steps.contract.outputs.ok == 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            back/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('back/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: cargo test
+        if: steps.contract.outputs.ok == 'true'
+        working-directory: back
+        run: cargo test --locked
+      - name: check-docs
+        if: steps.contract.outputs.ok == 'true'
+        run: python3 scripts/check-docs.py
