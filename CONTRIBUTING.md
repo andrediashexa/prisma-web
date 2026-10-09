@@ -221,10 +221,12 @@ Every merge into `master` is a release, and a release MUST produce:
    from the commit list: commits describe the work, and a reader needs what
    changed for them.
 
-Before pushing a release, `.github/workflows` MUST be checked: prisma-web runs no CI on GitHub, so
-the directory MUST be absent or hold only workflows an issue added. A workflow nobody here added
-(#86: one that sent the repository's secrets out) MUST be disabled through the API and removed in an
-issue of its own before anything else is pushed.
+Before pushing a release, `.github/workflows` MUST be checked: it MUST hold only `ci.yml` (#91) and
+workflows an issue added. A workflow nobody here added (#86: one that sent the repository's secrets
+out) MUST be disabled through the API and removed in an issue of its own before anything else is
+pushed. A workflow MUST keep `permissions: contents: read` unless an issue says why, MUST pin every
+action to a commit SHA, and MUST NOT use `pull_request_target`; a secret MUST NOT reach a job a
+fork's pull request runs.
 
 ```mermaid
 flowchart LR
@@ -279,7 +281,7 @@ the project language was Brazilian Portuguese; the issues closed before that
 date (#1–#14) and the releases published before it are historical record and
 are not rewritten. `scripts/check-docs.py` reads the block below, so an
 exception cannot be added without changing this file. It is empty: the files
-vendored from the Prisma project are already in English.
+fetched from the Prisma project are already in English.
 
 ```text language-exceptions
 ```
@@ -293,8 +295,6 @@ reads this block too.
 ```text generated-files
 front/AGENTS.md                  # written and re-added by `next dev`
 front/CLAUDE.md                  # written and re-added by `next dev`
-docs/prisma-api-coverage.md      # vendored from prismarouting, generated from the VTY's grammar
-                                 # re-vendoring it MUST be followed by scripts/config-grammar.py
 ```
 
 **Versions.** Cargo and npm require a literal version in their manifests;

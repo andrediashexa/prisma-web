@@ -174,15 +174,18 @@ statistics segment does not answer) shows as *not serving*, with the reason, ins
 
 ## 4. Keeping the proto up to date
 
-The proto is copied to `back/proto/prisma/v1/prisma.proto`. When it changes on the Prisma, copy it
-again and run the build: the gRPC client is generated from it. By the proto's own compatibility
+The contract is not in this repository (#91): prismarouting is private, so the proto, `api.md` and
+the coverage map are fetched by `scripts/fetch-contract.sh` from the release `prisma-contract.lock`
+pins, each checked against its sha256 there, into the git-ignored paths below; the script then
+generates `back/crates/server/src/config_grammar.json` from the coverage map. Following a new
+Prisma release is changing the lock and fetching again; the gRPC client is generated from the proto. By the proto's own compatibility
 rules (add only), an old prisma-web keeps working with a new Prisma.
 
 Since 0.149.6 the Prisma keeps `docs/clients.md`: per release, what changes for an API client
 (contract sha256, behaviour, fields, known bugs, the lab box's version and upgrade windows).
 prisma-web compares it with the release recorded below and follows every entry.
 
-| Vendored | From prismarouting | sha256 |
+| Fetched to | From prismarouting | sha256 (`prisma-contract.lock`) |
 |---|---|---|
 | `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.9 | `066493334a290520b93dce0e1ceb9aeafac7466067a1c601dfe6309d75df63ad` |
 | `docs/prisma-api.md` | `docs/api.md` at v0.152.9 | `af3f01814fe79f35543f5ac7640795f3021a541dbf889cbb3a6b0ad87b603662` |
