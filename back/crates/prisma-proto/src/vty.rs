@@ -34,7 +34,7 @@ pub enum Kind {
     Prefix,
     Interface,
     /// Where a static route goes: an address, an interface, `blackhole`, `Null0` or `reject`,
-    /// one word. The box's schema says `address` with `source: next_hops` (#71).
+    /// one word. The box's schema says `address` with `source: next_hops` (#92).
     NextHop,
 }
 
@@ -127,7 +127,7 @@ impl Parser {
     fn seq(&mut self, s: &str) -> Vec<Tok> {
         let mut out = vec![];
         for part in split_top(s.trim(), " ").into_iter().filter(|p| !p.is_empty()) {
-            // `<A.B.C.D|X:X::X:X>...`: one or more values of that kind, to the end (Prisma 0.152.5, #83).
+            // `<A.B.C.D|X:X::X:X>...`: one or more values of that kind, to the end (Prisma 0.152.5, #94).
             if let Some(base) = part.strip_suffix("...").filter(|b| b.starts_with('<') && b.ends_with('>')) {
                 let mut one = self.seq(base);
                 if let [Tok::Param { rest, .. }] = one.as_mut_slice() {
@@ -242,7 +242,7 @@ pub fn match_line(toks: &[Tok], words: &[&str]) -> Option<BTreeMap<usize, String
                     return false;
                 }
                 if *takes_rest && rest.is_empty() {
-                    // A list of values (addresses, #72) checks each; text is any words.
+                    // A list of values (addresses, #93) checks each; text is any words.
                     if !matches!(kind, Kind::Text) && !words[1..].iter().all(|w| valid(kind, w)) {
                         return false;
                     }
@@ -305,7 +305,7 @@ pub fn valid(kind: &Kind, v: &str) -> bool {
         Kind::Int { min, max } => v.parse::<u64>().is_ok_and(|n| n >= *min && n <= *max),
         Kind::Ipv4 => v.parse::<Ipv4Addr>().is_ok(),
         Kind::Ipv6 => unbracket(v).parse::<Ipv6Addr>().is_ok(),
-        // An IPv6 address may come bracketed, as sshd prints it (`[::]`, Prisma 0.152.5, #83).
+        // An IPv6 address may come bracketed, as sshd prints it (`[::]`, Prisma 0.152.5, #94).
         Kind::Address => unbracket(v).parse::<IpAddr>().is_ok(),
         Kind::Ipv4Prefix => prefix(v, Some(false)),
         Kind::Ipv6Prefix => prefix(v, Some(true)),
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn a_list_of_addresses_bracketed_or_not() {
-        // Prisma 0.152.5 (#83): `<A.B.C.D|X:X::X:X>...`, and IPv6 as sshd prints it.
+        // Prisma 0.152.5 (#94): `<A.B.C.D|X:X::X:X>...`, and IPv6 as sshd prints it.
         let t = parse_syntax("ssh listen-address <A.B.C.D|X:X::X:X>...");
         let w = |s: &'static str| s.split_whitespace().collect::<Vec<_>>();
         assert!(match_line(&t, &w("ssh listen-address 192.0.2.166 [2001:db8:6::166]")).is_some());

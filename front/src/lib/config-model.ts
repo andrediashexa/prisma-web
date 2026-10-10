@@ -15,7 +15,7 @@ export type Kind =
   | { k: "address" }
   | { k: "prefix" }
   | { k: "interface" }
-  /** An address, an interface, blackhole, Null0 or reject (#71). */
+  /** An address, an interface, blackhole, Null0 or reject (#92). */
   | { k: "next_hop" }
 
 export type Tok =
@@ -92,7 +92,7 @@ function prefix(v: string, check: (a: string) => boolean, max: number) {
   return extra === undefined && l !== undefined && /^\d+$/.test(l) && Number(l) <= max && check(a)
 }
 
-/** An IPv6 address may come bracketed, as sshd prints it (`[::]`, Prisma 0.152.5, #83). */
+/** An IPv6 address may come bracketed, as sshd prints it (`[::]`, Prisma 0.152.5, #94). */
 const unbracket = (v: string) => (/^\[[^\]]*:[^\]]*\]$/.test(v) ? v.slice(1, -1) : v)
 
 /** Why a value does not fit its parameter, or null. */
@@ -121,7 +121,7 @@ export function invalid(kind: Kind, v: string): string | null {
   }
 }
 
-/** Why a parameter's value does not fit, or null: a list (addresses, #72) checks each value; text is any words. */
+/** Why a parameter's value does not fit, or null: a list (addresses, #93) checks each value; text is any words. */
 export function invalidParam(t: { kind: Kind; rest: boolean }, v: string): string | null {
   if (t.rest && t.kind.k !== "text" && v.trim()) return v.trim().split(/\s+/).map((x) => invalid(t.kind, x)).find(Boolean) ?? null
   return invalid(t.kind, v)

@@ -784,7 +784,7 @@ def sfp_checks(admin, R):
 
 
 def next_hop_checks(admin, R):
-    """A static route to blackhole, Null0, reject or an interface matches its statement (#71)."""
+    """A static route to blackhole, Null0, reject or an interface matches its statement (#92)."""
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:
