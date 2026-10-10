@@ -16,6 +16,12 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.46.1 - Contract for CI — 2026-10-09
+
+### Changed
+- CI reads the Prisma contract with a read-only deploy key of the Prisma repository, kept as the `PRISMAROUTING_SSH_KEY` secret, so the back end's tests and the documentation checks run on every push; `scripts/fetch-contract.sh` takes the key as well as a token (#91).
+- Issues #71, #72 and #83 were re-created as #92, #93 and #94 when the repository was made public, their edit history holding the lab's real addresses; the code and this changelog now refer to the new numbers (#91).
+
 ## 0.46.0 - Public repository — 2026-10-09
 
 ### Changed
@@ -79,10 +85,10 @@ Portuguese and are kept as published (issue #15).
 ## 0.41.1 - SSH address lists — 2026-10-08
 
 ### Fixed
-- On a router with Prisma 0.152.5 or newer, `ssh listen-address` with several addresses, and an IPv6 address written in brackets as the router prints it (`0.0.0.0 [::]`), match their statement on the configuration screen and are taken by its form (#83).
+- On a router with Prisma 0.152.5 or newer, `ssh listen-address` with several addresses, and an IPv6 address written in brackets as the router prints it (`0.0.0.0 [::]`), match their statement on the configuration screen and are taken by its form (#94).
 
 ### Internal
-- Coverage map from Prisma 0.152.5 and the built-in grammar regenerated: a trailing `...` is read as a list of values (#83).
+- Coverage map from Prisma 0.152.5 and the built-in grammar regenerated: a trailing `...` is read as a list of values (#94).
 
 ## 0.41.0 - Management VRF — 2026-10-08
 
@@ -165,16 +171,16 @@ Portuguese and are kept as published (issue #15).
 ## 0.33.2 - Listen address lists — 2026-10-06
 
 ### Fixed
-- On a router with Prisma 0.151.8 or newer, `api listen-address` and `snmp listen-address` with several addresses (IPv4 and IPv6) match their statements on the configuration screen, and the statement's form takes a list, each value checked as an address (#72).
+- On a router with Prisma 0.151.8 or newer, `api listen-address` and `snmp listen-address` with several addresses (IPv4 and IPv6) match their statements on the configuration screen, and the statement's form takes a list, each value checked as an address (#93).
 
 ### Internal
-- The front has unit tests of its libraries (`npm test`, `node:test`, no dependency). Integration notes read up to Prisma 0.151.9 (0.151.6 to 0.151.9 change nothing through the API) (#72).
+- The front has unit tests of its libraries (`npm test`, `node:test`, no dependency). Integration notes read up to Prisma 0.151.9 (0.151.6 to 0.151.9 change nothing through the API) (#93).
 
 ## 0.33.1 - Blackhole next hops — 2026-10-05
 
 ### Fixed
-- A static route to `blackhole`, `Null0`, `reject` or an interface matches its statement on the configuration screen, and the statement's form takes such a next hop: the router's schema calls the next hop an address, though it takes all of these (#71).
-- On a router with Prisma 0.151.5, `bgp router-id`, `network` and the other statements of a BGP level that the router describes in more than one part match their statements again on the configuration screen (#71).
+- A static route to `blackhole`, `Null0`, `reject` or an interface matches its statement on the configuration screen, and the statement's form takes such a next hop: the router's schema calls the next hop an address, though it takes all of these (#92).
+- On a router with Prisma 0.151.5, `bgp router-id`, `network` and the other statements of a BGP level that the router describes in more than one part match their statements again on the configuration screen (#92).
 
 ## 0.33.0 - Pending configuration — 2026-10-05
 

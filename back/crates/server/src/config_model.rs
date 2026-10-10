@@ -95,9 +95,9 @@ pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
     let positional = release_at_least(&schema.release, (0, 149, 24));
     // One VTY level can be several of the box's modes ("router bgp" and "bgp neighbor" both at
     // `router bgp <asn>`, 0.151.5): they are one mode here, each a group, so a line of that level
-    // is matched against all of them (192.0.2.166, #71).
+    // is matched against all of them (192.0.2.166, #92).
     // From 0.151.8 `api` and `snmp listen-address` take a list (prismarouting #582), though the
-    // schema still states one address: read them as one or more (192.0.2.166, #72).
+    // schema still states one address: read them as one or more (192.0.2.166, #93).
     let lists = release_at_least(&schema.release, (0, 151, 8));
     let mut modes: Vec<Mode> = vec![];
     for m in &schema.modes {
@@ -134,7 +134,7 @@ pub fn from_schema(schema: &prisma_proto::v1::ConfigSchema) -> Vec<Mode> {
     modes
 }
 
-/// `api` and `snmp listen-address` with their address as a list of them (#72).
+/// `api` and `snmp listen-address` with their address as a list of them (#93).
 fn address_list(s: &prisma_proto::v1::SchemaStatement) -> std::borrow::Cow<'_, prisma_proto::v1::SchemaStatement> {
     let listens = matches!(s.words.iter().map(String::as_str).collect::<Vec<_>>()[..], ["api" | "snmp", "listen-address"]);
     if !listens {
@@ -275,7 +275,7 @@ fn arg_token(a: &prisma_proto::v1::SchemaArgument, next_id: &mut usize, last: bo
         "ipv6_prefix" => Kind::Ipv6Prefix,
         "ipv6_address" => Kind::Ipv6,
         // The box completes a next hop from its own and says `address`, though it takes an
-        // interface, `blackhole`, `Null0` or `reject` as well (192.0.2.166, #71).
+        // interface, `blackhole`, `Null0` or `reject` as well (192.0.2.166, #92).
         "address" if a.source == "next_hops" => Kind::NextHop,
         "address" => Kind::Address,
         "prefix" => Kind::Prefix,
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn listen_addresses_are_lists_from_0_151_8() {
         use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
-        // As 192.0.2.166 (0.151.8) states them: one `address`, `many` false (#72).
+        // As 192.0.2.166 (0.151.8) states them: one `address`, `many` false (#93).
         let st = |service: &str| SchemaStatement {
             words: vec![service.into(), "listen-address".into()],
             forms: vec![SchemaForm { arguments: vec![SchemaArgument { name: "<A.B.C.D|X:X::X:X>".into(), kind: "address".into(), position: 2, ..Default::default() }] }],
@@ -596,7 +596,7 @@ mod tests {
     #[test]
     fn modes_at_one_level_are_one_mode() {
         use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
-        // As 192.0.2.166 (0.151.5) states `router bgp <asn>`: "router bgp" and "bgp neighbor" (#71).
+        // As 192.0.2.166 (0.151.5) states `router bgp <asn>`: "router bgp" and "bgp neighbor" (#92).
         let st = |words: &[&str], arg: &str, kind: &str| SchemaStatement {
             words: words.iter().map(|w| w.to_string()).collect(),
             forms: vec![SchemaForm { arguments: vec![SchemaArgument { name: arg.into(), kind: kind.into(), position: words.len() as u32, ..Default::default() }] }],
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn a_next_hop_is_an_address_an_interface_or_a_blackhole() {
         use prisma_proto::v1::{ConfigSchema, SchemaArgument, SchemaForm, SchemaMode, SchemaStatement};
-        // As 192.0.2.166 (0.151.5) states it: `address`, completed from `next_hops` (#71).
+        // As 192.0.2.166 (0.151.5) states it: `address`, completed from `next_hops` (#92).
         let arg = |name: &str, kind: &str, source: &str, position: u32| SchemaArgument { name: name.into(), kind: kind.into(), source: source.into(), position, ..Default::default() };
         let statement = |source: &str| SchemaStatement {
             words: vec!["next-hop".into()],

@@ -41,8 +41,9 @@ flowchart LR
 ## Starting up
 
 The Prisma contract (its proto and API guide) lives in the private repository
-`andrediashexa/prismarouting` and is not committed here: fetch it first, with a token that can
-read that repository (`PRISMAROUTING_TOKEN`, or the GitHub CLI's login). Each file is checked
+`andrediashexa/prismarouting` and is not committed here: fetch it first, with a credential that can
+read that repository (`PRISMAROUTING_SSH_KEY`, a read-only deploy key; `PRISMAROUTING_TOKEN`; or
+the GitHub CLI's login). CI uses the deploy key, kept as a repository secret. Each file is checked
 against the sha256 in `prisma-contract.lock`.
 
 ```bash

@@ -4,7 +4,7 @@ import { test } from "node:test"
 
 import { invalidParam } from "./config-model.ts"
 
-test("an address list checks each address (#72)", () => {
+test("an address list checks each address (#93)", () => {
   const list = { kind: { k: "address" } as const, rest: true }
   assert.equal(invalidParam(list, "192.0.2.166 2001:db8:6::166"), null)
   assert.equal(invalidParam(list, "192.0.2.166"), null)
@@ -15,7 +15,7 @@ test("an address list checks each address (#72)", () => {
   assert.equal(invalidParam({ kind: { k: "text" }, rest: true }, "uplink to core"), null)
 })
 
-test("a bracketed IPv6 address is an address, as sshd prints it (#83)", () => {
+test("a bracketed IPv6 address is an address, as sshd prints it (#94)", () => {
   const list = { kind: { k: "address" } as const, rest: true }
   assert.equal(invalidParam(list, "0.0.0.0 [::]"), null)
   assert.equal(invalidParam(list, "192.0.2.166 [2001:db8:6::166]"), null)

@@ -103,9 +103,9 @@ fn args(toks: &[Tok], optional: bool) -> Vec<SchemaArgument> {
                     _ if *rest => ("text", 0, 0),
                     _ => ("word", 0, 0),
                 };
-                // As the box states a next hop: `address`, completed from `next_hops` (#71).
+                // As the box states a next hop: `address`, completed from `next_hops` (#92).
                 let source = if matches!(kind, Kind::NextHop) { "next_hops" } else { "" };
-                // A list of values (`<A.B.C.D|X:X::X:X>...`, 0.152.5, #83) is `many`; text takes the rest as one.
+                // A list of values (`<A.B.C.D|X:X::X:X>...`, 0.152.5, #94) is `many`; text takes the rest as one.
                 let many = *rest && k != "text";
                 out.push(SchemaArgument { name: format!("<{label}>"), kind: k.into(), min, max, optional, source: source.into(), many, ..Default::default() });
             }

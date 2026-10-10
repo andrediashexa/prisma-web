@@ -2,9 +2,9 @@
 #
 # Hardened after #86: read-only token, actions pinned to a commit SHA, no
 # pull_request_target, no credentials left in the checkout. The Prisma contract
-# comes from the private prismarouting with the PRISMAROUTING_TOKEN secret (read
-# access to its contents only); a pull request from a fork never gets it, and
-# the back-end job is skipped there.
+# comes from the private prismarouting through the PRISMAROUTING_SSH_KEY secret,
+# a read-only deploy key of that repository alone; a pull request from a fork
+# never gets it, and the back-end job is skipped there.
 name: CI
 
 on:
@@ -58,10 +58,10 @@ jobs:
       - name: Fetch the Prisma contract
         id: contract
         env:
-          PRISMAROUTING_TOKEN: ${{ secrets.PRISMAROUTING_TOKEN }}
+          PRISMAROUTING_SSH_KEY: ${{ secrets.PRISMAROUTING_SSH_KEY }}
         run: |
-          if [ -z "$PRISMAROUTING_TOKEN" ]; then
-            echo "::warning title=No contract::The PRISMAROUTING_TOKEN secret is not set: the back end and the docs are not checked."
+          if [ -z "$PRISMAROUTING_SSH_KEY" ]; then
+            echo "::warning title=No contract::The PRISMAROUTING_SSH_KEY secret is not set: the back end and the docs are not checked."
             echo "ok=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
