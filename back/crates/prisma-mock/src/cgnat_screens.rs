@@ -156,6 +156,37 @@ pub fn forwards(pool: &str) -> ListForwardsResponse {
     ListForwardsResponse { forwards, text, ..Default::default() }
 }
 
+/// `show cgnat ha peer <file>` (0.152.11, #95): a path that reads, one that is not a regular file,
+/// and any other one that holds no peer configuration; the default copy is not configured.
+pub const HA_PEER_COPY: &str = "/var/lib/prisma-routing/ha-peer.conf";
+
+pub fn ha_at(peer_path: &str) -> Result<HaStatus, tonic::Status> {
+    let mut h = ha();
+    if peer_path.is_empty() || !crate::operational::release_at_least((0, 152, 11)) {
+        return Ok(h);
+    }
+    if !peer_path.starts_with('/') || peer_path.len() > 4096 || peer_path.contains('\0') {
+        return Err(tonic::Status::invalid_argument(format!("show cgnat ha peer: {peer_path} is not an absolute path")));
+    }
+    h.peer_path = peer_path.into();
+    match peer_path {
+        HA_PEER_COPY => {
+            h.peer_read = true;
+            h.peer_unread = String::new();
+            h.peer_fingerprint = h.fingerprint.clone();
+            h.peer_pools = h.pools.clone();
+            h.agree = true;
+            h.text = format!("HA: dataplane up, fingerprint a41c9e\n  vrrp lan0 vrid 10 master (200)\n  peer {peer_path}: fingerprint a41c9e, agree\n");
+        }
+        "/dev/zero" => h.peer_unread = "/dev/zero is not a regular file".into(),
+        p => h.peer_unread = format!("there is no peer configuration at {p}"),
+    }
+    if !h.peer_read {
+        h.text = format!("HA: dataplane up, fingerprint a41c9e\n  vrrp lan0 vrid 10 master (200)\n  peer {peer_path}: not read: {}\n", h.peer_unread);
+    }
+    Ok(h)
+}
+
 pub fn ha() -> HaStatus {
     HaStatus {
         dataplane: true,

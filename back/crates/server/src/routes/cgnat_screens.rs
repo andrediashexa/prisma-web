@@ -35,6 +35,18 @@ fn translation_request(q: &HashMap<String, String>) -> Result<LookupTranslationR
     Ok(LookupTranslationRequest { public_address: address.to_string(), port, ..Default::default() })
 }
 
+/// `show cgnat ha peer <file>` through GetHaStatus (Prisma 0.152.11, #95).
+const PEER_PATH_SINCE: (u32, u32, u32) = (0, 152, 11);
+
+/// The peer copy's path: empty for the default; else absolute, as the box requires.
+fn ha_peer_path(q: &HashMap<String, String>) -> Result<String, AppError> {
+    let p = q.get("peer_path").map(|p| p.trim()).unwrap_or_default();
+    if !p.is_empty() && (!p.starts_with('/') || p.len() > 4096 || p.contains('\0')) {
+        return Err(AppError::BadRequest("the peer copy's path is an absolute path on the router, at most 4096 bytes".into()));
+    }
+    Ok(p.to_string())
+}
+
 pub async fn screen(
     State(st): State<AppState>,
     user: CurrentUser,
@@ -81,7 +93,20 @@ pub async fn screen(
             let pool = q.get("pool").map(|p| p.trim().to_string()).unwrap_or_default();
             to_json(&ops.list_forwards(req(ListForwardsRequest { pool, ..Default::default() })).await?.into_inner())
         }
-        "ha" => to_json(&ops.get_ha_status(req(GetHaStatusRequest {})).await?.into_inner()),
+        "ha" => {
+            let peer_path = ha_peer_path(&q)?;
+            // A box before 0.152.11 ignores the field and answers the default copy, as if it
+            // were the one asked (#95): refuse there instead.
+            if !peer_path.is_empty() {
+                let release = ops.get_version(req(GetVersionRequest {})).await?.into_inner().release;
+                if super::config::release_triplet(&release).is_none_or(|v| v < PEER_PATH_SINCE) {
+                    return Err(AppError::Prisma(Box::new(tonic::Status::unimplemented(format!(
+                        "Prisma {release} reads only the default peer copy: another path needs 0.152.11"
+                    )))));
+                }
+            }
+            to_json(&ops.get_ha_status(req(GetHaStatusRequest { peer_path })).await?.into_inner())
+        }
         s => return Err(AppError::NotFound(format!("no CGNAT screen {s}"))),
     };
     Ok(Json(v))
@@ -93,6 +118,14 @@ mod tests {
 
     fn q(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn the_peer_path_is_absolute_or_empty() {
+        assert_eq!(ha_peer_path(&q(&[])).unwrap(), "");
+        assert_eq!(ha_peer_path(&q(&[("peer_path", " /var/lib/prisma/ha-peer.conf ")])).unwrap(), "/var/lib/prisma/ha-peer.conf");
+        assert!(ha_peer_path(&q(&[("peer_path", "ha-peer.conf")])).is_err());
+        assert!(ha_peer_path(&q(&[("peer_path", &format!("/{}", "a".repeat(4096)))])).is_err());
     }
 
     #[test]

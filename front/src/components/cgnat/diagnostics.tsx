@@ -10,8 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useFleetStatus } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import { formatBytes, formatNumber } from "@/lib/format"
+import { HA_PEER_PATH_FROM, peerPathError, releaseAtLeast } from "@/lib/release"
 import { routerApi } from "@/lib/types"
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- the screens are shown as the router gives them */
@@ -231,7 +233,8 @@ function ScreenView({ name, s }: { name: string; s: Screen }) {
             items={[
               ["Dataplane", s.dataplane ? "up" : "down"],
               ["Fingerprint", <span key="f" className="font-mono">{s.fingerprint}</span>],
-              ["Peer copy", s.peer_read ? "read" : s.peer_unread || "not read"],
+              ["Peer copy", <span key="p" data-peer-read={s.peer_read ? "yes" : "no"}>{s.peer_read ? "read" : s.peer_unread || "not read"}</span>],
+              ...(s.peer_path ? [["Read from", <span key="r" className="font-mono text-xs break-all">{s.peer_path}</span>] as [string, React.ReactNode]] : []),
               ["Agree", s.agree ? "yes" : "no"],
             ]}
           />
@@ -260,6 +263,56 @@ function ScreenView({ name, s }: { name: string; s: Screen }) {
       )
   }
   return null
+}
+
+/**
+ * HA (#63), and from Prisma 0.152.11 the peer's copy read from another path: `show cgnat ha
+ * peer <file>` (#95). What cannot be read is not an error: the box says why.
+ */
+function HaTab({ routerId }: { routerId: string }) {
+  const release = useFleetStatus().data?.find((r) => r.id === routerId)?.version?.release
+  const offered = releaseAtLeast(release, HA_PEER_PATH_FROM)
+  const [draft, setDraft] = useState("")
+  const [path, setPath] = useState("")
+  const error = peerPathError(draft)
+  const q = path ? `?${new URLSearchParams({ peer_path: path })}` : ""
+  const { data, error: failed, isLoading } = useSWR<Screen>(routerApi(routerId, `/cgnat/ha${q}`), fetcher, { revalidateOnFocus: false })
+  return (
+    <div className="space-y-3" data-screen="ha">
+      {offered && (
+        <form
+          className="flex flex-wrap items-start gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!error) setPath(draft.trim())
+          }}
+        >
+          <div className="min-w-0 flex-1 sm:max-w-md">
+            <Input
+              aria-label="Peer copy path"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="The default peer copy, or a path on the router"
+              className="font-mono text-xs"
+              aria-invalid={!!error}
+            />
+            {error && <p className="text-destructive mt-1 text-xs">{error}</p>}
+          </div>
+          <Button type="submit" variant="outline" disabled={!!error || draft.trim() === path}>
+            <SearchIcon /> Compare
+          </Button>
+        </form>
+      )}
+      {isLoading && <Loader2Icon className="text-muted-foreground size-4 animate-spin" />}
+      {failed && <p className="text-destructive text-sm">{errorMessage(failed)}</p>}
+      {data && (
+        <>
+          <ScreenView name="ha" s={data} />
+          <ScreenText text={data.text} />
+        </>
+      )}
+    </div>
+  )
 }
 
 function ScreenTab({ routerId, name }: { routerId: string; name: string }) {
@@ -359,7 +412,7 @@ export function CgnatDiagnostics({ routerId, canLookup }: { routerId: string; ca
           )}
           {SCREENS.map(([k]) => (
             <TabsContent key={k} value={k} className="pt-3">
-              <ScreenTab routerId={routerId} name={k} />
+              {k === "ha" ? <HaTab routerId={routerId} /> : <ScreenTab routerId={routerId} name={k} />}
             </TabsContent>
           ))}
         </Tabs>

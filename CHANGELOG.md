@@ -16,6 +16,17 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.47.0 - HA peer copy — 2026-10-11
+
+### Added
+- The CGNAT **HA** screen compares this router with a peer copy at any path on it, on a router with Prisma 0.152.11 or newer: the path read is shown, and when the copy cannot be read, the router's reason ("/dev/zero is not a regular file", "Permission denied"). A relative path is refused before the router; an older router is not offered the field (#95).
+
+### Changed
+- The Box log shows the link and module events of the cards Linux holds (the management card), from the host, and a link that flapped between two readings, both under the **Links** kind (Prisma 0.152.11, #95).
+
+### Internal
+- The Prisma contract is fetched at 0.152.11; integration notes read up to 0.152.11. The mock reports 0.152.11, answers a peer copy path and records a host link and a flap (#95).
+
 ## 0.46.1 - Contract for CI — 2026-10-09
 
 ### Changed
