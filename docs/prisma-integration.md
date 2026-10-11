@@ -187,13 +187,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Fetched to | From prismarouting | sha256 (`prisma-contract.lock`) |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.9 | `066493334a290520b93dce0e1ceb9aeafac7466067a1c601dfe6309d75df63ad` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.152.9 | `af3f01814fe79f35543f5ac7640795f3021a541dbf889cbb3a6b0ad87b603662` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.9 | `995cc5b0916cd1b3874f0bc858bb704aa31c47b20c7f6f56eac4aa812d0a3879` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.152.11 | `ae262f4a79d5e0636d3238ede79aa6426dee258035e461afc18f307c7248b31c` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.152.11 | `a885c389df4a8bb9fd65bfc97dfacf21a84df2bc30902b12333f71a73e10a4c6` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.152.11 | `28ff7af8008c7a14e366c91ff83b6f736a0e03e0f561a576170c02d6de72fd3f` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#94) the coverage map only; 0.152.6 and 0.152.7 none; 0.152.8 and 0.152.9 (#87) all three.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#94) the coverage map only; 0.152.6 and 0.152.7 none; 0.152.8 and 0.152.9 (#87) all three; 0.152.10 none; 0.152.11 (#95) all three.
 
-Read up to 0.152.9 in `clients.md` and already handled:
+Read up to 0.152.11 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -722,6 +722,18 @@ Read up to 0.152.9 in `clients.md` and already handled:
   the box's last minute: empty for a minute after its API starts, which the card says. On a box
   before 0.152.9 the history falls back to the workers' `busy_ratio`. `cpu_usage_at` is a
   timestamp field (`build.rs`).
+- 0.152.10 (contract unchanged): SNMP only, ENTITY-MIB and ENTITY-SENSOR-MIB for the ports and
+  their modules. prisma-web reads the same through the API's transceiver fields; nothing to change.
+- 0.152.11 (additive, #558 closed): `GetHaStatusRequest.peer_path` is `show cgnat ha peer <file>`.
+  Followed in #95: the CGNAT HA screen takes an optional absolute path (checked before the box,
+  `GET /api/routers/{id}/cgnat/ha?peer_path=`) and shows the path read and, when the copy was not
+  read, the box's reason, which is not an error status. A box before 0.152.11 would ignore the
+  field and answer the default copy as if it were the one asked, so the back end refuses a path
+  there (501, the release named); the front offers the field only from 0.152.11. The coverage map
+  is all typed (778, 0 text, 0 none); the grammar regenerated from it is unchanged in shape. The
+  event record (#588) now writes link and module events of the cards Linux holds with `source
+  host` and "interface X (held by Linux)", and flaps between two readings (`reason flap`):
+  prisma-web filtered by kind already, and its source filter offers Host; the mock records both.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #92) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

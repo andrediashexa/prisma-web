@@ -502,9 +502,9 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
         before_0_150_3()?;
         Ok(Response::new(crate::cgnat_screens::forwards(&req.get_ref().pool)))
     }
-    async fn get_ha_status(&self, _: Request<GetHaStatusRequest>) -> R<HaStatus> {
+    async fn get_ha_status(&self, req: Request<GetHaStatusRequest>) -> R<HaStatus> {
         before_0_150_3()?;
-        Ok(Response::new(crate::cgnat_screens::ha()))
+        crate::cgnat_screens::ha_at(&req.get_ref().peer_path).map(Response::new)
     }
 
     // The rest of the screens and the probes (0.150.6, #64); the line-only mock has none.

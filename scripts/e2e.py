@@ -146,6 +146,8 @@ def tls_checks(admin, args):
               "the upgrade check is every account's since 0.149.26", evs if st != 200 else evs[:1])
         st, b = admin.post(f"/routers/{r['id']}/system/restart-dataplane", {"confirm": r["name"]})
         check(st == 409 and "#564" in errmsg(b), "a dataplane restart is refused before the box on 0.149.25 to 0.149.31 (prismarouting #564)", b)
+        st, b = admin.get(f"/routers/{r['id']}/cgnat/ha?peer_path=/var/lib/prisma-routing/ha-peer.conf")
+        check(st == 501 and "0.152.11" in errmsg(b), "a peer copy path is refused on a box before 0.152.11, which would read the default one", b)
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
@@ -755,6 +757,17 @@ def cgnat_screen_checks(admin, R, router_id):
                       ("forwards", "forwards"), ("identity", "loaded"), ("ha", "fingerprint"), ("history", "verdict")]:
         st, b = admin.get(f"{R}/cgnat/{name}")
         check(st == 200 and key in b and b.get("text"), f"the {name} screen answers its fields and the router's screen", b)
+    # show cgnat ha peer <file> (Prisma 0.152.11, #95).
+    st, b = admin.get(f"{R}/cgnat/ha")
+    check(st == 200 and b["peer_read"] is False and b.get("peer_path", "") == "", "the HA screen reads the default peer copy without a path", b)
+    st, b = admin.get(f"{R}/cgnat/ha?peer_path=/var/lib/prisma-routing/ha-peer.conf")
+    check(st == 200 and b["peer_read"] and b["agree"] and b["peer_path"] == "/var/lib/prisma-routing/ha-peer.conf" and "agree" in b["text"],
+          "a peer copy at another path is read and compared", b)
+    st, b = admin.get(f"{R}/cgnat/ha?peer_path=/dev/zero")
+    check(st == 200 and not b["peer_read"] and b["peer_unread"] == "/dev/zero is not a regular file" and not b["agree"],
+          "a path that cannot be read answers why, not an error", b)
+    st, b = admin.get(f"{R}/cgnat/ha?peer_path=ha-peer.conf")
+    check(st == 422, "a relative path is refused before the router", b)
     st, b = admin.get(f"{R}/cgnat/history")
     check(b.get("verdict") == "INTACT", "the history verdict reads by name", b)
     st, b = admin.get(f"{R}/cgnat/translation?address=203.0.113.70&port=8443")
@@ -1143,6 +1156,12 @@ def box_log_checks(admin, R):
         st, sy = admin.get(f"{R}/system")
         check(sy.get("dataplane_start_cause") == cause and sy.get("dataplane_restarted") == restarted,
               f"mock: a dataplane start for {cause} reads as dataplane_start_cause {cause}", {k: sy.get(k) for k in ("dataplane_start_cause", "dataplane_restarted")})
+    # 0.152.11 (#95): a card Linux holds is recorded from the host; a flap between two readings too.
+    st, b = admin.get(f"{R}/events?kind=link&last=0")
+    links = [(e["source"], e["subject"], e.get("reason", "")) for e in b.get("events", [])]
+    check(("host", "eno1", "down") in links and ("dataplane", "wan0", "flap") in links
+          and any("(held by Linux)" in e["text"] for e in b["events"]),
+          "link events of a card Linux holds come from the host, and a flap is recorded, under kind link", links)
     st, b = admin.get(f"{R}/events?source=dataplane&last=2")
     causes = [e["cause"] for e in b["events"] if e["kind"] == "start"]
     check(causes[-2:] == ["unexpected", "operator"] and b["events"][-2]["severity"] == "warning",
@@ -1152,7 +1171,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.152.9"), "the main mock reports 0.152.9 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.152.11"), "the main mock reports 0.152.11 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:

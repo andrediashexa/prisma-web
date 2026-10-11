@@ -73,6 +73,22 @@ pub fn seed(boot: DateTime<Utc>) -> Vec<BoxEvent> {
         });
         log.push(happened(login + chrono::Duration::minutes(1), "warning", "host", "login", "root", "authentication failed", "a login as root from ssh 198.51.100.7 failed: authentication failed".into()));
     }
+    if seen() && crate::operational::release_at_least((0, 152, 11)) {
+        // 0.152.11 (#95): a card Linux holds is recorded too, from the host, and a flap
+        // between two readings is no longer missed.
+        let at = boot + chrono::Duration::minutes(90);
+        log.push(happened(at, "warning", "host", "link", "eno1", "down", "interface eno1 (held by Linux): link went down".into()));
+        log.push(happened(at + chrono::Duration::seconds(30), "notice", "host", "link", "eno1", "up", "interface eno1 (held by Linux): link came up".into()));
+        log.push(happened(
+            at + chrono::Duration::minutes(10),
+            "warning",
+            "dataplane",
+            "link",
+            "wan0",
+            "flap",
+            "interface wan0: link went down and came back between two readings (2 time(s)): the wire or the far end".into(),
+        ));
+    }
     if standing() {
         // The dirty fibre on lan0 (#76) was already there at the boot's first reading.
         let at = boot + chrono::Duration::seconds(70);
