@@ -7,6 +7,7 @@ import { Section } from "@/components/routing/section"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { fetcher } from "@/lib/api"
+import { vrFamily, vrKey } from "@/lib/release"
 import { routerApi, type VrrpRouter } from "@/lib/types"
 
 export default function VrrpPage() {
@@ -26,10 +27,10 @@ export default function VrrpPage() {
           </TableHeader>
           <TableBody>
             {vrrp?.routers.map((v) => (
-              <TableRow key={`${v.interface}-${v.vr_id}-${v.family}`}>
+              <TableRow key={vrKey(v)}>
                 <TableCell className="pl-6 font-mono text-sm">{v.interface}</TableCell>
                 <TableCell className="tabular-nums">
-                  {v.vr_id} <Badge variant="outline" className="ml-1 text-[10px]">IPv{v.family}</Badge>
+                  {v.vr_id} <Badge variant="outline" className="ml-1 text-[10px]">IPv{vrFamily(v.family)}</Badge>
                 </TableCell>
                 <TableCell>
                   <Badge variant={v.state === "master" ? "default" : "secondary"}>{v.state}</Badge>

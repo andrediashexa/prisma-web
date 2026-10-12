@@ -148,6 +148,8 @@ def tls_checks(admin, args):
         check(st == 409 and "#564" in errmsg(b), "a dataplane restart is refused before the box on 0.149.25 to 0.149.31 (prismarouting #564)", b)
         st, b = admin.get(f"/routers/{r['id']}/cgnat/ha?peer_path=/var/lib/prisma-routing/ha-peer.conf")
         check(st == 501 and "0.152.11" in errmsg(b), "a peer copy path is refused on a box before 0.152.11, which would read the default one", b)
+        st, b = admin.get(f"/routers/{r['id']}/cgnat/ha")
+        check(st == 200 and [x.get("family", 0) for x in b["routers"]] == [0], "a box before 0.153.1 sends family 0 and one router per VRRP id", b.get("routers"))
     finally:
         admin.delete(f"/routers/{r['id']}")
     read_only_checks(admin, args)
@@ -768,6 +770,14 @@ def cgnat_screen_checks(admin, R, router_id):
           "a path that cannot be read answers why, not an error", b)
     st, b = admin.get(f"{R}/cgnat/ha?peer_path=ha-peer.conf")
     check(st == 422, "a relative path is refused before the router", b)
+    # One VRRP id, two routers: one per family (Prisma 0.153.1, #96).
+    st, b = admin.get(f"{R}/cgnat/ha")
+    vrs = sorted((x["interface"], x["vr_id"], x.get("family", 0), x.get("virtual_mac", "")) for x in b.get("routers", []))
+    check(vrs == [("lan0", 10, 4, "00:00:5e:00:01:0a"), ("lan0", 10, 6, "00:00:5e:00:02:0a")],
+          "the HA screen carries vrid 10 twice, told apart by family, each with its own virtual MAC", vrs)
+    st, b = admin.get(f"{R}/vrrp")
+    v6 = next((x for x in b.get("routers", []) if x.get("family") == 6), {})
+    check(v6.get("addresses", [""])[0].startswith("fe80:"), "an IPv6 virtual router leads with its link-local", b)
     st, b = admin.get(f"{R}/cgnat/history")
     check(b.get("verdict") == "INTACT", "the history verdict reads by name", b)
     st, b = admin.get(f"{R}/cgnat/translation?address=203.0.113.70&port=8443")
@@ -1171,7 +1181,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.152.11"), "the main mock reports 0.152.11 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.153.1"), "the main mock reports 0.153.1 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:

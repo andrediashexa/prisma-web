@@ -18,3 +18,13 @@ export function peerPathError(p: string): string | null {
   if (new TextEncoder().encode(v).length > 4096) return "at most 4096 bytes"
   return null
 }
+
+/** A virtual router's family: 4 or 6. A box before 0.153.1 sends 0, and its routers are all IPv4 (#96). */
+export function vrFamily(family: number | undefined): 4 | 6 {
+  return family === 6 ? 6 : 4
+}
+
+/** The key of a virtual router: from 0.153.1 one VRRP id may be two routers, one per family (#96). */
+export function vrKey(r: { interface: string; vr_id: number; family?: number }): string {
+  return `${r.interface}-${r.vr_id}-${vrFamily(r.family)}`
+}

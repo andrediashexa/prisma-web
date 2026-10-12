@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.48.0 - Virtual router families — 2026-10-12
+
+### Changed
+- The CGNAT **HA** screen and the **VRRP** page list a VRRP id once per family: from Prisma 0.153.1 an id with IPv6 addresses is two virtual routers, each labelled IPv4 or IPv6 with its own state and addresses. An older router's routers read as IPv4 (#96).
+
+### Internal
+- The Prisma contract is fetched at 0.153.1; integration notes read up to 0.153.1. The mock reports 0.153.1 and answers vrid 10 as an IPv4 and an IPv6 router, the IPv6 one led by its link-local (#96).
+
 ## 0.47.0 - HA peer copy — 2026-10-11
 
 ### Added

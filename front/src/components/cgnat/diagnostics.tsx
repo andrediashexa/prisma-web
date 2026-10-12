@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useFleetStatus } from "@/hooks/use-routers"
 import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import { formatBytes, formatNumber } from "@/lib/format"
-import { HA_PEER_PATH_FROM, peerPathError, releaseAtLeast } from "@/lib/release"
+import { HA_PEER_PATH_FROM, peerPathError, releaseAtLeast, vrFamily, vrKey } from "@/lib/release"
 import { routerApi } from "@/lib/types"
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- the screens are shown as the router gives them */
@@ -239,8 +239,10 @@ function ScreenView({ name, s }: { name: string; s: Screen }) {
             ]}
           />
           {(s.routers ?? []).map((r: any) => (
-            <p key={`${r.interface}-${r.vr_id}`} className="text-sm">
-              VRRP {r.interface} vrid {r.vr_id}: <Badge variant="outline">{r.state}</Badge> priority {r.priority_advertised}
+            <p key={vrKey(r)} className="text-sm" data-vr={vrKey(r)}>
+              VRRP {r.interface} vrid {r.vr_id} <Badge variant="outline" className="text-[10px]">IPv{vrFamily(r.family)}</Badge>:{" "}
+              <Badge variant="outline">{r.state}</Badge> priority {r.priority_advertised}
+              {r.addresses?.length ? <span className="text-muted-foreground ml-2 font-mono text-xs">{r.addresses.join(", ")}</span> : null}
             </p>
           ))}
           {(s.divergences ?? []).map((d: any) => (
