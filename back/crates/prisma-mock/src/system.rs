@@ -118,7 +118,7 @@ impl SystemService for SystemSvc {
         Ok(Response::new(SystemActionResponse { output: "dataplane restarted (simulated)".into(), ..Default::default() }))
     }
 
-    /// STARTED, DOWNLOAD, VERIFY, INSTALL per row, INSTALLED, API_RESTART, and the stream ends;
+    /// STARTED, DOWNLOAD (several from 0.153.3), VERIFY, INSTALL per row, INSTALLED, API_RESTART, and the stream ends;
     /// an empty version only checks.
     async fn upgrade(&self, req: Request<UpgradeRequest>) -> Result<Response<BoxStream<UpgradeProgress>>, Status> {
         let version = req.into_inner().version.trim().to_string();
@@ -152,6 +152,9 @@ impl SystemService for SystemSvc {
             } else {
                 phases.push(p(Phase::Started, &format!("upgrading to {version}")));
                 phases.push(p(Phase::Download, "prisma-routing_0.149.26.deb"));
+                if crate::operational::release_at_least((0, 153, 3)) {
+                    phases.extend(download_rows(&p));
+                }
                 phases.push(p(Phase::Verify, "sha256 ok"));
                 phases.push(p(Phase::Install, "prisma-routing"));
                 phases.push(p(Phase::Install, "prisma-routing-plugin"));
@@ -187,4 +190,24 @@ impl SystemService for SystemSvc {
             None => Err(Status::not_found("no upgrade was started through the API on this box")),
         }
     }
+}
+
+/// The download as 0.153.3 streams it (#97): its progress every few seconds, to the 0.1 MB, and a
+/// line for a stalled connection and the one that resumes it.
+fn download_rows(p: &dyn Fn(Phase, &str) -> UpgradeProgress) -> Vec<UpgradeProgress> {
+    const TOTAL: u64 = 189_000_000;
+    let progress = |done: u64, rate: u64, left: u32| UpgradeProgress {
+        downloaded_bytes: done,
+        total_bytes: TOTAL,
+        bytes_per_second: rate,
+        seconds_left: left,
+        ..p(Phase::Download, &format!("{:.1} of {:.1} MB, {:.1} MB/s", done as f64 / 1e6, TOTAL as f64 / 1e6, rate as f64 / 1e6))
+    };
+    vec![
+        progress(14_100_000, 2_300_000, 76),
+        p(Phase::Download, "nothing arrived for 30 s"),
+        p(Phase::Download, "resuming at 14.1 MB on a new connection, 2 of 6"),
+        progress(96_400_000, 4_100_000, 23),
+        progress(TOTAL, 4_000_000, 0),
+    ]
 }

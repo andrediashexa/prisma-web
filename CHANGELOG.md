@@ -16,6 +16,14 @@ Portuguese and are kept as published (issue #15).
 | **How** | Written by hand from the issues, never generated from the commits. |
 | **How much** | One section per version. |
 
+## 0.49.0 - Live upgrade download — 2026-10-12
+
+### Changed
+- The **Upgrade** card follows the download live on a router with Prisma 0.153.3 or newer: one line with a bar, the amount, the rate and the time left, updated every few seconds, and a line for each connection the router dropped and resumed. **Last run** shows the same numbers while a download is under way (#97).
+
+### Internal
+- The Prisma contract is fetched at 0.153.3; integration notes read up to 0.153.3. The mock reports 0.153.3 and streams a download with a stall and a resume (#97).
+
 ## 0.48.0 - Virtual router families — 2026-10-12
 
 ### Changed

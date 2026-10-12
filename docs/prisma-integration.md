@@ -187,13 +187,13 @@ prisma-web compares it with the release recorded below and follows every entry.
 
 | Fetched to | From prismarouting | sha256 (`prisma-contract.lock`) |
 |---|---|---|
-| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.153.1 | `00b7870c08504f90b96314b2c88fb663ee734f1531fd9935aa8f26371e794456` |
-| `docs/prisma-api.md` | `docs/api.md` at v0.153.1 | `fd65c06876f87095ec0999e172715a2a7e22a47acfda1d0b7bbb69cbd53e97b7` |
-| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.153.1 | `cd9b712b0097a8f1f7a24f1fe5579746252700d0fcc2cadb5aa6c3094d9e0342` |
+| `back/proto/prisma/v1/prisma.proto` | `api/prisma/v1/prisma.proto` at v0.153.3 | `9f767af77bcd343f9665a28f4d9ffbb7d195fc93478af065276efe8eca4856b4` |
+| `docs/prisma-api.md` | `docs/api.md` at v0.153.3 | `c2d5a5673fc55ec217186295958a135017c5b186c3587856fbb4345be1d1f60d` |
+| `docs/prisma-api-coverage.md` | `docs/api-coverage.md` at v0.153.3 | `cd9b712b0097a8f1f7a24f1fe5579746252700d0fcc2cadb5aa6c3094d9e0342` |
 
-0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#94) the coverage map only; 0.152.6 and 0.152.7 none; 0.152.8 and 0.152.9 (#87) all three; 0.152.10 none; 0.152.11 (#95) all three; 0.153.0 none; 0.153.1 (#96) all three.
+0.149.23 changed none of the three; 0.149.24 (#47) and 0.149.25 (#48) change all three; 0.149.26 (#51) and 0.150.0 (#59) and 0.150.2 (#61) the proto and the coverage map; 0.150.3 (#63) and 0.150.6 (#64) all three; 0.150.4, 0.150.5 and 0.150.7 none; 0.150.8 (#65) the coverage map only; 0.150.10 (#66) and 0.150.12 (#67) and 0.151.0 (#68) and 0.151.2 (#69) and 0.151.5 (#70) all three; 0.150.9, 0.150.11, 0.151.1, 0.151.3, 0.151.4 and 0.151.6 to 0.151.11 none; 0.151.12 (#73) the proto and the coverage map; 0.151.13 (#74) the coverage map only; 0.151.14 (#75) and 0.151.15 (#76) all three; 0.151.16 and 0.151.17 none; 0.152.0 (#78) all three; 0.152.1 the coverage map and api.md; 0.152.2 (#79) the proto and the coverage map; 0.152.3 none; 0.152.4 (#82) the proto and the coverage map; 0.152.5 (#94) the coverage map only; 0.152.6 and 0.152.7 none; 0.152.8 and 0.152.9 (#87) all three; 0.152.10 none; 0.152.11 (#95) all three; 0.153.0 none; 0.153.1 (#96) all three; 0.153.2 none; 0.153.3 (#97) the proto and api.md.
 
-Read up to 0.153.1 in `clients.md` and already handled:
+Read up to 0.153.3 in `clients.md` and already handled:
 - 0.149.3 made an unknown `speed_bps` 0; prisma-web still treats 4294967295000 as unknown for
   0.149.2 boxes (#25).
 - 0.149.4: after an upgrade the API can refuse connections for a while on older boxes; the monitor
@@ -745,6 +745,16 @@ Read up to 0.153.1 in `clients.md` and already handled:
   tracking an interface with no IPv4 address, a new warning that existing configurations may show)
   reach the operator through the existing validate and commit screens. NAT64 pools in a VRRP pair
   now fail over; nothing to change.
+- 0.153.2 (contract unchanged): a lab bench (#475). Nothing for a client.
+- 0.153.3 (additive, #602): `UpgradeProgress` gains `downloaded_bytes`, `total_bytes`,
+  `bytes_per_second` and `seconds_left`, and `Upgrade` streams live: after the URL, a `DOWNLOAD`
+  every ~5 s with the progress, and one with only a message per connection dropped and resumed or
+  package downloaded again. Followed in #97: the Upgrade card read each message's phase already;
+  it now keeps only the latest progress, last, as a bar and the box's own precision (decimal 0.1 MB,
+  KB/s under 1 MB/s), leaves out a size or time the box could not tell (0), and keeps the other
+  `DOWNLOAD` lines as rows. "Last run" (GetUpgradeStatus) shows the numbers during a download. The
+  back end already passed every field. The mock streams a download with a stall and a resume from
+  0.153.3. A sha256 mismatch retried once and a `FAILED` output naming the connections need nothing.
 - On 0.151.5 (seen 2026-10-05 on 192.0.2.166, #92) GetSchema states the static route's
   `<next-hop>` as kind `address` with `source: next_hops`, though its help says "an address, an
   interface, blackhole, Null0 or reject" and the box's own configuration holds

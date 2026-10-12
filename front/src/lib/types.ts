@@ -414,6 +414,11 @@ export interface UpgradeProgress {
   started_at: string | null
   output: string
   diagnostics: { items: Diagnostic[]; output: string; reason?: string } | null
+  /** A DOWNLOAD's progress (Prisma 0.153.3, #97); 0 on every other message, and from an older box. */
+  downloaded_bytes?: number
+  total_bytes?: number
+  bytes_per_second?: number
+  seconds_left?: number
 }
 
 /** OperationalService.Clear's targets (Prisma 0.149.25, #48). */

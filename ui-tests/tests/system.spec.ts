@@ -26,6 +26,13 @@ test("an upgrade is checked, confirmed by name and followed phase by phase into 
   await expect(card.locator('[data-phase="API_RESTART"]')).toBeVisible()
   await expect(card.getByText(/The API restarts now and is away for about/)).toBeVisible()
   await expect(page.locator("[data-maintenance]")).toContainText("upgrading")
+  // Prisma 0.153.3 (#97): the download is one progress line, the latest, beside the connection it resumed.
+  const download = card.locator("[data-download-progress]")
+  await expect(download).toHaveCount(1)
+  await expect(download).toHaveAttribute("data-download-progress", "100")
+  await expect(download).toContainText("189.0 of 189.0 MB, 4.0 MB/s")
+  await expect(card.getByText("nothing arrived for 30 s")).toBeVisible()
+  await expect(card.getByText("resuming at 14.1 MB on a new connection, 2 of 6")).toBeVisible()
 })
 
 test("a reboot needs the name, and an unsaved box can be rebooted anyway", async ({ page }) => {
@@ -83,3 +90,4 @@ test("a 0.149.26 router whose account has no operator says how to grant it, and 
     await page.request.delete(`/api/routers/${id}`)
   }
 })
+
