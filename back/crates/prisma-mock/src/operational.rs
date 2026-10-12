@@ -833,16 +833,18 @@ VPP heap     4096 MiB {:>6} MiB {:>6} MiB
 
     async fn list_vrrp(&self, _: Request<ListVrrpRequest>) -> R<ListVrrpResponse> {
         let _turno = self.shared.ops.lock().await;
-        let vr = |family, addr: &str| VrrpRouter {
+        let vr = |family, addresses: &[&str]| VrrpRouter {
             interface: "lan0".into(),
             vr_id: 10,
             family,
             state: "master".into(),
             priority: 200,
-            addresses: vec![addr.into()],
+            addresses: addresses.iter().map(|a| a.to_string()).collect(),
             ..Default::default()
         };
-        Ok(Response::new(ListVrrpResponse { routers: vec![vr(4, "192.168.10.254"), vr(6, "2001:db8:200:10::fe")], ..Default::default() }))
+        // From 0.153.1 (#96) the IPv6 router leads with its link-local, as `vrrp 10 address` takes it.
+        let v6: &[&str] = if release_at_least((0, 153, 1)) { &["fe80::10", "2001:db8:200:10::fe"] } else { &["2001:db8:200:10::fe"] };
+        Ok(Response::new(ListVrrpResponse { routers: vec![vr(4, &["192.168.10.254"]), vr(6, v6)], ..Default::default() }))
     }
 
     async fn list_bundles(&self, _: Request<ListBundlesRequest>) -> R<ListBundlesResponse> {

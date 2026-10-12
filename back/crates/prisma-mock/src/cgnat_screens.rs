@@ -187,12 +187,33 @@ pub fn ha_at(peer_path: &str) -> Result<HaStatus, tonic::Status> {
     Ok(h)
 }
 
+/// `vrrp 10` on lan0. From 0.153.1 (#96) its IPv6 addresses are a second router, one per family;
+/// an older box leaves `family` 0.
+fn ha_routers() -> Vec<HaRouter> {
+    let v6 = crate::operational::release_at_least((0, 153, 1));
+    let vr = |family, addresses: &[&str], virtual_mac: &str| HaRouter {
+        interface: "lan0".into(),
+        vr_id: 10,
+        state: "master".into(),
+        addresses: addresses.iter().map(|a| a.to_string()).collect(),
+        virtual_mac: virtual_mac.into(),
+        priority_configured: 200,
+        priority_advertised: 200,
+        family: if v6 { family } else { 0 },
+    };
+    let mut routers = vec![vr(4, &["192.168.10.254"], "00:00:5e:00:01:0a")];
+    if v6 {
+        routers.push(vr(6, &["fe80::10", "2001:db8:200:10::fe"], "00:00:5e:00:02:0a"));
+    }
+    routers
+}
+
 pub fn ha() -> HaStatus {
     HaStatus {
         dataplane: true,
         fingerprint: "a41c9e".into(),
         pools: vec!["RFC6598".into()],
-        routers: vec![HaRouter { interface: "lan0".into(), vr_id: 10, state: "master".into(), addresses: vec!["192.168.10.254".into()], priority_configured: 200, priority_advertised: 200, ..Default::default() }],
+        routers: ha_routers(),
         peer_read: false,
         peer_unread: "no peer copy configured".into(),
         agree: false,
