@@ -727,6 +727,13 @@ def system_checks(admin, R, router_id):
     phases = [json.loads(d)["phase"] for e, d in evs if e == "progress"] if st == 200 else []
     check(phases[:1] == ["STARTED"] and phases[-1:] == ["API_RESTART"] and "INSTALL" in phases and evs[-1][0] == "end",
           "the upgrade streams its phases up to API_RESTART, then ends", phases)
+    # 0.153.3 (#97): the download streams its progress, and a line per connection resumed.
+    downloads = [json.loads(d) for e, d in evs if e == "progress" and json.loads(d)["phase"] == "DOWNLOAD"] if st == 200 else []
+    progress = [(x["downloaded_bytes"], x["total_bytes"]) for x in downloads if x.get("total_bytes")]
+    check(len(progress) >= 2 and progress[-1][0] == progress[-1][1] and progress == sorted(progress)
+          and any(x["message"].startswith("resuming at") and not x.get("total_bytes") for x in downloads)
+          and phases.index("VERIFY") > max(i for i, ph in enumerate(phases) if ph == "DOWNLOAD"),
+          "the download sends several DOWNLOADs with its progress and a line for a resume, all before VERIFY", downloads)
     m = status().get("maintenance") or {}
     check(m.get("what") == "upgrade" and m.get("until"), "after API_RESTART the box is in maintenance until api_away_seconds pass", m)
     st, last = admin.get(f"{R}/system/upgrade")
@@ -1181,7 +1188,7 @@ def box_log_checks(admin, R):
 def edit_words_checks(admin, R, router_id):
     """`replace pattern` and `rename` (Prisma 0.151.13, #74), on the mock that reports 0.151.13."""
     s = next(x for x in admin.get("/routers/status")[1] if x["id"] == router_id)
-    check((s.get("version") or {}).get("release", "").startswith("0.153.1"), "the main mock reports 0.153.1 (replace and rename since 0.151.13)", s.get("version"))
+    check((s.get("version") or {}).get("release", "").startswith("0.153.3"), "the main mock reports 0.153.3 (replace and rename since 0.151.13)", s.get("version"))
     st, c = admin.post(f"{R}/config/candidates")
     C = f"{R}/config/candidates/{c['candidate_id']}"
     try:

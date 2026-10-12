@@ -246,4 +246,13 @@ mod tests {
         let v = progress_json(&p);
         assert_eq!((v["phase"].as_str(), v["api_away_seconds"].as_u64()), (Some("API_RESTART"), Some(60)));
     }
+
+    #[test]
+    fn a_download_carries_its_progress() {
+        // Prisma 0.153.3 (#97): the numbers reach the page as they came.
+        let p = UpgradeProgress { phase: Phase::Download as i32, downloaded_bytes: 14_100_000, total_bytes: 189_000_000, bytes_per_second: 2_300_000, seconds_left: 76, ..Default::default() };
+        let v = progress_json(&p);
+        assert_eq!(v["phase"], "DOWNLOAD");
+        assert_eq!((v["downloaded_bytes"].as_u64(), v["total_bytes"].as_u64(), v["bytes_per_second"].as_u64(), v["seconds_left"].as_u64()), (Some(14_100_000), Some(189_000_000), Some(2_300_000), Some(76)));
+    }
 }

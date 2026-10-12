@@ -112,7 +112,7 @@ services:
       # rename 0.151.13 #74, show log 0.151.14 #75, transceivers 0.151.15 #76, the log's phases 2
       # and 3 0.152.0 #78 and 0.152.2 #79, management in a VRF 0.152.4 #82, CPU usage 0.152.9 #87); prisma-mock-lines stays
       # the older box (0.149.0-mock).
-      MOCK_RELEASE: "0.153.1-mock"
+      MOCK_RELEASE: "0.153.3-mock"
     networks: [internal]
 
   prisma-mock-2:

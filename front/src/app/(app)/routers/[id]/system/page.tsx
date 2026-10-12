@@ -18,6 +18,7 @@ import { api, ApiError, errorMessage, fetcher } from "@/lib/api"
 import { releaseOf } from "@/lib/routing-config"
 import { readEvents } from "@/lib/sse"
 import { roleAtLeast, routerApi, type UpgradeProgress } from "@/lib/types"
+import { downloadPercent, downloadText, foldUpgrade, isDownloadProgress } from "@/lib/upgrade"
 
 type Action = "restart-dataplane" | "reboot" | "shutdown"
 
@@ -120,6 +121,27 @@ const PHASE_LABEL: Record<UpgradeProgress["phase"], string> = {
   FAILED: "failed",
 }
 
+/** The download's latest progress (Prisma 0.153.3, #97): a bar when the box said the size, and its line. */
+function DownloadProgress({ p, live }: { p: UpgradeProgress; live: boolean }) {
+  const pct = downloadPercent(p)
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-1" data-download-progress={pct ?? ""}>
+      <span>
+        <Badge variant="outline" className="mr-2">
+          {PHASE_LABEL.DOWNLOAD}
+        </Badge>
+        {downloadText(p)}
+        {live && <Loader2Icon className="text-muted-foreground ml-2 inline size-3 animate-spin" />}
+      </span>
+      {pct !== null && (
+        <span className="bg-muted h-1.5 w-full max-w-sm overflow-hidden rounded-full" role="progressbar" aria-label="Download" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <span className="bg-primary block h-full transition-[width]" style={{ width: `${pct}%` }} />
+        </span>
+      )}
+    </span>
+  )
+}
+
 function UpgradeCard({ routerId }: { routerId: string }) {
   const name = useRouterName(routerId)
   // The check is every account's since 0.149.26; the upgrade itself needs `operator` (#51).
@@ -153,7 +175,8 @@ function UpgradeCard({ routerId }: { routerId: string }) {
         if (event === "progress") {
           const p = JSON.parse(data) as UpgradeProgress
           if (p.phase === "CHECKED") setNewest(p.newest)
-          else setPhases((xs) => [...xs, p])
+          // From 0.153.3 the download sends its progress every few seconds: one row, the latest (#97).
+          else setPhases((xs) => foldUpgrade(xs, p))
           // Maintenance begins, gets its end or is over: show it now, not at the next poll.
           if (["STARTED", "API_RESTART", "FAILED"].includes(p.phase)) void fleet.mutate()
         } else if (event === "error") setError(data)
@@ -217,12 +240,16 @@ function UpgradeCard({ routerId }: { routerId: string }) {
                 ) : (
                   <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-emerald-600" />
                 )}
-                <span>
-                  <Badge variant="outline" className="mr-2">
-                    {PHASE_LABEL[p.phase]}
-                  </Badge>
-                  {p.message}
-                </span>
+                {isDownloadProgress(p) ? (
+                  <DownloadProgress p={p} live={running && i === phases.length - 1} />
+                ) : (
+                  <span>
+                    <Badge variant="outline" className="mr-2">
+                      {PHASE_LABEL[p.phase]}
+                    </Badge>
+                    {p.message}
+                  </span>
+                )}
               </li>
             ))}
             {running && (
@@ -239,7 +266,7 @@ function UpgradeCard({ routerId }: { routerId: string }) {
             Last run: {PHASE_LABEL[last.data.phase]}
             {last.data.version && <> to <span className="font-mono">{last.data.version}</span></>}
             {last.data.started_at && <>, started {new Date(last.data.started_at).toLocaleString("en-US")}</>}
-            {last.data.message && <> — {last.data.message}</>}
+            {isDownloadProgress(last.data) ? <> — {downloadText(last.data)}</> : last.data.message && <> — {last.data.message}</>}
           </p>
         )}
         {last.error && <p className="text-muted-foreground text-sm">Last run: {refusal(last.error)}</p>}
